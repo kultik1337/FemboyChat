@@ -8,12 +8,14 @@ export function Modal({
   title,
   children,
   wide,
+  flush,
 }: {
   open: boolean
   onClose: () => void
   title?: string
   children: React.ReactNode
   wide?: boolean
+  flush?: boolean
 }) {
   useEffect(() => {
     if (!open) return
@@ -48,7 +50,7 @@ export function Modal({
             </button>
           </div>
         )}
-        <div className="max-h-[75vh] overflow-y-auto p-5">{children}</div>
+        {flush ? children : <div className="fancy-scroll max-h-[75vh] overflow-y-auto p-5">{children}</div>}
       </div>
     </div>
   )
