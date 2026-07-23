@@ -1,0 +1,222 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer components {
+  .input {
+    @apply w-full rounded-xl border px-3 py-2.5 outline-none transition;
+    border-color: var(--border);
+    background: var(--panel-2);
+    color: var(--text);
+  }
+  .input:focus {
+    box-shadow: 0 0 0 3px var(--ring);
+    border-color: var(--accent);
+  }
+  .input::placeholder {
+    color: var(--muted);
+  }
+  .btn-primary {
+    @apply flex items-center justify-center gap-2 rounded-xl px-5 py-2.5 font-bold text-white shadow-md transition;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  }
+  .btn-primary:hover {
+    filter: brightness(1.05);
+  }
+  .btn-primary:disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
+  }
+  .btn-ghost {
+    @apply flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 font-semibold transition;
+    color: var(--text);
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+  }
+  .btn-ghost:hover {
+    background: var(--panel-hover);
+  }
+  .rich-code {
+    @apply rounded px-1 py-0.5 font-mono text-[0.9em];
+    background: color-mix(in srgb, var(--muted) 22%, transparent);
+  }
+  .rich-link {
+    color: var(--accent);
+    text-decoration: underline;
+  }
+  .chip {
+    @apply inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+  }
+}
+
+/* ───────────────────────── Design tokens ───────────────────────── */
+:root {
+  --accent: #ff7ab8;
+  --accent-2: #7cc4ff;
+  --accent-contrast: #ffffff;
+
+  --radius-bubble: 18px;
+  --font-scale: 1;
+}
+
+/* Light "Pastel Femboy" (default) */
+[data-theme='light'] {
+  --bg: #fff5fb;
+  --bg-grad-1: #ffe3f3;
+  --bg-grad-2: #e3f0ff;
+  --panel: #ffffff;
+  --panel-2: #fff7fc;
+  --panel-hover: #fdeaf5;
+  --text: #2a2230;
+  --muted: #8a7f92;
+  --border: #f1dcec;
+  --bubble-in: #ffffff;
+  --bubble-in-text: #2a2230;
+  --bubble-out: linear-gradient(135deg, var(--accent), var(--accent-2));
+  --bubble-out-text: #ffffff;
+  --shadow: 0 10px 30px -12px rgba(214, 120, 178, 0.35);
+  --ring: rgba(255, 122, 184, 0.35);
+  color-scheme: light;
+}
+
+/* Dark "Catgirl Night" */
+[data-theme='dark'] {
+  --bg: #14101a;
+  --bg-grad-1: #1d1526;
+  --bg-grad-2: #101820;
+  --panel: #1b1622;
+  --panel-2: #211a2b;
+  --panel-hover: #2a2136;
+  --text: #f4eefb;
+  --muted: #a394b5;
+  --border: #2e2539;
+  --bubble-in: #241d2f;
+  --bubble-in-text: #f4eefb;
+  --bubble-out: linear-gradient(135deg, var(--accent), var(--accent-2));
+  --bubble-out-text: #ffffff;
+  --shadow: 0 14px 40px -16px rgba(0, 0, 0, 0.6);
+  --ring: rgba(255, 122, 184, 0.4);
+  color-scheme: dark;
+}
+
+/* Midnight "Programmer Socks" — deep navy + pink */
+[data-theme='midnight'] {
+  --bg: #0b1020;
+  --bg-grad-1: #101a33;
+  --bg-grad-2: #1a1030;
+  --panel: #111830;
+  --panel-2: #16203c;
+  --panel-hover: #1d284a;
+  --text: #eaf0ff;
+  --muted: #8ea0c8;
+  --border: #212c4d;
+  --bubble-in: #16203c;
+  --bubble-in-text: #eaf0ff;
+  --bubble-out: linear-gradient(135deg, var(--accent), var(--accent-2));
+  --bubble-out-text: #ffffff;
+  --shadow: 0 14px 40px -16px rgba(0, 0, 0, 0.7);
+  --ring: rgba(124, 196, 255, 0.4);
+  color-scheme: dark;
+}
+
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: 'Inter', system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  font-size: calc(15px * var(--font-scale));
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Prettier scrollbars */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--muted) 40%, transparent);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--muted) 60%, transparent);
+  background-clip: content-box;
+}
+
+/* Chat wallpapers */
+.wallpaper-aurora {
+  background:
+    radial-gradient(1200px 600px at 10% -10%, color-mix(in srgb, var(--accent) 22%, transparent), transparent 60%),
+    radial-gradient(900px 500px at 110% 10%, color-mix(in srgb, var(--accent-2) 22%, transparent), transparent 55%),
+    var(--bg);
+}
+.wallpaper-dots {
+  background-image: radial-gradient(color-mix(in srgb, var(--muted) 22%, transparent) 1px, transparent 1px);
+  background-size: 22px 22px;
+  background-color: var(--bg);
+}
+.wallpaper-plain {
+  background: var(--bg);
+}
+.wallpaper-hearts {
+  background-color: var(--bg);
+  background-image: radial-gradient(circle at 50% 40%, color-mix(in srgb, var(--accent) 14%, transparent) 8px, transparent 9px);
+  background-size: 46px 46px;
+}
+
+.glass {
+  background: color-mix(in srgb, var(--panel) 78%, transparent);
+  backdrop-filter: blur(14px) saturate(140%);
+}
+
+.accent-gradient {
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+}
+.accent-text {
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.shimmer {
+  position: relative;
+  overflow: hidden;
+}
+.shimmer::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, #fff 22%, transparent), transparent);
+  animation: shimmer 1.6s infinite;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  scrollbar-width: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
