@@ -19,6 +19,7 @@ export class SupabaseBackend implements Backend {
   private client: any
   private subs = new Set<(e: RealtimeEvent) => void>()
   private account: Account | null = null
+  private directoryCache: Directory[] = []
 
   constructor(private url: string, private key: string) {}
 
@@ -27,6 +28,14 @@ export class SupabaseBackend implements Backend {
     this.client = createClient(this.url, this.key, {
       auth: { persistSession: true, autoRefreshToken: true },
     })
+    // Preload the public directory so @-name resolution works immediately
+    // (otherwise peers render as "Кто-то" until something refreshes it).
+    try {
+      const { data } = await this.client.from('directory').select('*')
+      this.directoryCache = (data ?? []).map(rowToDirectory)
+    } catch {
+      /* best effort */
+    }
     // Global realtime: any new message row fans out to subscribers.
     this.client
       .channel('fc-messages')
@@ -56,6 +65,13 @@ export class SupabaseBackend implements Backend {
       return { ok: false, isNew: true, error: error?.message ?? 'Не удалось войти' }
     }
     this.account = await this.ensureProfile(data.user, uname, name)
+    // Refresh directory so the new user (and everyone else) resolves right away.
+    try {
+      const { data: dir } = await this.client.from('directory').select('*')
+      this.directoryCache = (dir ?? []).map(rowToDirectory)
+    } catch {
+      /* best effort */
+    }
     // devCode is only used by the demo UI; harmless sentinel here.
     return { ok: true, isNew: true, devCode: '000000' }
   }
@@ -78,7 +94,7 @@ export class SupabaseBackend implements Backend {
       uid: user.id,
       username: uname,
       name: name || user.user_metadata?.name || uname,
-      email: null, // anonymous accounts have no email (column is unique-nullable)
+      email: null,
       bio: '',
       emoji: '🎀',
       color: '#ff7ab8',
@@ -123,9 +139,8 @@ export class SupabaseBackend implements Backend {
     return merged
   }
 
-  private directoryCache: Directory[] = []
   getDirectoryList(): Directory[] {
-    // best-effort populate for consumers that call synchronously
+    // best-effort refresh for consumers that call synchronously
     this.client
       ?.from('directory')
       .select('*')
