@@ -6,6 +6,7 @@ import { Landing } from './components/landing/Landing'
 import { Auth } from './components/auth/Auth'
 import { AppShell } from './components/app/AppShell'
 import { Toasts } from './components/ui/Toasts'
+import { ContextMenu } from './components/ui/ContextMenu'
 
 export default function App() {
   const ready = useStore((s) => s.ready)
@@ -21,6 +22,19 @@ export default function App() {
   useEffect(() => {
     applyAppearance(settings ?? defaultSettings())
   }, [settings])
+
+  // Suppress the browser's native context menu everywhere except inside text
+  // fields (so cut/copy/paste still works when editing a message) — the app
+  // provides its own right-click menus instead.
+  useEffect(() => {
+    const onCtx = (e: MouseEvent) => {
+      const t = e.target as HTMLElement | null
+      if (t && t.closest('input, textarea, [contenteditable="true"]')) return
+      e.preventDefault()
+    }
+    document.addEventListener('contextmenu', onCtx)
+    return () => document.removeEventListener('contextmenu', onCtx)
+  }, [])
 
   if (!ready) {
     return (
@@ -39,6 +53,7 @@ export default function App() {
       {route === 'auth' && <Auth />}
       {route === 'app' && <AppShell />}
       <Toasts />
+      <ContextMenu />
     </>
   )
 }
