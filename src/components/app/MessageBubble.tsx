@@ -36,6 +36,7 @@ export function MessageBubble({
 }) {
   const react = useStore((s) => s.react)
   const vote = useStore((s) => s.vote)
+  const account = useStore((s) => s.account)
   const setProfileUid = useStore((s) => s.setProfileUid)
   const setComposeReply = useStore((s) => s.setComposeReply)
   const { messageMenu } = useActions()
@@ -59,7 +60,7 @@ export function MessageBubble({
 
   return (
     <div
-      className={classNames('group flex gap-2 px-2', isMine ? 'flex-row-reverse' : 'flex-row', showAvatar ? 'mt-2.5' : 'mt-0.5')}
+      className={classNames('group flex gap-2 px-3 sm:px-4', isMine ? 'flex-row-reverse' : 'flex-row', showAvatar ? 'mt-4' : 'mt-1.5')}
       onContextMenu={message.deleted ? undefined : openMenu}
     >
       {!isMine && chat.type === 'group' ? (
@@ -85,7 +86,7 @@ export function MessageBubble({
           <div className={classNames('text-5xl leading-tight', isMine ? 'text-right' : 'text-left')}>{message.text}</div>
         ) : (
           <div
-            className="relative px-3.5 py-2 text-[0.95rem] shadow-sm"
+            className="relative px-3.5 py-2 text-[0.95rem] leading-relaxed shadow-sm"
             style={{
               borderRadius: 'var(--radius-bubble)',
               background: isMine ? 'var(--bubble-out)' : 'var(--bubble-in)',
@@ -111,7 +112,7 @@ export function MessageBubble({
               <div className="whitespace-pre-wrap break-words" dangerouslySetInnerHTML={renderRich(message.text)} />
             )}
 
-            <div className={classNames('mt-0.5 flex items-center gap-1 text-[10px]', isMine ? 'justify-end text-white/80' : 'text-[var(--muted)]')}>
+            <div className={classNames('mt-1 flex items-center gap-1 text-[10px]', isMine ? 'justify-end text-white/80' : 'text-[var(--muted)]')}>
               {ttlLeft > 0 && <span className="flex items-center gap-0.5"><Clock size={11} /> {ttlLeft}s</span>}
               {message.editedTs && <span>изменено</span>}
               <span>{timeShort(message.ts)}</span>
@@ -121,17 +122,25 @@ export function MessageBubble({
         )}
 
         {message.reactions.length > 0 && (
-          <div className={classNames('mt-1 flex flex-wrap gap-1', isMine ? 'justify-end' : 'justify-start')}>
-            {message.reactions.map((r) => (
-              <button
-                key={r.emoji}
-                onClick={() => react(message.id, r.emoji)}
-                className="flex items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--panel-2)] px-2 py-0.5 text-xs font-semibold transition hover:scale-105"
-              >
-                <span>{r.emoji}</span>
-                <span className="text-[var(--muted)]">{r.uids.length}</span>
-              </button>
-            ))}
+          <div className={classNames('mt-1.5 flex flex-wrap gap-1.5', isMine ? 'justify-end' : 'justify-start')}>
+            {message.reactions.map((r) => {
+              const mine = account ? r.uids.includes(account.uid) : false
+              return (
+                <button
+                  key={r.emoji}
+                  onClick={() => react(message.id, r.emoji)}
+                  className={classNames(
+                    'flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold transition hover:scale-105 active:scale-95',
+                    mine
+                      ? 'bg-[var(--accent)]/25 ring-1 ring-[var(--accent)] text-[var(--text)]'
+                      : 'border border-[var(--border)] bg-[var(--panel-2)] text-[var(--muted)]',
+                  )}
+                >
+                  <span className="text-sm leading-none">{r.emoji}</span>
+                  <span className="tabular-nums">{r.uids.length}</span>
+                </button>
+              )
+            })}
           </div>
         )}
 
