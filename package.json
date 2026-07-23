@@ -1,0 +1,32 @@
+{
+  "name": "femboychat",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "FemboyChat — современный real-time мессенджер для РУ-сегмента (Telegram-подобный аналог).",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "verify": "tsx scripts/verify.ts",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.0",
+    "lucide-react": "^0.427.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "zustand": "^4.5.4"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.1",
+    "autoprefixer": "^10.4.19",
+    "postcss": "^8.4.40",
+    "tailwindcss": "^3.4.7",
+    "tsx": "^4.19.1",
+    "typescript": "^5.5.4",
+    "vite": "^5.3.5"
+  }
+}
