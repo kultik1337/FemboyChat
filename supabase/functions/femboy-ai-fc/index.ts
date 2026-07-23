@@ -9,7 +9,7 @@
 //
 // Provider is chosen from whichever key exists in Vault (via get_ai_config).
 // Add one of these secrets to enable real AI (else a cute fallback is used):
-//   GEMINI_API_KEY, GROQ_API_KEY, DEEPSEEK_API_KEY, OPENROUTER_API_KEY, GITHUB_MODELS_TOKEN.
+//   LLM7_API_KEY, GEMINI_API_KEY, GROQ_API_KEY, DEEPSEEK_API_KEY, OPENROUTER_API_KEY, GITHUB_MODELS_TOKEN.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
 const FEMBOY_UID = "00000000-0000-4000-8000-000000000002";
@@ -86,6 +86,8 @@ async function callGemini(apiKey: string, model: string, messages: LlmMessage[])
 }
 
 async function generate(cfg: Record<string, string>, messages: LlmMessage[]): Promise<string | null> {
+  if (cfg.LLM7_API_KEY)
+    return await callOpenAiCompatible("https://api.llm7.io/v1", cfg.LLM7_API_KEY, "gpt-oss:20b", messages);
   if (cfg.GEMINI_API_KEY) return await callGemini(cfg.GEMINI_API_KEY, "gemini-2.0-flash", messages);
   if (cfg.GROQ_API_KEY)
     return await callOpenAiCompatible("https://api.groq.com/openai/v1", cfg.GROQ_API_KEY, "llama-3.3-70b-versatile", messages);
