@@ -7,9 +7,9 @@
 //
 // Protected by a shared secret (x-fc-secret) that only the DB trigger knows.
 //
-// Provider is chosen from whichever key exists in Vault (via get_ai_config),
-// preferring reliable free tiers. Add one of these secrets to enable real AI:
-//   GEMINI_API_KEY, GROQ_API_KEY, OPENROUTER_API_KEY, GITHUB_MODELS_TOKEN.
+// Provider is chosen from whichever key exists in Vault (via get_ai_config).
+// Add one of these secrets to enable real AI (else a cute fallback is used):
+//   GEMINI_API_KEY, GROQ_API_KEY, DEEPSEEK_API_KEY, OPENROUTER_API_KEY, GITHUB_MODELS_TOKEN.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
 const FEMBOY_UID = "00000000-0000-4000-8000-000000000002";
@@ -89,6 +89,8 @@ async function generate(cfg: Record<string, string>, messages: LlmMessage[]): Pr
   if (cfg.GEMINI_API_KEY) return await callGemini(cfg.GEMINI_API_KEY, "gemini-2.0-flash", messages);
   if (cfg.GROQ_API_KEY)
     return await callOpenAiCompatible("https://api.groq.com/openai/v1", cfg.GROQ_API_KEY, "llama-3.3-70b-versatile", messages);
+  if (cfg.DEEPSEEK_API_KEY)
+    return await callOpenAiCompatible("https://api.deepseek.com/v1", cfg.DEEPSEEK_API_KEY, "deepseek-chat", messages);
   if (cfg.OPENROUTER_API_KEY)
     return await callOpenAiCompatible("https://openrouter.ai/api/v1", cfg.OPENROUTER_API_KEY, "meta-llama/llama-3.3-70b-instruct", messages);
   if (cfg.GITHUB_MODELS_TOKEN)
