@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { ArrowLeft, ArrowRight, Loader2, MailCheck, Sparkles } from 'lucide-react'
 import { useStore } from '../../store/useStore'
+import { Logo } from '../ui/Logo'
 import { isValidEmail, normalizeUsername } from '../../lib/util'
 
 export function Auth() {
@@ -66,7 +67,7 @@ export function Auth() {
 
         <div className="rounded-3xl border border-[var(--border)] bg-[var(--panel)] p-7 shadow-xl animate-pop-in" style={{ boxShadow: 'var(--shadow)' }}>
           <div className="mb-6 flex items-center gap-2 font-extrabold">
-            <span className="grid h-10 w-10 place-items-center rounded-xl accent-gradient text-white shadow-md">💬</span>
+            <Logo size={40} />
             <span className="text-xl">Femboy<span className="accent-text">Chat</span></span>
           </div>
 

@@ -17,6 +17,7 @@ import {
   Zap,
 } from 'lucide-react'
 import { useStore } from '../../store/useStore'
+import { Logo } from '../ui/Logo'
 
 const features = [
   { icon: Zap, title: 'Реальное время', text: 'Сообщения, статусы «печатает…» и отметки о прочтении прилетают мгновенно — без обновления страницы.' },
@@ -47,7 +48,7 @@ export function Landing() {
       <header className="sticky top-0 z-20 glass border-b border-[var(--border)]">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-3.5">
           <div className="flex items-center gap-2 font-extrabold">
-            <span className="grid h-9 w-9 place-items-center rounded-xl accent-gradient text-white shadow-md">💬</span>
+            <Logo size={36} />
             <span className="text-lg">Femboy<span className="accent-text">Chat</span></span>
           </div>
           <div className="flex items-center gap-2">
