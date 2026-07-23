@@ -6,6 +6,7 @@ import { chatCounterpart, usePeople } from './people'
 import { SearchResults } from './SearchResults'
 import { useActions } from './useActions'
 import { openContextMenu } from '../ui/ContextMenu'
+import { Logo } from '../ui/Logo'
 import { classNames, timeShort } from '../../lib/util'
 import type { Chat } from '../../types'
 
@@ -65,8 +66,13 @@ export function Sidebar() {
 
   return (
     <div className="flex h-full w-full flex-col border-r border-[var(--border)] bg-[var(--panel)]">
+      {/* brand */}
+      <div className="flex items-center gap-2 px-3 pt-3">
+        <Logo size={26} />
+        <span className="text-base font-black">Femboy<span className="accent-text">Chat</span></span>
+      </div>
       {/* header */}
-      <div className="flex items-center gap-2 px-3 py-3">
+      <div className="flex items-center gap-2 px-3 pb-3 pt-2">
         <div className="relative">
           <button onClick={() => setMenuOpen((v) => !v)} className="grid h-10 w-10 place-items-center rounded-full hover:bg-[var(--panel-hover)]">
             <Menu size={20} />

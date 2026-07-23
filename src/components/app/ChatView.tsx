@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef } from 'react'
 import { ArrowLeft, Info, Pin, Search } from 'lucide-react'
 import { useStore } from '../../store/useStore'
 import { Avatar } from '../ui/Avatar'
+import { Logo } from '../ui/Logo'
 import { MessageBubble } from './MessageBubble'
 import { Composer } from './Composer'
 import { chatCounterpart, usePeople } from './people'
@@ -176,7 +177,7 @@ function EmptyState() {
   return (
     <div className="grid h-full place-items-center" style={{ background: 'linear-gradient(160deg, var(--bg-grad-1), var(--bg-grad-2))' }}>
       <div className="flex max-w-sm flex-col items-center gap-3 px-6 text-center">
-        <div className="grid h-20 w-20 place-items-center rounded-3xl accent-gradient text-4xl text-white shadow-lg animate-float">💬</div>
+        <Logo size={80} className="!rounded-3xl animate-float" />
         <h2 className="text-xl font-black">Добро пожаловать в FemboyChat</h2>
         <p className="text-sm text-[var(--muted)]">Выбери чат слева или найди новых собеседников через поиск. Открой сайт во второй вкладке, чтобы увидеть реальное время ✨</p>
       </div>
