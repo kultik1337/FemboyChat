@@ -38,9 +38,9 @@ export function Settings() {
   const [tab, setTab] = useState<Tab>('profile')
 
   return (
-    <Modal open={open} onClose={() => setOpen(false)} title="Настройки" wide>
-      <div className="flex flex-col gap-4 md:flex-row">
-        <div className="no-scrollbar flex gap-1 overflow-x-auto md:w-52 md:flex-col md:overflow-visible">
+    <Modal open={open} onClose={() => setOpen(false)} title="Настройки" wide flush>
+      <div className="flex h-[68vh] min-h-0 flex-col md:flex-row">
+        <div className="no-scrollbar flex shrink-0 gap-1 overflow-x-auto border-b border-[var(--border)] p-2 md:w-52 md:flex-col md:overflow-y-auto md:border-b-0 md:border-r">
           {TABS.map((t) => (
             <button
               key={t.id}
@@ -54,7 +54,7 @@ export function Settings() {
             </button>
           ))}
         </div>
-        <div className="min-h-[360px] flex-1 md:border-l md:border-[var(--border)] md:pl-5">
+        <div className="fancy-scroll min-h-0 flex-1 overflow-y-auto p-5">
           {tab === 'profile' && <ProfileTab />}
           {tab === 'appearance' && <AppearanceTab />}
           {tab === 'privacy' && <PrivacyTab />}
