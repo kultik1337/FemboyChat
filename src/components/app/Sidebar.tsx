@@ -4,6 +4,8 @@ import { useStore } from '../../store/useStore'
 import { Avatar } from '../ui/Avatar'
 import { chatCounterpart, usePeople } from './people'
 import { SearchResults } from './SearchResults'
+import { useActions } from './useActions'
+import { openContextMenu } from '../ui/ContextMenu'
 import { classNames, timeShort } from '../../lib/util'
 import type { Chat } from '../../types'
 
@@ -25,10 +27,12 @@ export function Sidebar() {
   const search = useStore((s) => s.search)
   const setSettingsOpen = useStore((s) => s.setSettingsOpen)
   const setNewChatKind = useStore((s) => s.setNewChatKind)
+  const logout = useStore((s) => s.logout)
   const typing = useStore((s) => s.typing)
   const presence = useStore((s) => s.presence)
   const now = useStore((s) => s.now)
   const { resolve } = usePeople()
+  const { chatMenu } = useActions()
 
   const [folder, setFolder] = useState<(typeof FOLDERS)[number]['id']>('all')
   const [menuOpen, setMenuOpen] = useState(false)
@@ -74,6 +78,7 @@ export function Sidebar() {
                 <MenuItem onClick={() => { setMenuOpen(false); setNewChatKind('group') }}>👥 Новая группа</MenuItem>
                 <MenuItem onClick={() => { setMenuOpen(false); setNewChatKind('channel') }}>📣 Новый канал</MenuItem>
                 <MenuItem onClick={() => { setMenuOpen(false); setSettingsOpen(true) }}>⚙️ Настройки</MenuItem>
+                <MenuItem onClick={() => { setMenuOpen(false); logout() }}>🚪 Выйти / сменить аккаунт</MenuItem>
               </div>
             </>
           )}
@@ -114,7 +119,7 @@ export function Sidebar() {
           </div>
 
           {/* chat list */}
-          <div className="flex-1 overflow-y-auto px-2 pb-3">
+          <div className="fancy-scroll flex-1 overflow-y-auto px-2 pb-3">
             {filtered.length === 0 && (
               <div className="mt-10 px-6 text-center text-sm text-[var(--muted)]">
                 Пока пусто. Найди кого-нибудь через поиск ✨
@@ -131,6 +136,7 @@ export function Sidebar() {
                 <button
                   key={c.id}
                   onClick={() => openChat(c.id)}
+                  onContextMenu={(e) => openContextMenu(e, chatMenu(c))}
                   className={classNames(
                     'flex w-full items-center gap-3 rounded-2xl px-2.5 py-2.5 text-left transition',
                     active ? 'bg-[var(--panel-hover)]' : 'hover:bg-[var(--panel-hover)]',
@@ -166,6 +172,7 @@ export function Sidebar() {
       {/* profile footer */}
       <button
         onClick={() => setSettingsOpen(true)}
+        onContextMenu={(e) => openContextMenu(e, [{ label: 'Настройки', onClick: () => setSettingsOpen(true) }, { label: 'Выйти / сменить аккаунт', danger: true, onClick: () => logout() }])}
         className="flex items-center gap-3 border-t border-[var(--border)] px-3 py-3 text-left hover:bg-[var(--panel-hover)]"
       >
         <Avatar emoji={account.emoji} color={account.color} size={40} />

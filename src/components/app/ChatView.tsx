@@ -1,12 +1,13 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { ArrowLeft, Info, Pin, Search } from 'lucide-react'
 import { useStore } from '../../store/useStore'
 import { Avatar } from '../ui/Avatar'
 import { MessageBubble } from './MessageBubble'
 import { Composer } from './Composer'
 import { chatCounterpart, usePeople } from './people'
+import { useActions } from './useActions'
+import { openContextMenu } from '../ui/ContextMenu'
 import { classNames, dayLabel, lastSeenLabel } from '../../lib/util'
-import type { Message } from '../../types'
 
 export function ChatView() {
   const account = useStore((s) => s.account)!
@@ -16,27 +17,17 @@ export function ChatView() {
   const typing = useStore((s) => s.typing)
   const presence = useStore((s) => s.presence)
   const now = useStore((s) => s.now)
-  const react = useStore((s) => s.react)
-  const removeMsg = useStore((s) => s.remove)
-  const pin = useStore((s) => s.pin)
-  const vote = useStore((s) => s.vote)
   const toast = useStore((s) => s.toast)
   const setRightPanel = useStore((s) => s.setRightPanel)
   const setProfileUid = useStore((s) => s.setProfileUid)
   const openChat = useStore((s) => s.openChat)
   const { resolve } = usePeople()
+  const { chatMenu, personMenu } = useActions()
 
   const chat = chats.find((c) => c.id === activeChatId) ?? null
   const msgs = activeChatId ? messages[activeChatId] ?? [] : []
-  const [reply, setReply] = useState<Message | null>(null)
-  const [editing, setEditing] = useState<Message | null>(null)
   const scroller = useRef<HTMLDivElement>(null)
   const wallpaper = account.settings.wallpaper
-
-  useEffect(() => {
-    setReply(null)
-    setEditing(null)
-  }, [activeChatId])
 
   useEffect(() => {
     const el = scroller.current
@@ -79,10 +70,12 @@ export function ChatView() {
       ? { title: counterpart.name, emoji: counterpart.emoji, color: counterpart.color }
       : { title: chat.title, emoji: chat.emoji, color: chat.color }
 
+  const headerMenu = (e: React.MouseEvent) => openContextMenu(e, counterpartUid ? personMenu(counterpartUid) : chatMenu(chat))
+
   return (
     <div className="flex h-full flex-col">
       {/* header */}
-      <div className="flex items-center gap-3 border-b border-[var(--border)] bg-[var(--panel)] px-3 py-2.5">
+      <div className="flex items-center gap-3 border-b border-[var(--border)] bg-[var(--panel)] px-3 py-2.5" onContextMenu={headerMenu}>
         <button onClick={() => openChat('')} className="grid h-9 w-9 place-items-center rounded-full hover:bg-[var(--panel-hover)] md:hidden">
           <ArrowLeft size={20} />
         </button>
@@ -99,7 +92,7 @@ export function ChatView() {
         <button className="grid h-9 w-9 place-items-center rounded-full text-[var(--muted)] hover:bg-[var(--panel-hover)]" title="Поиск (демо)" onClick={() => toast('Поиск по чату скоро ✨')}>
           <Search size={19} />
         </button>
-        <button onClick={() => setRightPanel(true)} className="grid h-9 w-9 place-items-center rounded-full text-[var(--muted)] hover:bg-[var(--panel-hover)]">
+        <button onClick={(e) => (counterpartUid ? openContextMenu(e, personMenu(counterpartUid)) : openContextMenu(e, chatMenu(chat)))} className="grid h-9 w-9 place-items-center rounded-full text-[var(--muted)] hover:bg-[var(--panel-hover)]" title="Действия">
           <Info size={19} />
         </button>
       </div>
@@ -110,13 +103,13 @@ export function ChatView() {
           <Pin size={15} className="text-[var(--accent)]" />
           <div className="min-w-0 flex-1">
             <div className="text-[11px] font-bold text-[var(--accent)]">Закреплённое{pinned.length > 1 ? ` · ${pinned.length}` : ''}</div>
-            <div className="truncate text-[var(--muted)]">{pinned[pinned.length - 1].sticker ?? pinned[pinned.length - 1].text}</div>
+            <div className="truncate text-[var(--muted)]">{pinned[pinned.length - 1].sticker ? 'стикер' : pinned[pinned.length - 1].text}</div>
           </div>
         </div>
       )}
 
       {/* messages */}
-      <div ref={scroller} className={classNames('flex-1 overflow-y-auto py-3', `wallpaper-${wallpaper}`)}>
+      <div ref={scroller} className={classNames('flex-1 overflow-y-auto py-3 fancy-scroll', `wallpaper-${wallpaper}`)}>
         {visibleMsgs.length === 0 && (
           <div className="mt-16 flex flex-col items-center gap-2 text-center text-[var(--muted)]">
             <div className="text-5xl">{headerVisual.emoji}</div>
@@ -149,14 +142,6 @@ export function ChatView() {
                 now={now}
                 bigEmoji={account.settings.bigEmoji}
                 otherUid={counterpartUid}
-                onReply={(mm) => { setReply(mm); setEditing(null) }}
-                onEdit={(mm) => { setEditing(mm); setReply(null) }}
-                onDelete={(mm) => removeMsg(mm.id)}
-                onReact={(mm, e) => react(mm.id, e)}
-                onPin={(mm) => pin(mm.id)}
-                onVote={(mm, idx) => vote(mm.id, idx)}
-                onOpenProfile={(uid) => setProfileUid(uid)}
-                onCopy={(mm) => { navigator.clipboard?.writeText(mm.text); toast('Скопировано', '📋') }}
               />
             </div>
           )
@@ -173,14 +158,7 @@ export function ChatView() {
 
       {/* composer / notice */}
       {canPost ? (
-        <Composer
-          chatId={chat.id}
-          replyTo={reply}
-          replySender={reply ? resolve(reply.senderUid) : null}
-          editing={editing}
-          onClearReply={() => setReply(null)}
-          onClearEdit={() => setEditing(null)}
-        />
+        <Composer />
       ) : (
         <div className="border-t border-[var(--border)] bg-[var(--panel)] px-4 py-4 text-center text-sm text-[var(--muted)]">
           🔒 В этом канале публиковать могут только администраторы

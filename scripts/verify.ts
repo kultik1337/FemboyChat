@@ -50,7 +50,7 @@ async function main() {
   ok('joined news channel + lounge group', chats.some((c) => c.id === 'chan-news') && chats.some((c) => c.id === 'grp-lounge'))
 
   // 5. universal search across kinds
-  ok('search finds a person (Мия)', be.searchDirectory('mia').some((d) => d.kind === 'user'))
+  ok('search finds a person (cardo)', be.searchDirectory('cardo').some((d) => d.kind === 'user'))
   ok('search finds a channel', be.searchDirectory('news').some((d) => d.kind === 'channel'))
   ok('search finds a bot', be.searchDirectory('fembot').some((d) => d.kind === 'bot'))
   ok('search by numeric id works', be.searchDirectory('1').some((d) => d.numId === 1))

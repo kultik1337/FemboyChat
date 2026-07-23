@@ -207,7 +207,7 @@ function PhoneMock() {
           <div className="mb-3 flex items-center gap-2">
             <span className="grid h-9 w-9 place-items-center rounded-full accent-gradient text-white">🦊</span>
             <div>
-              <div className="text-sm font-bold">Лера</div>
+              <div className="text-sm font-bold">Sezotai</div>
               <div className="text-[11px] text-emerald-500">печатает…</div>
             </div>
           </div>

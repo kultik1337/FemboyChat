@@ -1,6 +1,8 @@
 import { Bot, Hash, Megaphone, Users } from 'lucide-react'
 import { useStore } from '../../store/useStore'
 import { Avatar } from '../ui/Avatar'
+import { useActions } from './useActions'
+import { openContextMenu } from '../ui/ContextMenu'
 import type { Directory, EntityKind } from '../../types'
 
 const KIND: Record<EntityKind, { label: string; icon: typeof Bot }> = {
@@ -15,11 +17,17 @@ export function SearchResults() {
   const results = useStore((s) => s.searchResults)
   const query = useStore((s) => s.searchQuery)
   const startWith = useStore((s) => s.startWith)
+  const { personMenu } = useActions()
+
+  function menuFor(r: Directory, e: React.MouseEvent) {
+    if (r.kind === 'user' || r.kind === 'bot') return openContextMenu(e, personMenu(r.uid))
+    return openContextMenu(e, [{ label: 'Открыть', onClick: () => startWith(r) }])
+  }
 
   const groups = ORDER.map((kind) => ({ kind, items: results.filter((r) => r.kind === kind) })).filter((g) => g.items.length)
 
   return (
-    <div className="flex-1 overflow-y-auto px-2 pb-4">
+    <div className="fancy-scroll flex-1 overflow-y-auto px-2 pb-4">
       <div className="px-3 py-2 text-xs font-bold uppercase tracking-wide text-[var(--muted)]">
         {query.trim() ? 'Результаты поиска' : 'Рекомендации'}
       </div>
@@ -34,7 +42,7 @@ export function SearchResults() {
               <Icon size={13} /> {KIND[g.kind].label}
             </div>
             {g.items.map((r) => (
-              <ResultRow key={r.uid} r={r} onClick={() => startWith(r)} />
+              <ResultRow key={r.uid} r={r} onClick={() => startWith(r)} onContext={(e) => menuFor(r, e)} />
             ))}
           </div>
         )
@@ -43,9 +51,9 @@ export function SearchResults() {
   )
 }
 
-function ResultRow({ r, onClick }: { r: Directory; onClick: () => void }) {
+function ResultRow({ r, onClick, onContext }: { r: Directory; onClick: () => void; onContext: (e: React.MouseEvent) => void }) {
   return (
-    <button onClick={onClick} className="flex w-full items-center gap-3 rounded-2xl px-2.5 py-2 text-left hover:bg-[var(--panel-hover)]">
+    <button onClick={onClick} onContextMenu={onContext} className="flex w-full items-center gap-3 rounded-2xl px-2.5 py-2 text-left hover:bg-[var(--panel-hover)]">
       <Avatar emoji={r.emoji} color={r.color} size={46} online={r.kind === 'user' ? r.online : undefined} />
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1">
