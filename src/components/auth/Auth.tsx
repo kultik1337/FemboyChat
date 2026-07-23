@@ -8,6 +8,7 @@ export function Auth() {
   const requestCode = useStore((s) => s.requestCode)
   const verifyCode = useStore((s) => s.verifyCode)
   const mode = useStore((s) => s.mode)
+  const supa = mode === 'supabase'
 
   const [step, setStep] = useState<'form' | 'code'>('form')
   const [email, setEmail] = useState('')
@@ -22,9 +23,17 @@ export function Auth() {
   async function onRequest(e: React.FormEvent) {
     e.preventDefault()
     setError('')
-    if (!isValidEmail(email)) return setError('Введите корректный e-mail')
+    if (!supa && !isValidEmail(email)) return setError('Введите корректный e-mail')
+    if (normalizeUsername(username).length < 3) return setError('Юзернейм — минимум 3 символа (a-z, 0-9, _)')
     setLoading(true)
     const res = await requestCode(email, username, name)
+    if (res.ok && supa) {
+      // Supabase mode = anonymous sign-in: no email/code, finish immediately.
+      const ok = await verifyCode(email, res.devCode ?? '000000')
+      setLoading(false)
+      if (!ok) setError('Не удалось войти. Проверь, что в Supabase включён Anonymous sign-in.')
+      return
+    }
     setLoading(false)
     if (!res.ok) return setError(res.error ?? 'Что-то пошло не так')
     setIsNew(res.isNew)
@@ -65,22 +74,27 @@ export function Auth() {
             <form onSubmit={onRequest} className="space-y-4">
               <div>
                 <h1 className="text-2xl font-black">Вход или регистрация</h1>
-                <p className="mt-1 text-sm text-[var(--muted)]">Без пароля — пришлём код на почту.</p>
+                <p className="mt-1 text-sm text-[var(--muted)]">
+                  {supa ? 'Просто выбери ник и заходи — без пароля и почты 🎀' : 'Без пароля — пришлём код на почту.'}
+                </p>
               </div>
-              <Field label="E-mail">
-                <input
-                  autoFocus
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="you@example.com"
-                  className="input"
-                />
-              </Field>
-              <Field label="Юзернейм" hint="нужен при первой регистрации">
+              {!supa && (
+                <Field label="E-mail">
+                  <input
+                    autoFocus
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="you@example.com"
+                    className="input"
+                  />
+                </Field>
+              )}
+              <Field label="Юзернейм" hint="твой @ник">
                 <div className="flex items-center rounded-xl border border-[var(--border)] bg-[var(--panel-2)] px-3 focus-within:ring-2 focus-within:ring-[var(--ring)]">
                   <span className="text-[var(--muted)]">@</span>
                   <input
+                    autoFocus={supa}
                     value={username}
                     onChange={(e) => setUsername(normalizeUsername(e.target.value))}
                     placeholder="femboy_star"
@@ -95,10 +109,10 @@ export function Auth() {
               {error && <p className="text-sm font-medium text-rose-500">{error}</p>}
 
               <button disabled={loading} className="btn-primary w-full">
-                {loading ? <Loader2 className="animate-spin" size={18} /> : <>Получить код <ArrowRight size={18} /></>}
+                {loading ? <Loader2 className="animate-spin" size={18} /> : <>{supa ? 'Войти' : 'Получить код'} <ArrowRight size={18} /></>}
               </button>
               <p className="text-center text-xs text-[var(--muted)]">
-                {mode === 'local' ? 'Демо-режим: код появится прямо здесь.' : 'Код придёт на указанную почту.'}
+                {supa ? 'Вход мгновенный, по нику 💗' : mode === 'local' ? 'Демо-режим: код появится прямо здесь.' : 'Код придёт на указанную почту.'}
               </p>
             </form>
           ) : (

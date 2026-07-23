@@ -7,11 +7,12 @@ import type { Backend, RequestCodeResult, VerifyResult } from './types'
  * Optional production backend backed by Supabase.
  *
  * It is only selected when VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY are set.
- * Supabase gives us two things we need for free:
- *   • Email OTP (passwordless login codes sent to real inboxes)
- *   • Realtime (Postgres change streams + broadcast channels)
  *
- * The SQL schema this expects lives in README.md ("Production mode").
+ * Login is passwordless AND email-less: we use Supabase Anonymous sign-in, so a
+ * user just picks a @username and is in instantly (no SMTP, no codes). Their
+ * session is persisted per-browser. Realtime message streams come from Supabase.
+ *
+ * The SQL schema this expects lives in supabase/schema.sql.
  */
 export class SupabaseBackend implements Backend {
   readonly mode = 'supabase' as const
@@ -38,42 +39,46 @@ export class SupabaseBackend implements Backend {
       .subscribe()
   }
 
-  async requestCode(email: string, username?: string): Promise<RequestCodeResult> {
-    email = email.trim().toLowerCase()
-    const { data: existing } = await this.client.from('profiles').select('uid').eq('email', email).maybeSingle()
-    const isNew = !existing
-    if (isNew) {
-      const uname = normalizeUsername(username ?? '')
-      if (!uname || uname.length < 3) return { ok: false, isNew, error: 'Юзернейм не короче 3 символов' }
-      const { data: taken } = await this.client.from('profiles').select('uid').eq('username', uname).maybeSingle()
-      if (taken) return { ok: false, isNew, error: 'Юзернейм уже занят' }
+  // Passwordless + email-less: sign in anonymously and provision the profile.
+  // (The Auth UI calls this and, in supabase mode, finishes immediately.)
+  async requestCode(_email: string, username?: string, name?: string): Promise<RequestCodeResult> {
+    const uname = normalizeUsername(username ?? '')
+    if (!uname || uname.length < 3) {
+      return { ok: false, isNew: true, error: 'Юзернейм — минимум 3 символа (a-z, 0-9, _)' }
     }
-    const { error } = await this.client.auth.signInWithOtp({
-      email,
-      options: { shouldCreateUser: true, data: { username: normalizeUsername(username ?? '') } },
+    const { data: taken } = await this.client.from('profiles').select('uid').eq('username', uname).maybeSingle()
+    if (taken) return { ok: false, isNew: true, error: 'Этот юзернейм уже занят' }
+
+    const { data, error } = await this.client.auth.signInAnonymously({
+      options: { data: { username: uname, name: name ?? '' } },
     })
-    if (error) return { ok: false, isNew, error: error.message }
-    return { ok: true, isNew }
+    if (error || !data?.user) {
+      return { ok: false, isNew: true, error: error?.message ?? 'Не удалось войти' }
+    }
+    this.account = await this.ensureProfile(data.user, uname, name)
+    // devCode is only used by the demo UI; harmless sentinel here.
+    return { ok: true, isNew: true, devCode: '000000' }
   }
 
-  async verifyCode(email: string, code: string): Promise<VerifyResult> {
-    email = email.trim().toLowerCase()
-    const { data, error } = await this.client.auth.verifyOtp({ email, token: code.trim(), type: 'email' })
-    if (error || !data?.user) return { ok: false, error: error?.message ?? 'Неверный код' }
-    const account = await this.ensureProfile(data.user, email)
-    this.account = account
-    return { ok: true, account }
+  // With anonymous sign-in there is no real code — the session is already set
+  // by requestCode. Return the current account (restoring if needed).
+  async verifyCode(_email: string, _code: string): Promise<VerifyResult> {
+    if (this.account) return { ok: true, account: this.account }
+    const account = await this.restore()
+    return account
+      ? { ok: true, account }
+      : { ok: false, error: 'Сессия не найдена, попробуй ещё раз' }
   }
 
-  private async ensureProfile(user: any, email: string): Promise<Account> {
+  private async ensureProfile(user: any, username: string, name?: string): Promise<Account> {
     const { data: existing } = await this.client.from('profiles').select('*').eq('uid', user.id).maybeSingle()
     if (existing) return rowToAccount(existing)
-    const username = normalizeUsername(user.user_metadata?.username ?? email.split('@')[0])
+    const uname = normalizeUsername(username || user.user_metadata?.username || `user${Date.now().toString(36)}`)
     const row = {
       uid: user.id,
-      username,
-      name: username,
-      email,
+      username: uname,
+      name: name || user.user_metadata?.name || uname,
+      email: null, // anonymous accounts have no email (column is unique-nullable)
       bio: '',
       emoji: '🎀',
       color: '#ff7ab8',
