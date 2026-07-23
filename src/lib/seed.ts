@@ -35,11 +35,11 @@ function acc(
 
 // People + bots have real "accounts" so DMs resolve their profile.
 export const seedAccounts: Account[] = [
-  acc(1, 'seed-mia', 'mia_soft', 'Мия', '🌸', '#ff7ab8', 'люблю розовое и уютные вечера 🌸', false, true),
-  acc(2, 'seed-kira', 'kira_uwu', 'Кира', '🎀', '#b388ff', 'бантики > всё остальное'),
-  acc(3, 'seed-lera', 'lerafox', 'Лера', '🦊', '#ffb26b', 'лисёнок, программирую и рисую'),
-  acc(4, 'seed-sonya', 'sonya_night', 'Соня', '🌙', '#6ad3ff', 'ночная сова 🌙 играю по ночам'),
-  acc(5, 'seed-alex', 'alex_socks', 'Алекс', '🧦', '#5ad1c4', 'коллекционирую полосатые носочки'),
+  acc(1, 'seed-mia', 'toffee', 'Toffee', '🧸', '#ff7ab8', 'сладкий как ириска 🧸 люблю уютные вечера', false, true),
+  acc(2, 'seed-kira', 'sezotai', 'Sezotai', '🦊', '#b388ff', 'бантики > всё остальное 🎀'),
+  acc(3, 'seed-lera', 'cardo', 'cardo', '🎧', '#ffb26b', 'кодю под lo-fi и рисую'),
+  acc(4, 'seed-sonya', 'milo', 'Milo', '🌙', '#6ad3ff', 'ночная сова 🌙 играю по ночам'),
+  acc(5, 'seed-alex', 'pixel', 'Pixel', '🧦', '#5ad1c4', 'коллекционирую полосатые носочки'),
   acc(6, 'bot-fem', 'fembot', 'FemBot', '🤖', '#7cc4ff', 'умный помощник FemboyChat. напиши /help', true, true),
   acc(7, 'bot-sticker', 'stickerbot', 'StickerBot', '🖼️', '#f2a2e8', 'пришлю милые стикеры. /sticker', true),
   acc(8, 'bot-quote', 'quotebot', 'QuoteBot', '💬', '#8ee6a0', 'вдохновляющие цитаты каждый день', true),
