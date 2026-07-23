@@ -32,6 +32,8 @@ interface StoreState {
   typing: Record<string, Record<string, TypingInfo>>
   unread: Record<string, number>
   now: number
+  composeReply: Message | null
+  composeEdit: Message | null
 
   // ui
   settingsOpen: boolean
@@ -69,6 +71,8 @@ interface StoreState {
   react: (id: string, emoji: string) => Promise<void>
   vote: (id: string, optionIndex: number) => Promise<void>
   pin: (id: string) => Promise<void>
+  setComposeReply: (m: Message | null) => void
+  setComposeEdit: (m: Message | null) => void
   typingPing: (chatId: string) => void
 
   search: (q: string) => void
@@ -99,6 +103,8 @@ export const useStore = create<StoreState>((set, get) => ({
   typing: {},
   unread: {},
   now: Date.now(),
+  composeReply: null,
+  composeEdit: null,
 
   settingsOpen: false,
   rightPanelOpen: false,
@@ -189,6 +195,8 @@ export const useStore = create<StoreState>((set, get) => ({
       rightPanelOpen: false,
       searchQuery: '',
       searchResults: [],
+      composeReply: null,
+      composeEdit: null,
     }))
     await backend.markRead(id)
   },
@@ -249,6 +257,13 @@ export const useStore = create<StoreState>((set, get) => ({
   async pin(id) {
     const { activeChatId, backend } = get()
     if (activeChatId) await backend!.pin(activeChatId, id)
+  },
+
+  setComposeReply(m) {
+    set({ composeReply: m, composeEdit: null })
+  },
+  setComposeEdit(m) {
+    set({ composeEdit: m, composeReply: null })
   },
 
   typingPing(chatId) {
