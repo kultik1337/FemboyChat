@@ -7,6 +7,7 @@ import { Auth } from './components/auth/Auth'
 import { AppShell } from './components/app/AppShell'
 import { Toasts } from './components/ui/Toasts'
 import { ContextMenu } from './components/ui/ContextMenu'
+import { Logo } from './components/ui/Logo'
 
 export default function App() {
   const ready = useStore((s) => s.ready)
@@ -40,7 +41,7 @@ export default function App() {
     return (
       <div className="grid h-full place-items-center" style={{ background: 'linear-gradient(160deg, var(--bg-grad-1), var(--bg-grad-2))' }}>
         <div className="flex flex-col items-center gap-3">
-          <div className="grid h-16 w-16 animate-float place-items-center rounded-2xl accent-gradient text-3xl text-white shadow-lg">💬</div>
+          <Logo size={64} className="animate-float !rounded-2xl" />
           <div className="text-sm font-semibold text-[var(--muted)]">Загружаем FemboyChat…</div>
         </div>
       </div>
