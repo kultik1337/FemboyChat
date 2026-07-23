@@ -2,6 +2,8 @@ import { Ban, Bell, BellOff, LogOut, MessageCircle, Pin, X } from 'lucide-react'
 import { useStore } from '../../store/useStore'
 import { Avatar } from '../ui/Avatar'
 import { chatCounterpart, usePeople } from './people'
+import { useActions } from './useActions'
+import { openContextMenu } from '../ui/ContextMenu'
 import { classNames, lastSeenLabel } from '../../lib/util'
 
 export function RightPanel() {
@@ -20,6 +22,7 @@ export function RightPanel() {
   const openChat = useStore((s) => s.openChat)
   const toast = useStore((s) => s.toast)
   const { resolve } = usePeople()
+  const { personMenu } = useActions()
 
   if (!open) return null
   const close = () => { setRightPanel(false); setProfileUid(null) }
@@ -50,7 +53,7 @@ export function RightPanel() {
   return (
     <div className="fixed inset-0 z-40 flex justify-end" onMouseDown={close}>
       <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" />
-      <div className="relative h-full w-full max-w-sm overflow-y-auto border-l border-[var(--border)] bg-[var(--panel)] shadow-2xl animate-slide-up" onMouseDown={(e) => e.stopPropagation()}>
+      <div className="fancy-scroll relative h-full w-full max-w-sm overflow-y-auto border-l border-[var(--border)] bg-[var(--panel)] shadow-2xl animate-slide-up" onMouseDown={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-4 py-3">
           <h3 className="font-bold">{showProfile ? 'Профиль' : 'Информация'}</h3>
           <button onClick={close} className="grid h-9 w-9 place-items-center rounded-full hover:bg-[var(--panel-hover)]"><X size={18} /></button>
@@ -83,7 +86,7 @@ export function RightPanel() {
                   {chat.memberUids.map((uid) => {
                     const p = resolve(uid)
                     return (
-                      <button key={uid} onClick={() => setProfileUid(uid)} className="flex w-full items-center gap-3 rounded-xl px-2 py-1.5 text-left hover:bg-[var(--panel-hover)]">
+                      <button key={uid} onClick={() => setProfileUid(uid)} onContextMenu={(e) => uid !== account.uid && openContextMenu(e, personMenu(uid))} className="flex w-full items-center gap-3 rounded-xl px-2 py-1.5 text-left hover:bg-[var(--panel-hover)]">
                         <Avatar emoji={p.emoji} color={p.color} size={36} online={presence[uid]?.online} />
                         <div className="min-w-0">
                           <div className="truncate text-sm font-semibold">{p.name}{uid === account.uid ? ' (вы)' : ''}</div>
