@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
-import { Clock, CornerUpLeft, ListChecks, Send, Smile, Sticker, X } from 'lucide-react'
+import { Clock, CornerUpLeft, ListChecks, Send, Smile, Sticker as StickerIcon, X } from 'lucide-react'
 import { useStore } from '../../store/useStore'
 import { EmojiPicker } from '../ui/EmojiPicker'
-import { STICKERS } from '../../lib/defaults'
-import type { Message, Poll } from '../../types'
-import type { Person } from './people'
+import { Sticker } from '../ui/Sticker'
+import { STICKER_PACKS } from '../../lib/stickers'
+import type { Poll } from '../../types'
+import { usePeople } from './people'
 import { classNames } from '../../lib/util'
 
 const TTLS = [
@@ -15,25 +16,17 @@ const TTLS = [
   { label: '5 мин', v: 300 },
 ]
 
-export function Composer({
-  chatId,
-  replyTo,
-  replySender,
-  editing,
-  onClearReply,
-  onClearEdit,
-}: {
-  chatId: string
-  replyTo: Message | null
-  replySender: Person | null
-  editing: Message | null
-  onClearReply: () => void
-  onClearEdit: () => void
-}) {
+export function Composer() {
   const send = useStore((s) => s.send)
   const edit = useStore((s) => s.edit)
   const typingPing = useStore((s) => s.typingPing)
+  const chatId = useStore((s) => s.activeChatId)!
   const enterToSend = useStore((s) => s.account!.settings.enterToSend)
+  const replyTo = useStore((s) => s.composeReply)
+  const editing = useStore((s) => s.composeEdit)
+  const setReply = useStore((s) => s.setComposeReply)
+  const setEdit = useStore((s) => s.setComposeEdit)
+  const { resolve } = usePeople()
 
   const [text, setText] = useState('')
   const [emoji, setEmoji] = useState(false)
@@ -50,13 +43,6 @@ export function Composer({
     }
   }, [editing])
 
-  useEffect(() => {
-    setText('')
-    onClearEdit()
-    onClearReply()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chatId])
-
   function autosize() {
     const el = ref.current
     if (!el) return
@@ -70,10 +56,10 @@ export function Composer({
     if (!t) return
     if (editing) {
       edit(editing.id, t)
-      onClearEdit()
+      setEdit(null)
     } else {
       send({ text: t, replyToId: replyTo?.id, ttl: ttl || undefined })
-      onClearReply()
+      setReply(null)
     }
     setText('')
   }
@@ -84,8 +70,8 @@ export function Composer({
       submit()
     }
     if (e.key === 'Escape') {
-      onClearReply()
-      onClearEdit()
+      setReply(null)
+      setEdit(null)
     }
   }
 
@@ -95,30 +81,24 @@ export function Composer({
         <div className="mb-2 flex items-center gap-2 rounded-xl bg-[var(--panel-2)] px-3 py-2 text-sm">
           <CornerUpLeft size={16} className="text-[var(--accent)]" />
           <div className="min-w-0 flex-1">
-            <div className="font-semibold text-[var(--accent)]">{editing ? 'Редактирование' : `Ответ · ${replySender?.name ?? ''}`}</div>
-            <div className="truncate text-[var(--muted)]">{editing ? editing.text : replyTo?.sticker ?? replyTo?.text}</div>
+            <div className="font-semibold text-[var(--accent)]">{editing ? 'Редактирование' : `Ответ · ${replyTo ? resolve(replyTo.senderUid).name : ''}`}</div>
+            <div className="truncate text-[var(--muted)]">{editing ? editing.text : replyTo?.sticker ? 'стикер' : replyTo?.text}</div>
           </div>
-          <button onClick={() => { onClearReply(); onClearEdit(); setText('') }} className="grid h-7 w-7 place-items-center rounded-full hover:bg-[var(--panel-hover)]">
+          <button onClick={() => { setReply(null); setEdit(null); setText('') }} className="grid h-7 w-7 place-items-center rounded-full hover:bg-[var(--panel-hover)]">
             <X size={15} />
           </button>
         </div>
       )}
 
       {emoji && <EmojiPicker onPick={(e) => setText((t) => t + e)} onClose={() => setEmoji(false)} />}
-      {stickers && (
-        <div className="absolute bottom-16 left-2 z-30 grid w-72 grid-cols-6 gap-1 rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-2 shadow-xl animate-pop-in" style={{ boxShadow: 'var(--shadow)' }}>
-          {STICKERS.map((s) => (
-            <button key={s} onClick={() => { send({ text: '', sticker: s }); setStickers(false) }} className="grid h-10 w-10 place-items-center rounded-xl text-2xl hover:bg-[var(--panel-hover)]">{s}</button>
-          ))}
-        </div>
-      )}
+      {stickers && <StickerTray onPick={(s) => { send({ text: '', sticker: s }); setStickers(false) }} onClose={() => setStickers(false)} />}
 
       <div className="flex items-end gap-1.5">
-        <button onClick={() => { setEmoji((v) => !v); setStickers(false) }} className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-[var(--muted)] hover:bg-[var(--panel-hover)]">
+        <button onClick={() => { setEmoji((v) => !v); setStickers(false) }} className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-[var(--muted)] hover:bg-[var(--panel-hover)]" title="Эмодзи">
           <Smile size={21} />
         </button>
-        <button onClick={() => { setStickers((v) => !v); setEmoji(false) }} className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-[var(--muted)] hover:bg-[var(--panel-hover)]">
-          <Sticker size={21} />
+        <button onClick={() => { setStickers((v) => !v); setEmoji(false) }} className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-[var(--muted)] hover:bg-[var(--panel-hover)]" title="Стикеры">
+          <StickerIcon size={21} />
         </button>
 
         <textarea
@@ -131,7 +111,6 @@ export function Composer({
           className="max-h-40 flex-1 resize-none rounded-2xl border border-[var(--border)] bg-[var(--panel-2)] px-4 py-2.5 outline-none focus:ring-2 focus:ring-[var(--ring)]"
         />
 
-        {/* extras */}
         <div className="relative">
           <button onClick={() => setTtlOpen((v) => !v)} className={classNames('grid h-10 w-10 shrink-0 place-items-center rounded-full hover:bg-[var(--panel-hover)]', ttl ? 'text-[var(--accent)]' : 'text-[var(--muted)]')} title="Исчезающее сообщение">
             <Clock size={20} />
@@ -151,13 +130,44 @@ export function Composer({
           <ListChecks size={20} />
         </button>
 
-        <button onClick={submit} className="grid h-11 w-11 shrink-0 place-items-center rounded-full accent-gradient text-white shadow-md transition hover:brightness-105 active:scale-95">
+        <button onClick={submit} className="grid h-11 w-11 shrink-0 place-items-center rounded-full accent-gradient text-white shadow-md transition hover:brightness-105 active:scale-95" title="Отправить">
           <Send size={19} />
         </button>
       </div>
 
       {pollOpen && <PollCreator onClose={() => setPollOpen(false)} onCreate={(p) => { send({ text: '', poll: p }); setPollOpen(false) }} />}
     </div>
+  )
+}
+
+function StickerTray({ onPick, onClose }: { onPick: (s: string) => void; onClose: () => void }) {
+  const [pack, setPack] = useState(STICKER_PACKS[0].id)
+  const active = STICKER_PACKS.find((p) => p.id === pack)!
+  return (
+    <>
+      <div className="fixed inset-0 z-20" onClick={onClose} />
+      <div className="absolute bottom-16 left-2 right-2 z-30 mx-auto max-w-md rounded-2xl border border-[var(--border)] bg-[var(--panel)] shadow-xl animate-pop-in" style={{ boxShadow: 'var(--shadow)' }}>
+        <div className="fancy-scroll grid max-h-64 grid-cols-4 gap-1 overflow-y-auto p-2 sm:grid-cols-5">
+          {active.items.map((s) => (
+            <button key={s} onClick={() => onPick(s)} className="grid aspect-square place-items-center rounded-xl transition hover:scale-105 hover:bg-[var(--panel-hover)]">
+              <Sticker emoji={s} size={64} />
+            </button>
+          ))}
+        </div>
+        <div className="no-scrollbar flex items-center gap-1 overflow-x-auto border-t border-[var(--border)] p-1.5">
+          {STICKER_PACKS.map((p) => (
+            <button
+              key={p.id}
+              onClick={() => setPack(p.id)}
+              className={classNames('grid h-10 w-10 shrink-0 place-items-center rounded-xl text-xl transition', pack === p.id ? 'bg-[var(--panel-hover)] ring-2 ring-[var(--accent)]' : 'hover:bg-[var(--panel-hover)]')}
+              title={p.label}
+            >
+              <Sticker emoji={p.cover} size={26} />
+            </button>
+          ))}
+        </div>
+      </div>
+    </>
   )
 }
 
