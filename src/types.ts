@@ -23,6 +23,10 @@ export interface UserSettings {
   // cosmetics
   premium: boolean
   nameGradient: boolean
+  ambient: 'off' | 'petals' | 'snow' | 'hearts' | 'stars' | 'bubbles'
+  chatEffects: boolean // full-screen bursts on /party, 🎉, ❤️ etc.
+  emoticons: boolean // auto-convert :) <3 :3 → emoji on send
+  sendSound: boolean // soft pop when you send
 }
 
 export interface Account {

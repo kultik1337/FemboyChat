@@ -19,6 +19,10 @@ export function defaultSettings(): UserSettings {
     notifyPreview: true,
     premium: false,
     nameGradient: false,
+    ambient: 'off',
+    chatEffects: true,
+    emoticons: true,
+    sendSound: false,
   }
 }
 
