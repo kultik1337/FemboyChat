@@ -87,7 +87,7 @@ export function RightPanel() {
                     const p = resolve(uid)
                     return (
                       <button key={uid} onClick={() => setProfileUid(uid)} onContextMenu={(e) => uid !== account.uid && openContextMenu(e, personMenu(uid))} className="flex w-full items-center gap-3 rounded-xl px-2 py-1.5 text-left hover:bg-[var(--panel-hover)]">
-                        <Avatar emoji={p.emoji} color={p.color} size={36} online={presence[uid]?.online} />
+                        <Avatar emoji={p.emoji} color={p.color} src={p.avatarUrl} size={36} online={presence[uid]?.online} />
                         <div className="min-w-0">
                           <div className="truncate text-sm font-semibold">{p.name}{uid === account.uid ? ' (вы)' : ''}</div>
                           <div className="truncate text-xs text-[var(--muted)]">@{p.username}</div>
@@ -125,7 +125,7 @@ function ProfileBody({ uid, onMessage }: { uid: string; onMessage: () => void })
   return (
     <div className="px-5 pb-8">
       <div className="flex flex-col items-center text-center">
-        <Avatar emoji={p.emoji} color={p.color} size={100} online={p2?.online} />
+        <Avatar emoji={p.emoji} color={p.color} src={p.avatarUrl} size={100} online={p2?.online} />
         <div className="mt-3 flex items-center gap-1 text-xl font-black">{p.name} {p.verified && <span className="text-[var(--accent)]">✔</span>}</div>
         <div className="text-sm text-[var(--muted)]">@{p.username}{p.numId ? ` · #${p.numId}` : ''}</div>
         {p2 && <div className={classNames('mt-0.5 text-xs', p2.online ? 'text-emerald-500' : 'text-[var(--muted)]')}>{p.isBot ? 'бот' : lastSeenLabel(p2.lastSeen, p2.online)}</div>}
