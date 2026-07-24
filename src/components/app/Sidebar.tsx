@@ -93,9 +93,10 @@ export function Sidebar() {
         <div className="relative flex-1">
           <Search size={17} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted)]" />
           <input
+            id="sidebar-search"
             value={searchQuery}
             onChange={(e) => search(e.target.value)}
-            placeholder="Поиск: люди, каналы, боты…"
+            placeholder="Поиск: люди, каналы, боты…  (⌘K)"
             className="w-full rounded-full border border-[var(--border)] bg-[var(--panel-2)] py-2.5 pl-9 pr-3 text-sm outline-none focus:ring-2 focus:ring-[var(--ring)]"
           />
         </div>
