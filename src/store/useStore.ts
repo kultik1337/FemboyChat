@@ -47,8 +47,8 @@ interface StoreState {
   // actions
   boot: () => Promise<void>
   goto: (r: Route) => void
-  register: (username: string, name: string, password: string) => Promise<boolean>
-  login: (username: string, password: string) => Promise<boolean>
+  register: (email: string, username: string, name: string, password: string) => Promise<{ ok: boolean; pendingConfirm?: boolean }>
+  login: (email: string, password: string) => Promise<boolean>
   logout: () => Promise<void>
   patchSettings: (patch: Partial<UserSettings>) => Promise<void>
   patchProfile: (patch: Partial<Account>) => Promise<void>
@@ -135,19 +135,20 @@ export const useStore = create<StoreState>((set, get) => ({
     set({ route })
   },
 
-  async register(username, name, password) {
-    const res = await get().backend!.register(username, name, password)
+  async register(email, username, name, password) {
+    const res = await get().backend!.register(email, username, name, password)
     if (res.ok && res.account) {
       set({ account: res.account, route: 'app', directory: get().backend!.getDirectoryList() })
       await get().refreshChats()
-      return true
+      return { ok: true }
     }
+    if (res.pendingConfirm) return { ok: false, pendingConfirm: true }
     if (res.error) get().toast(res.error, '⚠️')
-    return false
+    return { ok: false }
   },
 
-  async login(username, password) {
-    const res = await get().backend!.login(username, password)
+  async login(email, password) {
+    const res = await get().backend!.login(email, password)
     if (res.ok && res.account) {
       set({ account: res.account, route: 'app', directory: get().backend!.getDirectoryList() })
       await get().refreshChats()
