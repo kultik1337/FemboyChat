@@ -291,46 +291,9 @@ body {
   transform-origin: bottom;
 }
 
-/* ───────────────────────── Full-screen effects ───────────────────────── */
-@keyframes fx-fall {
-  0% { transform: translateY(-12vh) translateX(0) rotate(0); opacity: 0; }
-  8% { opacity: 1; }
-  100% { transform: translateY(112vh) translateX(var(--drift, 0)) rotate(var(--spin, 360deg)); opacity: 0.9; }
-}
-.fx-particle {
-  position: absolute;
-  top: 0;
-  will-change: transform, opacity;
-  animation-name: fx-fall;
-  animation-timing-function: cubic-bezier(0.3, 0.2, 0.5, 1);
-  animation-fill-mode: both;
-}
-
-/* ───────────────────────── Ambient particles ───────────────────────── */
-.ambient-layer {
-  z-index: 3;
-}
-@keyframes ambient-fall {
-  0% { transform: translateY(-8%) translateX(0) rotate(0); opacity: 0; }
-  10% { opacity: 0.75; }
-  90% { opacity: 0.75; }
-  100% { transform: translateY(108%) translateX(var(--drift, 0)) rotate(220deg); opacity: 0; }
-}
-@keyframes ambient-rise {
-  0% { transform: translateY(108%) translateX(0); opacity: 0; }
-  10% { opacity: 0.7; }
-  90% { opacity: 0.7; }
-  100% { transform: translateY(-8%) translateX(var(--drift, 0)); opacity: 0; }
-}
-.ambient-item {
-  position: absolute;
-  top: 0;
-  will-change: transform, opacity;
-  animation: ambient-fall linear infinite;
-  filter: saturate(0.9);
-}
-.ambient-item.ambient-up {
-  animation-name: ambient-rise;
+/* ───────────────────────── Media attachments ───────────────────────── */
+audio::-webkit-media-controls-panel {
+  background: color-mix(in srgb, var(--panel-2) 80%, transparent);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -338,9 +301,5 @@ body {
     animation-duration: 0.001ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
-  }
-  .ambient-layer,
-  .fx-particle {
-    display: none !important;
   }
 }
