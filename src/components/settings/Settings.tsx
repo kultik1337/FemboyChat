@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import {
   Bell,
+  Camera,
   Database,
   Ghost,
   Globe,
@@ -8,14 +9,18 @@ import {
   MessageSquare,
   Palette,
   ShieldCheck,
+  Smile,
   Sparkles,
+  Trash2,
+  Upload,
   User,
 } from 'lucide-react'
 import { useStore } from '../../store/useStore'
 import { Modal } from '../ui/Modal'
 import { Avatar } from '../ui/Avatar'
-import { EmojiPicker } from '../ui/EmojiPicker'
+import { EmojiGrid } from '../ui/EmojiPicker'
 import { ACCENT_PRESETS } from '../../lib/defaults'
+import { downscaleImage } from '../../lib/media'
 import { classNames, normalizeUsername } from '../../lib/util'
 import type { UserSettings } from '../../types'
 
@@ -74,6 +79,7 @@ function ProfileTab() {
   const account = useStore((s) => s.account)!
   const patchProfile = useStore((s) => s.patchProfile)
   const patchSettings = useStore((s) => s.patchSettings)
+  const backend = useStore((s) => s.backend)!
   const toast = useStore((s) => s.toast)
   const [name, setName] = useState(account.name)
   const [username, setUsername] = useState(account.username)
@@ -81,15 +87,46 @@ function ProfileTab() {
   const [status, setStatus] = useState(account.status)
   const [emoji, setEmoji] = useState(account.emoji)
   const [color, setColor] = useState(account.color)
-  const [picker, setPicker] = useState(false)
+  const [avatarUrl, setAvatarUrl] = useState(account.avatarUrl)
+  const [editorOpen, setEditorOpen] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  async function uploadAvatar(file: File) {
+    if (!file.type.startsWith('image/')) return toast('Выбери картинку (jpg, png, webp, gif)', '🖼️')
+    setUploading(true)
+    try {
+      const blob = await downscaleImage(file, 512, 0.9)
+      const { url } = await backend.uploadFile('avatar', blob, file.name)
+      setAvatarUrl(url)
+      await patchProfile({ avatarUrl: url })
+      toast('Аватарка обновлена', '📸')
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Не удалось загрузить аватарку', '⚠️')
+    } finally {
+      setUploading(false)
+      if (fileRef.current) fileRef.current.value = ''
+    }
+  }
+
+  async function removeAvatar() {
+    setAvatarUrl(undefined)
+    await patchProfile({ avatarUrl: undefined })
+    toast('Фото убрано — снова эмодзи', '🎀')
+  }
 
   return (
     <div className="space-y-5">
       <div className="flex items-center gap-4">
-        <div className="relative">
-          <button onClick={() => setPicker((v) => !v)}><Avatar emoji={emoji} color={color} size={76} /></button>
-          {picker && <EmojiPicker onPick={(e) => { setEmoji(e); setPicker(false) }} onClose={() => setPicker(false)} />}
-        </div>
+        <button onClick={() => setEditorOpen((v) => !v)} className="group relative" title="Изменить аватарку">
+          <Avatar emoji={emoji} color={color} src={avatarUrl} size={76} />
+          <span className="absolute inset-0 grid place-items-center rounded-full bg-black/40 text-white opacity-0 transition group-hover:opacity-100">
+            <Camera size={22} />
+          </span>
+          {uploading && (
+            <span className="absolute inset-0 grid place-items-center rounded-full bg-black/50 text-xs font-bold text-white">…</span>
+          )}
+        </button>
         <div>
           <div className="text-lg font-black">{name}</div>
           <div className="text-sm text-[var(--muted)]">@{username}</div>
@@ -97,14 +134,36 @@ function ProfileTab() {
         </div>
       </div>
 
-      <div>
-        <div className="mb-1.5 text-sm font-semibold">Цвет аватара</div>
-        <div className="flex flex-wrap gap-2">
-          {['#ff7ab8', '#b388ff', '#7cc4ff', '#5ad1c4', '#ffb26b', '#ff8f8f', '#8ee6a0', '#f2a2e8'].map((c) => (
-            <button key={c} onClick={() => setColor(c)} className={classNames('h-8 w-8 rounded-full ring-offset-2 ring-offset-[var(--panel)]', color === c && 'ring-2 ring-[var(--accent)]')} style={{ background: c }} />
-          ))}
+      <input ref={fileRef} type="file" accept="image/*" hidden onChange={(e) => e.target.files?.[0] && uploadAvatar(e.target.files[0])} />
+
+      {editorOpen && (
+        <div className="space-y-3 rounded-2xl border border-[var(--border)] bg-[var(--panel-2)] p-3 animate-pop-in">
+          <div className="flex flex-wrap gap-2">
+            <button onClick={() => fileRef.current?.click()} disabled={uploading} className="btn-primary flex-1 !py-2 text-sm">
+              <Upload size={16} /> {uploading ? 'Загружаем…' : 'Загрузить фото'}
+            </button>
+            {avatarUrl && (
+              <button onClick={removeAvatar} className="btn-ghost !py-2 text-sm text-rose-500">
+                <Trash2 size={16} /> Убрать фото
+              </button>
+            )}
+          </div>
+          <div>
+            <div className="mb-1 flex items-center gap-1.5 text-xs font-bold text-[var(--muted)]">
+              <Smile size={13} /> ИЛИ ВЫБЕРИ ЭМОДЗИ
+            </div>
+            <EmojiGrid compact onPick={(e) => { setEmoji(e); toast('Не забудь нажать «Сохранить» 💾') }} />
+          </div>
+          <div>
+            <div className="mb-1.5 text-xs font-bold text-[var(--muted)]">ЦВЕТ ФОНА</div>
+            <div className="flex flex-wrap gap-2">
+              {['#ff7ab8', '#b388ff', '#7cc4ff', '#5ad1c4', '#ffb26b', '#ff8f8f', '#8ee6a0', '#f2a2e8'].map((c) => (
+                <button key={c} onClick={() => setColor(c)} className={classNames('h-8 w-8 rounded-full ring-offset-2 ring-offset-[var(--panel)]', color === c && 'ring-2 ring-[var(--accent)]')} style={{ background: c }} />
+              ))}
+            </div>
+          </div>
         </div>
-      </div>
+      )}
 
       <Field label="Имя"><input value={name} onChange={(e) => setName(e.target.value)} className="input" /></Field>
       <Field label="Юзернейм">
@@ -128,7 +187,7 @@ function ProfileTab() {
       </div>
 
       <button
-        onClick={async () => { await patchProfile({ name, username, bio, status, emoji, color }); toast('Профиль сохранён', '💖') }}
+        onClick={async () => { await patchProfile({ name, username, bio, status, emoji, color, avatarUrl }); toast('Профиль сохранён', '💖') }}
         className="btn-primary w-full"
       >
         Сохранить
@@ -151,14 +210,6 @@ function AppearanceTab() {
     { id: 'dots', label: 'Точки' },
     { id: 'hearts', label: 'Сердечки' },
     { id: 'plain', label: 'Гладкий' },
-  ]
-  const ambients: { id: UserSettings['ambient']; label: string; emoji: string }[] = [
-    { id: 'off', label: 'Выкл', emoji: '🚫' },
-    { id: 'petals', label: 'Лепестки', emoji: '🌸' },
-    { id: 'snow', label: 'Снег', emoji: '❄️' },
-    { id: 'hearts', label: 'Сердечки', emoji: '💗' },
-    { id: 'stars', label: 'Звёзды', emoji: '✨' },
-    { id: 'bubbles', label: 'Пузырьки', emoji: '🫧' },
   ]
   return (
     <div className="space-y-6">
@@ -198,22 +249,9 @@ function AppearanceTab() {
         </div>
       </div>
 
-      <div>
-        <div className="mb-2 text-sm font-semibold">Атмосфера ✨ <span className="font-normal text-[var(--muted)]">— частицы поверх чата</span></div>
-        <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
-          {ambients.map((a) => (
-            <button key={a.id} onClick={() => patch({ ambient: a.id })} className={classNames('rounded-2xl border p-2 text-center', s.ambient === a.id ? 'border-[var(--accent)] ring-2 ring-[var(--ring)]' : 'border-[var(--border)]')}>
-              <div className="text-xl">{a.emoji}</div>
-              <div className="mt-0.5 text-[11px] font-semibold">{a.label}</div>
-            </button>
-          ))}
-        </div>
-      </div>
-
       <Slider label="Размер текста" value={s.fontScale} min={0.9} max={1.2} step={0.05} onChange={(v) => patch({ fontScale: v })} format={(v) => `${Math.round(v * 100)}%`} />
       <Slider label="Скругление сообщений" value={s.bubbleRadius} min={6} max={26} step={1} onChange={(v) => patch({ bubbleRadius: v })} format={(v) => `${v}px`} />
       <ToggleRow label="Крупные эмодзи" desc="Одиночные эмодзи показываются большими" value={s.bigEmoji} onChange={(v) => patch({ bigEmoji: v })} />
-      <ToggleRow label="Эффекты в чате" desc="Конфетти и сердечки на /party, 🎉, ❤️ и т.д." value={s.chatEffects} onChange={(v) => patch({ chatEffects: v })} />
       <ToggleRow label="Анимации" desc="Плавные переходы и эффекты" value={s.animations} onChange={(v) => patch({ animations: v })} />
       <ToggleRow label="Градиентное имя" desc="Требует FemPremium 👑" value={s.nameGradient} onChange={(v) => patch({ nameGradient: v })} />
     </div>
@@ -290,7 +328,7 @@ function ChatsTab() {
       </div>
       <div className="rounded-2xl border border-[var(--border)] p-4 text-sm">
         <div className="font-bold">Команды</div>
-        <div className="mt-1 text-[var(--muted)]">Начни сообщение с <code className="rich-code">/</code> — доступны <b>/me</b>, <b>/shrug</b>, <b>/roll</b>, <b>/flip</b>, <b>/8ball</b>, <b>/love</b>, <b>/party</b>, <b>/rain</b> и другие.</div>
+        <div className="mt-1 text-[var(--muted)]">Начни сообщение с <code className="rich-code">/</code> — доступны <b>/me</b>, <b>/shrug</b>, <b>/roll</b>, <b>/flip</b>, <b>/8ball</b>, <b>/love</b>, <b>/hug</b> и другие.</div>
       </div>
     </div>
   )
