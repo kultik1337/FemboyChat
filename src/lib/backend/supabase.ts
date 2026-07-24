@@ -161,6 +161,7 @@ export class SupabaseBackend implements Backend {
         bio: merged.bio,
         emoji: merged.emoji,
         color: merged.color,
+        avatar_url: merged.avatarUrl ?? null,
         status: merged.status,
         settings: merged.settings,
       })
@@ -236,6 +237,7 @@ export class SupabaseBackend implements Backend {
         sticker: input.sticker,
         poll: input.poll,
         ttl: input.ttl,
+        attachment: input.attachment,
       })
       .select('*')
       .single()
@@ -258,6 +260,24 @@ export class SupabaseBackend implements Backend {
   }
   async markRead(chatId: string) {
     await this.client.rpc('mark_read', { chat: chatId })
+  }
+
+  async uploadFile(kind: 'avatar' | 'attachment', file: Blob, name?: string): Promise<{ url: string }> {
+    if (!this.account) throw new Error('not authed')
+    const bucket = kind === 'avatar' ? 'avatars' : 'attachments'
+    const { extensionFor } = await import('../media')
+    const safeBase = (name ?? 'file')
+      .replace(/\.[^.]*$/, '')
+      .replace(/[^a-zA-Z0-9а-яёА-ЯЁ_-]+/g, '_')
+      .slice(0, 40) || 'file'
+    const path = `${this.account.uid}/${Date.now()}-${safeBase}.${extensionFor(file.type, name)}`
+    const { error } = await this.client.storage.from(bucket).upload(path, file, {
+      contentType: file.type || 'application/octet-stream',
+      upsert: false,
+    })
+    if (error) throw new Error(error.message ?? 'Не удалось загрузить файл')
+    const { data } = this.client.storage.from(bucket).getPublicUrl(path)
+    return { url: data.publicUrl as string }
   }
 
   setTyping(chatId: string) {
@@ -288,6 +308,7 @@ function rowToAccount(r: any): Account {
     bio: r.bio ?? '',
     emoji: r.emoji ?? '🎀',
     color: r.color ?? '#ff7ab8',
+    avatarUrl: r.avatar_url ?? undefined,
     status: r.status ?? '',
     verified: !!r.verified,
     isBot: !!r.is_bot,
@@ -305,6 +326,7 @@ function rowToDirectory(r: any): Directory {
     name: r.name,
     emoji: r.emoji ?? '💬',
     color: r.color ?? '#ff7ab8',
+    avatarUrl: r.avatar_url ?? undefined,
     bio: r.bio ?? '',
     verified: !!r.verified,
     members: r.members,
@@ -346,5 +368,6 @@ function rowToMessage(r: any): Message {
     ttl: r.ttl ?? undefined,
     poll: r.poll ?? undefined,
     sticker: r.sticker ?? undefined,
+    attachment: r.attachment ?? undefined,
   }
 }
