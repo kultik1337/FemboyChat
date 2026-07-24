@@ -1,9 +1,11 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Clock, CornerUpLeft, ListChecks, Send, Smile, Sticker as StickerIcon, X } from 'lucide-react'
 import { useStore } from '../../store/useStore'
 import { EmojiPicker } from '../ui/EmojiPicker'
 import { Sticker } from '../ui/Sticker'
 import { STICKER_PACKS } from '../../lib/stickers'
+import { SLASH_COMMANDS, applyEmoticons, runCommand } from '../../lib/commands'
+import { beep } from '../../lib/sound'
 import type { Poll } from '../../types'
 import { usePeople } from './people'
 import { classNames } from '../../lib/util'
@@ -16,12 +18,18 @@ const TTLS = [
   { label: '5 мин', v: 300 },
 ]
 
+const draftKey = (id: string) => `fc:draft:${id}`
+
 export function Composer() {
   const send = useStore((s) => s.send)
   const edit = useStore((s) => s.edit)
   const typingPing = useStore((s) => s.typingPing)
   const chatId = useStore((s) => s.activeChatId)!
-  const enterToSend = useStore((s) => s.account!.settings.enterToSend)
+  const account = useStore((s) => s.account!)
+  const settings = account.settings
+  const messages = useStore((s) => s.messages)
+  const playEffect = useStore((s) => s.playEffect)
+  const toast = useStore((s) => s.toast)
   const replyTo = useStore((s) => s.composeReply)
   const editing = useStore((s) => s.composeEdit)
   const setReply = useStore((s) => s.setComposeReply)
@@ -35,6 +43,12 @@ export function Composer() {
   const [ttlOpen, setTtlOpen] = useState(false)
   const [pollOpen, setPollOpen] = useState(false)
   const ref = useRef<HTMLTextAreaElement>(null)
+
+  // Load per-chat draft when switching chats.
+  useEffect(() => {
+    if (useStore.getState().composeEdit) return
+    setText(localStorage.getItem(draftKey(chatId)) ?? '')
+  }, [chatId])
 
   useEffect(() => {
     if (editing) {
@@ -51,23 +65,69 @@ export function Composer() {
   }
   useEffect(autosize, [text])
 
+  function updateText(v: string) {
+    setText(v)
+    if (!editing) {
+      if (v) localStorage.setItem(draftKey(chatId), v)
+      else localStorage.removeItem(draftKey(chatId))
+    }
+    typingPing(chatId)
+  }
+
+  const slashQuery = useMemo(() => {
+    if (editing || !text.startsWith('/') || /\s/.test(text)) return null
+    return text.slice(1).toLowerCase()
+  }, [text, editing])
+  const slashMatches = useMemo(
+    () => (slashQuery === null ? [] : SLASH_COMMANDS.filter((c) => c.name.startsWith(slashQuery))),
+    [slashQuery],
+  )
+
   function submit() {
     const t = text.trim()
     if (!t) return
     if (editing) {
       edit(editing.id, t)
       setEdit(null)
-    } else {
-      send({ text: t, replyToId: replyTo?.id, ttl: ttl || undefined })
-      setReply(null)
+      setText('')
+      return
     }
+
+    const cmd = runCommand(t, account.name)
+    if (cmd) {
+      if (cmd.toast) toast(cmd.toast.text, cmd.toast.emoji)
+      if (cmd.text || cmd.sticker) send({ text: cmd.text ?? '', sticker: cmd.sticker, replyToId: replyTo?.id, ttl: ttl || undefined })
+      if (cmd.effect) playEffect(cmd.effect)
+    } else {
+      const body = settings.emoticons ? applyEmoticons(t) : t
+      send({ text: body, replyToId: replyTo?.id, ttl: ttl || undefined })
+    }
+
+    if (settings.sendSound) beep()
+    setReply(null)
     setText('')
+    localStorage.removeItem(draftKey(chatId))
+  }
+
+  function editLastMine() {
+    const arr = messages[chatId] ?? []
+    for (let i = arr.length - 1; i >= 0; i--) {
+      const m = arr[i]
+      if (m.senderUid === account.uid && !m.deleted && !m.poll && !m.sticker) {
+        setEdit(m)
+        return
+      }
+    }
   }
 
   function onKey(e: React.KeyboardEvent) {
-    if (e.key === 'Enter' && !e.shiftKey && enterToSend) {
+    if (e.key === 'Enter' && !e.shiftKey && settings.enterToSend) {
       e.preventDefault()
       submit()
+    }
+    if (e.key === 'ArrowUp' && !text && !editing && !replyTo) {
+      e.preventDefault()
+      editLastMine()
     }
     if (e.key === 'Escape') {
       setReply(null)
@@ -90,7 +150,27 @@ export function Composer() {
         </div>
       )}
 
-      {emoji && <EmojiPicker onPick={(e) => setText((t) => t + e)} onClose={() => setEmoji(false)} />}
+      {slashMatches.length > 0 && (
+        <div className="absolute bottom-full left-2 right-2 z-30 mb-2 overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--panel)] shadow-xl animate-pop-in" style={{ boxShadow: 'var(--shadow)' }}>
+          <div className="fancy-scroll max-h-56 overflow-y-auto p-1">
+            {slashMatches.map((c) => (
+              <button
+                key={c.name}
+                onClick={() => { setText(`/${c.name} `); ref.current?.focus() }}
+                className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left hover:bg-[var(--panel-hover)]"
+              >
+                <span className="text-xl">{c.emoji}</span>
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold">{c.hint}</div>
+                  <div className="truncate text-xs text-[var(--muted)]">{c.desc}</div>
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {emoji && <EmojiPicker onPick={(e) => updateText(text + e)} onClose={() => setEmoji(false)} />}
       {stickers && <StickerTray onPick={(s) => { send({ text: '', sticker: s }); setStickers(false) }} onClose={() => setStickers(false)} />}
 
       <div className="flex items-end gap-1.5">
@@ -104,10 +184,10 @@ export function Composer() {
         <textarea
           ref={ref}
           value={text}
-          onChange={(e) => { setText(e.target.value); typingPing(chatId) }}
+          onChange={(e) => updateText(e.target.value)}
           onKeyDown={onKey}
           rows={1}
-          placeholder="Сообщение…"
+          placeholder="Сообщение…  (/ — команды)"
           className="max-h-40 flex-1 resize-none rounded-2xl border border-[var(--border)] bg-[var(--panel-2)] px-4 py-2.5 outline-none focus:ring-2 focus:ring-[var(--ring)]"
         />
 
