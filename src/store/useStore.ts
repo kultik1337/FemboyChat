@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import type { Account, Chat, Directory, Message, Poll, RealtimeEvent, UserSettings } from '../types'
 import { getBackend, type Backend } from '../lib/backend'
 import { beep } from '../lib/sound'
+import type { EffectKind } from '../lib/commands'
 
 type Route = 'landing' | 'auth' | 'app'
 
@@ -43,6 +44,7 @@ interface StoreState {
   searchResults: Directory[]
   profileUid: string | null
   toasts: Toast[]
+  effect: { kind: EffectKind; id: string } | null
 
   // actions
   boot: () => Promise<void>
@@ -76,6 +78,7 @@ interface StoreState {
   typingPing: (chatId: string) => void
 
   search: (q: string) => void
+  playEffect: (kind: EffectKind) => void
   toast: (text: string, emoji?: string) => void
   dismissToast: (id: string) => void
   setRightPanel: (open: boolean) => void
@@ -113,6 +116,7 @@ export const useStore = create<StoreState>((set, get) => ({
   searchResults: [],
   profileUid: null,
   toasts: [],
+  effect: null,
 
   async boot() {
     const backend = await getBackend()
@@ -286,6 +290,13 @@ export const useStore = create<StoreState>((set, get) => ({
     set({ searchQuery: q, searchResults: results })
   },
 
+  playEffect(kind) {
+    if (!get().account?.settings.chatEffects) return
+    const id = Math.random().toString(36).slice(2)
+    set({ effect: { kind, id } })
+    setTimeout(() => set((s) => (s.effect?.id === id ? { effect: null } : {})), 2600)
+  },
+
   toast(text, emoji) {
     const id = Math.random().toString(36).slice(2)
     set((s) => ({ toasts: [...s.toasts, { id, text, emoji }] }))
@@ -328,6 +339,10 @@ export const useStore = create<StoreState>((set, get) => ({
           if (state.account?.settings.notifySound) beep()
           if (isActive) get().backend?.markRead(chatId)
           maybeNotify(state, e.message)
+        }
+        if (isActive && !e.message.sticker) {
+          const fx = detectEffect(e.message.text)
+          if (fx) get().playEffect(fx)
         }
         break
       }
@@ -390,6 +405,17 @@ export const useStore = create<StoreState>((set, get) => ({
     }
   },
 }))
+
+/** Detect a celebratory full-screen effect from message text. */
+function detectEffect(text: string): EffectKind | null {
+  const t = (text ?? '').trim()
+  if (!t) return null
+  if (/[\u{1F389}\u{1F38A}\u{1F973}\u{1F388}]/u.test(t)) return 'confetti' // 🎉 🎊 🥳 🎈
+  const onlyEmoji = !/[a-zA-Zа-яёА-ЯЁ0-9]/.test(t) && t.length <= 12
+  if (onlyEmoji && /[\u2764\u{1F9E1}\u{1F49B}\u{1F49A}\u{1F499}\u{1F49C}\u{1F5A4}\u{1F90D}\u{1F90E}\u{1F497}\u{1F493}\u{1F49E}\u{1F495}\u{1F496}\u{1F498}\u{1F49D}\u{1F60D}\u{1F970}\u{1F618}]/u.test(t)) return 'hearts'
+  if (onlyEmoji && /[\u2728\u{1F31F}\u{1F4AB}\u2B50\u{1F320}]/u.test(t)) return 'stars'
+  return null
+}
 
 function clearTyping(typing: StoreState['typing'], chatId: string, uid: string) {
   const chat = typing[chatId]
