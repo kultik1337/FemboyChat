@@ -2,7 +2,7 @@ import type { Account, Chat, Directory, Message, RealtimeEvent, UserSettings } f
 import { defaultSettings } from '../defaults'
 import { botReply, seedAccounts, seedChats, seedDirectory, seedMessages } from '../seed'
 import { normalizeUsername, uid as rid } from '../util'
-import type { Backend, RequestCodeResult, VerifyResult } from './types'
+import type { Backend, AuthResult } from './types'
 
 const K = {
   counter: 'fc:counter',
@@ -10,7 +10,7 @@ const K = {
   directory: 'fc:directory',
   chats: 'fc:chats',
   msgs: 'fc:msgs',
-  codes: 'fc:codes',
+  pw: 'fc:pw',
   seeded: 'fc:seeded:v1',
 }
 
@@ -33,7 +33,7 @@ function write(key: string, val: unknown) {
 type Accounts = Record<string, Account>
 type Chats = Record<string, Chat>
 type Msgs = Record<string, Message[]>
-type Codes = Record<string, { code: string; ts: number; username?: string; name?: string }>
+type Passwords = Record<string, string>
 
 export class LocalBackend implements Backend {
   readonly mode = 'local' as const
@@ -102,65 +102,52 @@ export class LocalBackend implements Backend {
     return this.sessionUid ? this.accounts()[this.sessionUid] : undefined
   }
 
-  // ── auth ──
-  async requestCode(email: string, username?: string, name?: string): Promise<RequestCodeResult> {
-    email = email.trim().toLowerCase()
+  // ── auth (nickname + password) ──
+  async register(username: string, name: string, password: string): Promise<AuthResult> {
+    const uname = normalizeUsername(username ?? '')
+    if (!uname || uname.length < 3) return { ok: false, error: 'Ник — минимум 3 символа (a-z, 0-9, _)' }
+    if (!password || password.length < 6) return { ok: false, error: 'Пароль — минимум 6 символов' }
     const accounts = this.accounts()
-    const existing = Object.values(accounts).find((a) => a.email === email)
-    const isNew = !existing
-    if (isNew) {
-      const uname = normalizeUsername(username ?? '')
-      if (!uname || uname.length < 3)
-        return { ok: false, isNew, error: 'Юзернейм должен быть не короче 3 символов' }
-      const taken = Object.values(accounts).some((a) => a.username === uname)
-      if (taken) return { ok: false, isNew, error: 'Этот юзернейм уже занят' }
+    if (Object.values(accounts).some((a) => a.username === uname))
+      return { ok: false, error: 'Этот ник уже занят, выбери другой 🥺' }
+
+    const nextId = read<number>(K.counter, 1)
+    write(K.counter, nextId + 1)
+    const account: Account = {
+      numId: nextId,
+      uid: rid(),
+      username: uname,
+      name: name?.trim() || uname,
+      email: '',
+      bio: '',
+      emoji: '🎀',
+      color: '#ff7ab8',
+      status: '',
+      verified: false,
+      isBot: false,
+      createdAt: Date.now(),
+      lastSeen: Date.now(),
+      settings: defaultSettings(),
     }
-    const code = String(Math.floor(100000 + Math.random() * 900000))
-    const codes = read<Codes>(K.codes, {})
-    codes[email] = { code, ts: Date.now(), username: normalizeUsername(username ?? ''), name }
-    write(K.codes, codes)
-    // In a real deployment this is where an email is sent. In local/demo mode
-    // we surface the code directly so the flow is fully usable offline.
-    console.info(`[FemboyChat] Код для ${email}: ${code}`)
-    return { ok: true, isNew, devCode: code }
+    accounts[account.uid] = account
+    write(K.accounts, accounts)
+    const pw = read<Passwords>(K.pw, {})
+    pw[uname] = password
+    write(K.pw, pw)
+    this.addToDirectory(account)
+    this.onboard(account)
+    this.sessionUid = account.uid
+    sessionStorage.setItem('fc:session', account.uid)
+    this.startPresence()
+    return { ok: true, account }
   }
 
-  async verifyCode(email: string, code: string): Promise<VerifyResult> {
-    email = email.trim().toLowerCase()
-    const codes = read<Codes>(K.codes, {})
-    const rec = codes[email]
-    if (!rec) return { ok: false, error: 'Сначала запросите код' }
-    if (Date.now() - rec.ts > 10 * 60_000) return { ok: false, error: 'Код истёк, запросите новый' }
-    if (rec.code !== code.trim()) return { ok: false, error: 'Неверный код' }
-
-    const accounts = this.accounts()
-    let account = Object.values(accounts).find((a) => a.email === email)
-    if (!account) {
-      const nextId = read<number>(K.counter, 1)
-      write(K.counter, nextId + 1)
-      account = {
-        numId: nextId,
-        uid: rid(),
-        username: rec.username || `user${nextId}`,
-        name: rec.name || rec.username || `Пользователь ${nextId}`,
-        email,
-        bio: '',
-        emoji: '🎀',
-        color: '#ff7ab8',
-        status: '',
-        verified: false,
-        isBot: false,
-        createdAt: Date.now(),
-        lastSeen: Date.now(),
-        settings: defaultSettings(),
-      }
-      accounts[account.uid] = account
-      write(K.accounts, accounts)
-      this.addToDirectory(account)
-      this.onboard(account)
-    }
-    delete codes[email]
-    write(K.codes, codes)
+  async login(username: string, password: string): Promise<AuthResult> {
+    const uname = normalizeUsername(username ?? '')
+    const account = Object.values(this.accounts()).find((a) => a.username === uname)
+    if (!account) return { ok: false, error: 'Аккаунт не найден. Зарегистрируйся 🎀' }
+    const pw = read<Passwords>(K.pw, {})
+    if (pw[uname] !== password) return { ok: false, error: 'Неверный ник или пароль 🥺' }
     this.sessionUid = account.uid
     sessionStorage.setItem('fc:session', account.uid)
     this.startPresence()

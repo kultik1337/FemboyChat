@@ -1,18 +1,21 @@
 import type { Account, Chat, Directory, Message, RealtimeEvent } from '../../types'
 import { defaultSettings } from '../defaults'
 import { normalizeUsername, uid as rid } from '../util'
-import type { Backend, RequestCodeResult, VerifyResult } from './types'
+import type { Backend, AuthResult } from './types'
 
 /**
  * Optional production backend backed by Supabase.
  *
  * It is only selected when VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY are set.
  *
- * Login is passwordless AND email-less: we use Supabase Anonymous sign-in, so a
- * user just picks a @username and is in instantly (no SMTP, no codes). Their
- * session is persisted per-browser. Realtime message streams come from Supabase.
+ * Auth is nickname + password. There is no e-mail step for the user: under the
+ * hood we map a @username to a synthetic address (`<username>@femboychat.fun`)
+ * and use Supabase's email/password auth, so the same account can be logged
+ * into again from any device. Realtime message streams come from Supabase.
  *
  * The SQL schema this expects lives in supabase/schema.sql.
+ * NOTE: "Confirm email" must be OFF in Supabase Auth settings so sign-up
+ * returns a session immediately (the synthetic addresses can't receive mail).
  */
 export class SupabaseBackend implements Backend {
   readonly mode = 'supabase' as const
@@ -48,42 +51,54 @@ export class SupabaseBackend implements Backend {
       .subscribe()
   }
 
-  // Passwordless + email-less: sign in anonymously and provision the profile.
-  // (The Auth UI calls this and, in supabase mode, finishes immediately.)
-  async requestCode(_email: string, username?: string, name?: string): Promise<RequestCodeResult> {
-    const uname = normalizeUsername(username ?? '')
-    if (!uname || uname.length < 3) {
-      return { ok: false, isNew: true, error: 'Юзернейм — минимум 3 символа (a-z, 0-9, _)' }
-    }
-    const { data: taken } = await this.client.from('profiles').select('uid').eq('username', uname).maybeSingle()
-    if (taken) return { ok: false, isNew: true, error: 'Этот юзернейм уже занят' }
-
-    const { data, error } = await this.client.auth.signInAnonymously({
-      options: { data: { username: uname, name: name ?? '' } },
-    })
-    if (error || !data?.user) {
-      return { ok: false, isNew: true, error: error?.message ?? 'Не удалось войти' }
-    }
-    this.account = await this.ensureProfile(data.user, uname, name)
-    // Refresh directory so the new user (and everyone else) resolves right away.
+  private emailFor(username: string) {
+    return `${username}@femboychat.fun`
+  }
+  private async refreshDirectory() {
     try {
-      const { data: dir } = await this.client.from('directory').select('*')
-      this.directoryCache = (dir ?? []).map(rowToDirectory)
+      const { data } = await this.client.from('directory').select('*')
+      this.directoryCache = (data ?? []).map(rowToDirectory)
     } catch {
       /* best effort */
     }
-    // devCode is only used by the demo UI; harmless sentinel here.
-    return { ok: true, isNew: true, devCode: '000000' }
   }
 
-  // With anonymous sign-in there is no real code — the session is already set
-  // by requestCode. Return the current account (restoring if needed).
-  async verifyCode(_email: string, _code: string): Promise<VerifyResult> {
-    if (this.account) return { ok: true, account: this.account }
-    const account = await this.restore()
-    return account
-      ? { ok: true, account }
-      : { ok: false, error: 'Сессия не найдена, попробуй ещё раз' }
+  // Register a brand-new account with a nickname + password.
+  async register(username: string, name: string, password: string): Promise<AuthResult> {
+    const uname = normalizeUsername(username ?? '')
+    if (!uname || uname.length < 3) return { ok: false, error: 'Ник — минимум 3 символа (a-z, 0-9, _)' }
+    if (!password || password.length < 6) return { ok: false, error: 'Пароль — минимум 6 символов' }
+    const { data: taken } = await this.client.from('profiles').select('uid').eq('username', uname).maybeSingle()
+    if (taken) return { ok: false, error: 'Этот ник уже занят, выбери другой 🥺' }
+
+    const { data, error } = await this.client.auth.signUp({
+      email: this.emailFor(uname),
+      password,
+      options: { data: { username: uname, name: name ?? '' } },
+    })
+    if (error) {
+      const m = (error.message ?? '').toLowerCase()
+      if (m.includes('registered') || m.includes('exists') || m.includes('already'))
+        return { ok: false, error: 'Этот ник уже занят, выбери другой 🥺' }
+      return { ok: false, error: error.message }
+    }
+    if (!data?.session || !data?.user) {
+      return { ok: false, error: 'Почти готово! Владельцу: выключи «Confirm email» в настройках Supabase Auth.' }
+    }
+    this.account = await this.ensureProfile(data.user, uname, name)
+    await this.refreshDirectory()
+    return { ok: true, account: this.account }
+  }
+
+  // Log back into an existing account with nickname + password.
+  async login(username: string, password: string): Promise<AuthResult> {
+    const uname = normalizeUsername(username ?? '')
+    if (!uname) return { ok: false, error: 'Введите ник' }
+    const { data, error } = await this.client.auth.signInWithPassword({ email: this.emailFor(uname), password })
+    if (error || !data?.user) return { ok: false, error: 'Неверный ник или пароль 🥺' }
+    this.account = await this.ensureProfile(data.user, uname)
+    await this.refreshDirectory()
+    return { ok: true, account: this.account }
   }
 
   private async ensureProfile(user: any, username: string, name?: string): Promise<Account> {
@@ -94,7 +109,7 @@ export class SupabaseBackend implements Backend {
       uid: user.id,
       username: uname,
       name: name || user.user_metadata?.name || uname,
-      email: null,
+      email: user.email ?? null,
       bio: '',
       emoji: '🎀',
       color: '#ff7ab8',
