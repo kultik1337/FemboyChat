@@ -28,5 +28,5 @@
    - Change Email — `Подтверди новую почту ✉️`
    - Invite — `Тебя пригласили в FemboyChat 🎀`
 
-Логотип в шапке письма грузится с `https://femboychat.fun/icon.png` — он уже
+Логотип в шапке письма грузится с `https://cdn.jsdelivr.net/gh/kultik1337/FemboyChat@main/icon.png` — он уже
 задеплоен, так что письма выглядят фирменно из коробки.
