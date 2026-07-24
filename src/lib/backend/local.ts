@@ -102,14 +102,18 @@ export class LocalBackend implements Backend {
     return this.sessionUid ? this.accounts()[this.sessionUid] : undefined
   }
 
-  // ── auth (nickname + password) ──
-  async register(username: string, name: string, password: string): Promise<AuthResult> {
+  // ── auth (e-mail + password; demo mode logs in immediately) ──
+  async register(email: string, username: string, name: string, password: string): Promise<AuthResult> {
     const uname = normalizeUsername(username ?? '')
+    const mail = (email ?? '').trim().toLowerCase()
+    if (!mail || !mail.includes('@')) return { ok: false, error: 'Введите корректный e-mail' }
     if (!uname || uname.length < 3) return { ok: false, error: 'Ник — минимум 3 символа (a-z, 0-9, _)' }
     if (!password || password.length < 6) return { ok: false, error: 'Пароль — минимум 6 символов' }
     const accounts = this.accounts()
     if (Object.values(accounts).some((a) => a.username === uname))
       return { ok: false, error: 'Этот ник уже занят, выбери другой 🥺' }
+    if (Object.values(accounts).some((a) => a.email === mail))
+      return { ok: false, error: 'На эту почту уже есть аккаунт — попробуй войти' }
 
     const nextId = read<number>(K.counter, 1)
     write(K.counter, nextId + 1)
@@ -118,7 +122,7 @@ export class LocalBackend implements Backend {
       uid: rid(),
       username: uname,
       name: name?.trim() || uname,
-      email: '',
+      email: mail,
       bio: '',
       emoji: '🎀',
       color: '#ff7ab8',
@@ -132,7 +136,7 @@ export class LocalBackend implements Backend {
     accounts[account.uid] = account
     write(K.accounts, accounts)
     const pw = read<Passwords>(K.pw, {})
-    pw[uname] = password
+    pw[mail] = password
     write(K.pw, pw)
     this.addToDirectory(account)
     this.onboard(account)
@@ -142,12 +146,12 @@ export class LocalBackend implements Backend {
     return { ok: true, account }
   }
 
-  async login(username: string, password: string): Promise<AuthResult> {
-    const uname = normalizeUsername(username ?? '')
-    const account = Object.values(this.accounts()).find((a) => a.username === uname)
+  async login(email: string, password: string): Promise<AuthResult> {
+    const mail = (email ?? '').trim().toLowerCase()
+    const account = Object.values(this.accounts()).find((a) => a.email === mail)
     if (!account) return { ok: false, error: 'Аккаунт не найден. Зарегистрируйся 🎀' }
     const pw = read<Passwords>(K.pw, {})
-    if (pw[uname] !== password) return { ok: false, error: 'Неверный ник или пароль 🥺' }
+    if (pw[mail] !== password) return { ok: false, error: 'Неверный e-mail или пароль 🥺' }
     this.sessionUid = account.uid
     sessionStorage.setItem('fc:session', account.uid)
     this.startPresence()
