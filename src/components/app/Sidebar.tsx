@@ -7,6 +7,7 @@ import { SearchResults } from './SearchResults'
 import { useActions } from './useActions'
 import { openContextMenu } from '../ui/ContextMenu'
 import { Logo } from '../ui/Logo'
+import { attachmentLabel } from '../../lib/media'
 import { classNames, timeShort } from '../../lib/util'
 import type { Chat } from '../../types'
 
@@ -49,9 +50,9 @@ export function Sidebar() {
     if (c.type === 'dm' || c.type === 'bot') {
       const other = chatCounterpart(c, account.uid)
       const p = other ? resolve(other) : null
-      return { title: p?.name ?? c.title, emoji: p?.emoji ?? c.emoji, color: p?.color ?? c.color, verified: p?.verified }
+      return { title: p?.name ?? c.title, emoji: p?.emoji ?? c.emoji, color: p?.color ?? c.color, avatarUrl: p?.avatarUrl, verified: p?.verified }
     }
-    return { title: c.title, emoji: c.emoji, color: c.color, verified: c.verified }
+    return { title: c.title, emoji: c.emoji, color: c.color, avatarUrl: undefined, verified: c.verified }
   }
 
   function previewText(c: Chat) {
@@ -61,7 +62,8 @@ export function Sidebar() {
     if (!p) return { text: c.description ?? 'Нет сообщений', typing: false }
     if (p.deleted) return { text: 'сообщение удалено', typing: false }
     const prefix = c.type === 'group' && p.senderUid !== account.uid ? `${resolve(p.senderUid).name.split(' ')[0]}: ` : ''
-    return { text: prefix + (p.sticker ? `${p.sticker} стикер` : p.text || 'вложение'), typing: false }
+    const body = p.sticker ? `${p.sticker} стикер` : p.attachment ? attachmentLabel(p.attachment) + (p.text ? ` · ${p.text}` : '') : p.text || 'вложение'
+    return { text: prefix + body, typing: false }
   }
 
   return (
@@ -149,7 +151,7 @@ export function Sidebar() {
                     active ? 'bg-[var(--panel-hover)]' : 'hover:bg-[var(--panel-hover)]',
                   )}
                 >
-                  <Avatar emoji={c.type === 'saved' ? '🔖' : v.emoji} color={v.color} size={50} online={c.type === 'dm' || c.type === 'bot' ? !!online : undefined} />
+                  <Avatar emoji={c.type === 'saved' ? '🔖' : v.emoji} color={v.color} src={c.type === 'saved' ? undefined : v.avatarUrl} size={50} online={c.type === 'dm' || c.type === 'bot' ? !!online : undefined} />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1">
                       <span className="truncate font-semibold">{c.type === 'saved' ? 'Избранное' : v.title}</span>
@@ -182,7 +184,7 @@ export function Sidebar() {
         onContextMenu={(e) => openContextMenu(e, [{ label: 'Настройки', onClick: () => setSettingsOpen(true) }, { label: 'Выйти / сменить аккаунт', danger: true, onClick: () => logout() }])}
         className="flex items-center gap-3 border-t border-[var(--border)] px-3 py-3 text-left hover:bg-[var(--panel-hover)]"
       >
-        <Avatar emoji={account.emoji} color={account.color} size={40} />
+        <Avatar emoji={account.emoji} color={account.color} src={account.avatarUrl} size={40} />
         <div className="min-w-0 flex-1">
           <div className="truncate font-semibold">{account.name}</div>
           <div className="truncate text-xs text-[var(--muted)]">@{account.username} · #{account.numId}</div>
