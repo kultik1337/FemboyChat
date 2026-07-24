@@ -54,7 +54,7 @@ export function SearchResults() {
 function ResultRow({ r, onClick, onContext }: { r: Directory; onClick: () => void; onContext: (e: React.MouseEvent) => void }) {
   return (
     <button onClick={onClick} onContextMenu={onContext} className="flex w-full items-center gap-3 rounded-2xl px-2.5 py-2 text-left hover:bg-[var(--panel-hover)]">
-      <Avatar emoji={r.emoji} color={r.color} size={46} online={r.kind === 'user' ? r.online : undefined} />
+      <Avatar emoji={r.emoji} color={r.color} src={r.avatarUrl} size={46} online={r.kind === 'user' ? r.online : undefined} />
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1">
           <span className="truncate font-semibold">{r.name}</span>
