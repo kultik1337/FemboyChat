@@ -27,20 +27,21 @@ export function Modal({
   if (!open) return null
   return (
     <div
-      className="fixed inset-0 z-50 grid place-items-center p-4"
+      className="fixed inset-0 z-50 grid place-items-stretch p-0 sm:place-items-center sm:p-4"
       style={{ background: 'rgba(10,6,14,0.45)', backdropFilter: 'blur(4px)' }}
       onMouseDown={onClose}
     >
       <div
         className={classNames(
-          'w-full rounded-3xl border border-[var(--border)] bg-[var(--panel)] shadow-2xl animate-pop-in',
-          wide ? 'max-w-2xl' : 'max-w-md',
+          'flex w-full flex-col overflow-hidden bg-[var(--panel)] shadow-2xl animate-pop-in',
+          'h-full rounded-none sm:h-auto sm:max-h-[90vh] sm:rounded-3xl sm:border sm:border-[var(--border)]',
+          wide ? 'sm:max-w-2xl' : 'sm:max-w-md',
         )}
         style={{ boxShadow: 'var(--shadow)' }}
         onMouseDown={(e) => e.stopPropagation()}
       >
         {title && (
-          <div className="flex items-center justify-between border-b border-[var(--border)] px-5 py-4">
+          <div className="flex shrink-0 items-center justify-between border-b border-[var(--border)] px-5 py-4">
             <h3 className="text-lg font-bold">{title}</h3>
             <button
               onClick={onClose}
@@ -50,7 +51,11 @@ export function Modal({
             </button>
           </div>
         )}
-        {flush ? children : <div className="fancy-scroll max-h-[75vh] overflow-y-auto p-5">{children}</div>}
+        {flush ? (
+          <div className="min-h-0 flex-1 sm:flex-none">{children}</div>
+        ) : (
+          <div className="fancy-scroll min-h-0 flex-1 overflow-y-auto p-5 sm:flex-none sm:max-h-[75vh]">{children}</div>
+        )}
       </div>
     </div>
   )

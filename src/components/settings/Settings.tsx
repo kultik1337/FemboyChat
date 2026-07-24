@@ -39,7 +39,7 @@ export function Settings() {
 
   return (
     <Modal open={open} onClose={() => setOpen(false)} title="Настройки" wide flush>
-      <div className="flex h-[68vh] min-h-0 flex-col md:flex-row">
+      <div className="flex h-full min-h-0 flex-col sm:h-[68vh] md:flex-row">
         <div className="no-scrollbar flex shrink-0 gap-1 overflow-x-auto border-b border-[var(--border)] p-2 md:w-52 md:flex-col md:overflow-y-auto md:border-b-0 md:border-r">
           {TABS.map((t) => (
             <button

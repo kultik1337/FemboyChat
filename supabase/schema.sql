@@ -287,3 +287,20 @@ for each row execute function public.fc_trigger_femboy();
 
 -- ── Seed community (people, communities, FemboyAI bot) — see repo history ──
 -- (Seeded separately; FemboyAI bot uid = 00000000-0000-4000-8000-000000000002)
+
+-- ── KisKis<3 : roleplay-action bot (uid ...003) ───────────────────────────
+-- A second bot that lives in every group. Reply to someone's message with an
+-- action word (обнять, поцеловать, трахнуть, …) and KisKis announces it. DM it
+-- "/comands" for the full list. Applied via migration `kiskis_rp_bot`.
+--
+--   profiles: uid '00000000-0000-4000-8000-000000000003', username 'kiskis',
+--             name 'KisKis<3', is_bot = true.
+--
+--   table public.kiskis_actions(key pk, phrase, emoji, category, sort)  -- dictionary
+--   fn   public.fc_kiskis_help() -> text                                -- /comands list
+--   fn   public.fc_group_defaults() + trigger fc_group_defaults (BEFORE INSERT on chats):
+--        new groups auto-add their creator (member+admin) and KisKis; sets member_count.
+--   fn   public.fc_trigger_kiskis() + trigger fc_kiskis_reply (AFTER INSERT on messages):
+--        - in the KisKis DM, "/comands" (comands|команды|help|…) -> posts the action list;
+--        - a reply whose text equals an action key -> posts "<actor> <phrase> <target> <emoji>".
+--   All existing groups had KisKis appended to member_uids.

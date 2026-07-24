@@ -47,8 +47,8 @@ interface StoreState {
   // actions
   boot: () => Promise<void>
   goto: (r: Route) => void
-  requestCode: (email: string, username?: string, name?: string) => ReturnType<Backend['requestCode']>
-  verifyCode: (email: string, code: string) => Promise<boolean>
+  register: (username: string, name: string, password: string) => Promise<boolean>
+  login: (username: string, password: string) => Promise<boolean>
   logout: () => Promise<void>
   patchSettings: (patch: Partial<UserSettings>) => Promise<void>
   patchProfile: (patch: Partial<Account>) => Promise<void>
@@ -135,12 +135,19 @@ export const useStore = create<StoreState>((set, get) => ({
     set({ route })
   },
 
-  requestCode(email, username, name) {
-    return get().backend!.requestCode(email, username, name)
+  async register(username, name, password) {
+    const res = await get().backend!.register(username, name, password)
+    if (res.ok && res.account) {
+      set({ account: res.account, route: 'app', directory: get().backend!.getDirectoryList() })
+      await get().refreshChats()
+      return true
+    }
+    if (res.error) get().toast(res.error, '⚠️')
+    return false
   },
 
-  async verifyCode(email, code) {
-    const res = await get().backend!.verifyCode(email, code)
+  async login(username, password) {
+    const res = await get().backend!.login(username, password)
     if (res.ok && res.account) {
       set({ account: res.account, route: 'app', directory: get().backend!.getDirectoryList() })
       await get().refreshChats()
