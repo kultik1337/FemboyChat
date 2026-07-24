@@ -14,7 +14,7 @@ export interface SlashSpec {
 /** Commands surfaced in the autocomplete popover (typing "/"). */
 export const SLASH_COMMANDS: SlashSpec[] = [
   { name: 'me', hint: '/me <действие>', desc: 'Сообщение-действие от третьего лица', emoji: '🎭' },
-  { name: 'shrug', hint: '/shrug', desc: 'Добавить ¯\\\\_(ツ)_/¯', emoji: '🤷' },
+  { name: 'shrug', hint: '/shrug', desc: 'Добавить ¯\\_(ツ)_/¯', emoji: '🤷' },
   { name: 'party', hint: '/party', desc: 'Конфетти на весь экран', emoji: '🎉' },
   { name: 'rain', hint: '/rain', desc: 'Дождь из сердечек', emoji: '💗' },
   { name: 'roll', hint: '/roll [грани]', desc: 'Бросить кубик', emoji: '🎲' },
@@ -67,7 +67,7 @@ export function runCommand(raw: string, selfName: string): CommandOutput | null 
       if (!arg) return null
       return { text: `*${selfName} ${arg}*` }
     case 'shrug':
-      return { text: `${arg} ¯\\\\_(ツ)_/¯`.trim() }
+      return { text: `${arg} ¯\\_(ツ)_/¯`.trim() }
     case 'party':
       return { text: arg || '🎉 вечеринка!', effect: 'confetti' }
     case 'rain':
