@@ -1,14 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowDown, ArrowLeft, ChevronDown, ChevronUp, Info, Pin, Search, X } from 'lucide-react'
+import { ArrowDown, ArrowLeft, ChevronDown, ChevronUp, Info, Paperclip, Pin, Search, X } from 'lucide-react'
 import { useStore } from '../../store/useStore'
 import { Avatar } from '../ui/Avatar'
 import { Logo } from '../ui/Logo'
-import { Ambient } from '../ui/Ambient'
 import { MessageBubble } from './MessageBubble'
 import { Composer } from './Composer'
 import { chatCounterpart, usePeople } from './people'
 import { useActions } from './useActions'
 import { openContextMenu } from '../ui/ContextMenu'
+import { attachmentLabel } from '../../lib/media'
 import { classNames, dayLabel, lastSeenLabel } from '../../lib/util'
 
 export function ChatView() {
@@ -34,8 +34,10 @@ export function ChatView() {
   const [searchOpen, setSearchOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [matchIdx, setMatchIdx] = useState(0)
+  const [dragOver, setDragOver] = useState(false)
+  const dragDepth = useRef(0)
+  const addPendingFiles = useStore((s) => s.addPendingFiles)
   const wallpaper = account.settings.wallpaper
-  const ambient = account.settings.ambient
 
   useEffect(() => {
     openedAt.current = Date.now()
@@ -130,15 +132,50 @@ export function ChatView() {
 
   const headerMenu = (e: React.MouseEvent) => openContextMenu(e, counterpartUid ? personMenu(counterpartUid) : chatMenu(chat))
 
+  function onDragEnter(e: React.DragEvent) {
+    if (!canPost || !e.dataTransfer.types.includes('Files')) return
+    e.preventDefault()
+    dragDepth.current += 1
+    setDragOver(true)
+  }
+  function onDragLeave(e: React.DragEvent) {
+    e.preventDefault()
+    dragDepth.current = Math.max(0, dragDepth.current - 1)
+    if (dragDepth.current === 0) setDragOver(false)
+  }
+  function onDrop(e: React.DragEvent) {
+    e.preventDefault()
+    dragDepth.current = 0
+    setDragOver(false)
+    if (!canPost) return
+    const files = Array.from(e.dataTransfer.files ?? [])
+    if (files.length) addPendingFiles(files)
+  }
+
   return (
-    <div className="flex h-full flex-col">
+    <div
+      className="relative flex h-full flex-col"
+      onDragEnter={onDragEnter}
+      onDragOver={(e) => e.dataTransfer.types.includes('Files') && e.preventDefault()}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+    >
+      {dragOver && (
+        <div className="pointer-events-none absolute inset-2 z-30 grid place-items-center rounded-3xl border-2 border-dashed border-[var(--accent)] bg-[var(--panel)]/80 backdrop-blur-sm">
+          <div className="flex flex-col items-center gap-2 text-center">
+            <Paperclip size={34} className="text-[var(--accent)]" />
+            <div className="font-bold">Отпусти, чтобы прикрепить</div>
+            <div className="text-sm text-[var(--muted)]">Фото, видео и файлы улетят в этот чат 🎀</div>
+          </div>
+        </div>
+      )}
       {/* header */}
       <div className="flex items-center gap-3 border-b border-[var(--border)] bg-[var(--panel)] px-3 py-2.5" onContextMenu={headerMenu}>
         <button onClick={() => openChat('')} className="grid h-9 w-9 place-items-center rounded-full hover:bg-[var(--panel-hover)] md:hidden">
           <ArrowLeft size={20} />
         </button>
         <button onClick={() => (counterpartUid ? setProfileUid(counterpartUid) : setRightPanel(true))} className="flex min-w-0 flex-1 items-center gap-3 text-left">
-          <Avatar emoji={headerVisual.emoji} color={headerVisual.color} size={42} online={counterpartUid ? presence[counterpartUid]?.online : undefined} />
+          <Avatar emoji={headerVisual.emoji} color={headerVisual.color} src={counterpart?.avatarUrl} size={42} online={counterpartUid ? presence[counterpartUid]?.online : undefined} />
           <div className="min-w-0">
             <div className="flex items-center gap-1 font-bold">
               <span className="truncate">{headerVisual.title}</span>
@@ -181,14 +218,13 @@ export function ChatView() {
           <Pin size={15} className="text-[var(--accent)]" />
           <div className="min-w-0 flex-1">
             <div className="text-[11px] font-bold text-[var(--accent)]">Закреплённое{pinned.length > 1 ? ` · ${pinned.length}` : ''}</div>
-            <div className="truncate text-[var(--muted)]">{pinned[pinned.length - 1].sticker ? 'стикер' : pinned[pinned.length - 1].text}</div>
+            <div className="truncate text-[var(--muted)]">{pinned[pinned.length - 1].sticker ? 'стикер' : pinned[pinned.length - 1].attachment ? attachmentLabel(pinned[pinned.length - 1].attachment) : pinned[pinned.length - 1].text}</div>
           </div>
         </button>
       )}
 
       {/* messages */}
       <div className="relative min-h-0 flex-1">
-        <Ambient kind={ambient} />
         <div ref={scroller} onScroll={onScroll} onClick={onScrollerClick} className={classNames('relative z-[2] h-full overflow-y-auto py-3 fancy-scroll', `wallpaper-${wallpaper}`)}>
           {visibleMsgs.length === 0 && (
             <div className="mt-16 flex flex-col items-center gap-2 text-center text-[var(--muted)]">
