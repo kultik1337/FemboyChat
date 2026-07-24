@@ -6,7 +6,7 @@ import { ChatView } from './ChatView'
 import { RightPanel } from './RightPanel'
 import { Settings } from '../settings/Settings'
 import { NewChatModal } from './NewChatModal'
-import { EffectsLayer } from '../ui/EffectsLayer'
+import { Lightbox } from '../ui/Lightbox'
 import { classNames } from '../../lib/util'
 
 export function AppShell() {
@@ -21,7 +21,7 @@ export function AppShell() {
     document.title = total > 0 ? `(${total}) FemboyChat 🎀` : 'FemboyChat 🎀 — тёплый мессенджер'
   }, [unread])
 
-  // ⌘/Ctrl+K → focus search · Konami code → confetti easter egg
+  // ⌘/Ctrl+K → focus search · Konami code → easter egg
   useEffect(() => {
     const KONAMI = ['arrowup', 'arrowup', 'arrowdown', 'arrowdown', 'arrowleft', 'arrowright', 'arrowleft', 'arrowright', 'b', 'a']
     let seq: string[] = []
@@ -33,8 +33,7 @@ export function AppShell() {
       }
       seq = [...seq, e.key.toLowerCase()].slice(-KONAMI.length)
       if (seq.length === KONAMI.length && KONAMI.every((k, i) => seq[i] === k)) {
-        useStore.getState().playEffect('confetti')
-        useStore.getState().toast('Пасхалка активирована! 🎀', '🕹️')
+        useStore.getState().toast('Пасхалка активирована! Ня~ 🎀', '🕹️')
         seq = []
       }
     }
@@ -66,7 +65,7 @@ export function AppShell() {
       <RightPanel />
       <Settings />
       <NewChatModal />
-      <EffectsLayer />
+      <Lightbox />
     </div>
   )
 }
