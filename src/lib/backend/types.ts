@@ -1,13 +1,6 @@
 import type { Account, Chat, Directory, Message, RealtimeEvent } from '../../types'
 
-export interface RequestCodeResult {
-  ok: boolean
-  isNew: boolean
-  devCode?: string // only returned in local/demo mode
-  error?: string
-}
-
-export interface VerifyResult {
+export interface AuthResult {
   ok: boolean
   account?: Account
   error?: string
@@ -17,9 +10,9 @@ export interface Backend {
   readonly mode: 'local' | 'supabase'
   init(): Promise<void>
 
-  // auth (passwordless, email code)
-  requestCode(email: string, username?: string, name?: string): Promise<RequestCodeResult>
-  verifyCode(email: string, code: string): Promise<VerifyResult>
+  // auth (nickname + password)
+  register(username: string, name: string, password: string): Promise<AuthResult>
+  login(username: string, password: string): Promise<AuthResult>
   restore(): Promise<Account | null>
   logout(): Promise<void>
   updateAccount(patch: Partial<Account>): Promise<Account>
