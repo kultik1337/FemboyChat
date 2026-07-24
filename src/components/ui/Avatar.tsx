@@ -1,34 +1,54 @@
+import { useState } from 'react'
 import { classNames } from '../../lib/util'
 
 export function Avatar({
   emoji,
   color,
+  src,
   size = 44,
   online,
   ring,
 }: {
   emoji: string
   color: string
+  /** Custom uploaded avatar image; falls back to the emoji tile when missing/broken. */
+  src?: string | null
   size?: number
   online?: boolean
   ring?: boolean
 }) {
+  const [broken, setBroken] = useState(false)
+  const showImage = !!src && !broken
   return (
     <div className="relative shrink-0" style={{ width: size, height: size }}>
-      <div
-        className={classNames(
-          'grid place-items-center rounded-full text-white select-none',
-          ring && 'ring-2 ring-[var(--accent)] ring-offset-2 ring-offset-[var(--panel)]',
-        )}
-        style={{
-          width: size,
-          height: size,
-          fontSize: size * 0.5,
-          background: `linear-gradient(135deg, ${color}, ${shift(color)})`,
-        }}
-      >
-        <span>{emoji}</span>
-      </div>
+      {showImage ? (
+        <img
+          src={src!}
+          alt=""
+          draggable={false}
+          onError={() => setBroken(true)}
+          className={classNames(
+            'rounded-full object-cover select-none',
+            ring && 'ring-2 ring-[var(--accent)] ring-offset-2 ring-offset-[var(--panel)]',
+          )}
+          style={{ width: size, height: size }}
+        />
+      ) : (
+        <div
+          className={classNames(
+            'grid place-items-center rounded-full text-white select-none',
+            ring && 'ring-2 ring-[var(--accent)] ring-offset-2 ring-offset-[var(--panel)]',
+          )}
+          style={{
+            width: size,
+            height: size,
+            fontSize: size * 0.5,
+            background: `linear-gradient(135deg, ${color}, ${shift(color)})`,
+          }}
+        >
+          <span>{emoji}</span>
+        </div>
+      )}
       {online !== undefined && (
         <span
           className={classNames(
