@@ -6,7 +6,7 @@
   "description": "FemboyChat — современный real-time мессенджер для РУ-сегмента (Telegram-подобный аналог).",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "vite build && cp icon.png dist/icon.png",
     "typecheck": "tsc --noEmit",
     "verify": "tsx scripts/verify.ts",
     "preview": "vite preview"
