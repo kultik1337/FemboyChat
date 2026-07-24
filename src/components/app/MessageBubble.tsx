@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Check, CheckCheck, Clock, CornerUpLeft, MoreHorizontal, Smile } from 'lucide-react'
 import type { Chat, Message } from '../../types'
 import { classNames, renderRich, timeShort } from '../../lib/util'
@@ -14,25 +15,29 @@ export function MessageBubble({
   chat,
   isMine,
   sender,
-  showName,
+  firstOfGroup,
   showAvatar,
   repliedMessage,
   repliedSender,
   now,
   bigEmoji,
   otherUid,
+  fresh,
+  onJump,
 }: {
   message: Message
   chat: Chat
   isMine: boolean
   sender: Person
-  showName: boolean
+  firstOfGroup: boolean
   showAvatar: boolean
   repliedMessage?: Message
   repliedSender?: Person
   now: number
   bigEmoji: boolean
   otherUid?: string
+  fresh?: boolean
+  onJump?: (id: string) => void
 }) {
   const react = useStore((s) => s.react)
   const vote = useStore((s) => s.vote)
@@ -40,10 +45,18 @@ export function MessageBubble({
   const setProfileUid = useStore((s) => s.setProfileUid)
   const setComposeReply = useStore((s) => s.setComposeReply)
   const { messageMenu } = useActions()
+  const [pop, setPop] = useState(false)
 
   function openMenu(e: React.MouseEvent) {
     const { items, reactions } = messageMenu(message)
     openContextMenu(e, items, { reactions })
+  }
+
+  function quickReact() {
+    if (message.deleted || message.system) return
+    react(message.id, '❤️')
+    setPop(true)
+    setTimeout(() => setPop(false), 700)
   }
 
   if (message.system) {
@@ -57,11 +70,23 @@ export function MessageBubble({
   const ttlLeft = message.ttl ? Math.max(0, Math.ceil((message.ts + message.ttl * 1000 - now) / 1000)) : 0
   const read = otherUid ? message.readByUids.includes(otherUid) : message.readByUids.length > 1
   const big = bigEmoji && !message.sticker && emojiOnly(message.text)
+  const showName = firstOfGroup && !isMine && chat.type === 'group'
+
+  // Telegram-style stacked corners: tighten the corner on the sender's side
+  // between consecutive messages, keep the outer "tail" corners round.
+  const R = 'var(--radius-bubble)'
+  const tight = '7px'
+  const near = { top: firstOfGroup ? R : tight, bot: showAvatar ? R : tight }
+  const radius = isMine
+    ? `${R} ${near.top} ${near.bot} ${R}`
+    : `${near.top} ${R} ${R} ${near.bot}`
 
   return (
     <div
-      className={classNames('group flex gap-2 px-3 sm:px-4', isMine ? 'flex-row-reverse' : 'flex-row', showAvatar ? 'mt-4' : 'mt-1.5')}
+      id={`msg-${message.id}`}
+      className={classNames('group flex gap-2 px-3 sm:px-4', isMine ? 'flex-row-reverse' : 'flex-row', firstOfGroup ? 'mt-4' : 'mt-1', fresh && 'animate-fade-in')}
       onContextMenu={message.deleted ? undefined : openMenu}
+      onDoubleClick={quickReact}
     >
       {!isMine && chat.type === 'group' ? (
         showAvatar ? (
@@ -76,6 +101,7 @@ export function MessageBubble({
       ) : null}
 
       <div className={classNames('relative max-w-[76%] sm:max-w-[68%]', isMine ? 'items-end' : 'items-start')}>
+        {pop && <span className="heart-pop">❤️</span>}
         {message.sticker ? (
           <div className={classNames('flex', isMine ? 'justify-end' : 'justify-start')}>
             <Sticker emoji={message.sticker} size={124} />
@@ -83,27 +109,31 @@ export function MessageBubble({
         ) : message.deleted ? (
           <div className="rounded-2xl border border-[var(--border)] px-3.5 py-2 text-sm italic text-[var(--muted)]">сообщение удалено</div>
         ) : big ? (
-          <div className={classNames('text-5xl leading-tight', isMine ? 'text-right' : 'text-left')}>{message.text}</div>
+          <div className={classNames('text-5xl leading-tight', isMine ? 'text-right' : 'text-left', fresh && 'jumbo-in')}>{message.text}</div>
         ) : (
           <div
             className="relative px-3.5 py-2 text-[0.95rem] leading-relaxed shadow-sm"
             style={{
-              borderRadius: 'var(--radius-bubble)',
+              borderRadius: radius,
               background: isMine ? 'var(--bubble-out)' : 'var(--bubble-in)',
               color: isMine ? 'var(--bubble-out-text)' : 'var(--bubble-in-text)',
             }}
           >
-            {showName && !isMine && chat.type === 'group' && (
+            {showName && (
               <button onClick={() => setProfileUid(sender.uid)} className="mb-0.5 block text-xs font-bold" style={{ color: sender.color }}>
                 {sender.name}
               </button>
             )}
             {message.forwardedFrom && <div className="mb-0.5 text-[11px] opacity-70">↪ переслано</div>}
             {repliedMessage && (
-              <div className="mb-1 border-l-2 pl-2 text-[0.8rem] opacity-90" style={{ borderColor: isMine ? 'rgba(255,255,255,0.7)' : 'var(--accent)' }}>
+              <button
+                onClick={() => onJump?.(repliedMessage.id)}
+                className="mb-1 block w-full border-l-2 pl-2 text-left text-[0.8rem] opacity-90 transition hover:opacity-100"
+                style={{ borderColor: isMine ? 'rgba(255,255,255,0.7)' : 'var(--accent)' }}
+              >
                 <div className="font-semibold">{repliedSender?.name ?? 'Сообщение'}</div>
-                <div className="truncate opacity-80">{repliedMessage.sticker ? 'стикер' : repliedMessage.text}</div>
-              </div>
+                <div className="truncate opacity-80">{repliedMessage.deleted ? 'сообщение удалено' : repliedMessage.sticker ? 'стикер' : repliedMessage.text}</div>
+              </button>
             )}
 
             {message.poll ? (

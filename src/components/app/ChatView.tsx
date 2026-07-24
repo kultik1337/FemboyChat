@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useRef } from 'react'
-import { ArrowLeft, Info, Pin, Search } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { ArrowDown, ArrowLeft, ChevronDown, ChevronUp, Info, Pin, Search, X } from 'lucide-react'
 import { useStore } from '../../store/useStore'
 import { Avatar } from '../ui/Avatar'
 import { Logo } from '../ui/Logo'
+import { Ambient } from '../ui/Ambient'
 import { MessageBubble } from './MessageBubble'
 import { Composer } from './Composer'
 import { chatCounterpart, usePeople } from './people'
@@ -18,7 +19,6 @@ export function ChatView() {
   const typing = useStore((s) => s.typing)
   const presence = useStore((s) => s.presence)
   const now = useStore((s) => s.now)
-  const toast = useStore((s) => s.toast)
   const setRightPanel = useStore((s) => s.setRightPanel)
   const setProfileUid = useStore((s) => s.setProfileUid)
   const openChat = useStore((s) => s.openChat)
@@ -28,18 +28,75 @@ export function ChatView() {
   const chat = chats.find((c) => c.id === activeChatId) ?? null
   const msgs = activeChatId ? messages[activeChatId] ?? [] : []
   const scroller = useRef<HTMLDivElement>(null)
+  const atBottomRef = useRef(true)
+  const openedAt = useRef(Date.now())
+  const [atBottom, setAtBottom] = useState(true)
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const [matchIdx, setMatchIdx] = useState(0)
   const wallpaper = account.settings.wallpaper
+  const ambient = account.settings.ambient
+
+  useEffect(() => {
+    openedAt.current = Date.now()
+    setSearchOpen(false)
+    setQuery('')
+    const el = scroller.current
+    if (el) el.scrollTop = el.scrollHeight
+    atBottomRef.current = true
+    setAtBottom(true)
+  }, [activeChatId])
 
   useEffect(() => {
     const el = scroller.current
-    if (el) el.scrollTop = el.scrollHeight
-  }, [msgs.length, activeChatId])
+    if (el && atBottomRef.current) el.scrollTop = el.scrollHeight
+  }, [msgs.length])
+
+  function onScroll() {
+    const el = scroller.current
+    if (!el) return
+    const bottom = el.scrollHeight - el.scrollTop - el.clientHeight < 90
+    atBottomRef.current = bottom
+    setAtBottom(bottom)
+  }
+
+  function scrollToBottom() {
+    const el = scroller.current
+    if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+  }
+
+  function jumpTo(id: string) {
+    const el = document.getElementById(`msg-${id}`)
+    if (!el) return
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    el.classList.remove('msg-flash')
+    void el.offsetWidth
+    el.classList.add('msg-flash')
+    setTimeout(() => el.classList.remove('msg-flash'), 1500)
+  }
+
+  function onScrollerClick(e: React.MouseEvent) {
+    const t = (e.target as HTMLElement).closest('.spoiler')
+    if (t) t.classList.toggle('revealed')
+  }
 
   const visibleMsgs = useMemo(
     () => msgs.filter((m) => !(m.ttl && now > m.ts + m.ttl * 1000 && m.senderUid !== account.uid) || !m.ttl),
     [msgs, now, account.uid],
   )
   const pinned = useMemo(() => msgs.filter((m) => m.pinned && !m.deleted), [msgs])
+
+  const matches = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    if (!q) return [] as string[]
+    return msgs.filter((m) => !m.deleted && m.text.toLowerCase().includes(q)).map((m) => m.id)
+  }, [query, msgs])
+
+  useEffect(() => {
+    if (!matches.length) return
+    const idx = Math.min(matchIdx, matches.length - 1)
+    jumpTo(matches[matches.length - 1 - idx])
+  }, [matches, matchIdx])
 
   if (!chat) return <EmptyState />
 
@@ -90,7 +147,7 @@ export function ChatView() {
             <div className={classNames('truncate text-xs', sub.accent ? 'text-[var(--accent)]' : 'text-[var(--muted)]')}>{sub.text}</div>
           </div>
         </button>
-        <button className="grid h-9 w-9 place-items-center rounded-full text-[var(--muted)] hover:bg-[var(--panel-hover)]" title="Поиск (демо)" onClick={() => toast('Поиск по чату скоро ✨')}>
+        <button onClick={() => setSearchOpen((v) => !v)} className={classNames('grid h-9 w-9 place-items-center rounded-full hover:bg-[var(--panel-hover)]', searchOpen ? 'text-[var(--accent)]' : 'text-[var(--muted)]')} title="Поиск по чату">
           <Search size={19} />
         </button>
         <button onClick={(e) => (counterpartUid ? openContextMenu(e, personMenu(counterpartUid)) : openContextMenu(e, chatMenu(chat)))} className="grid h-9 w-9 place-items-center rounded-full text-[var(--muted)] hover:bg-[var(--panel-hover)]" title="Действия">
@@ -98,62 +155,102 @@ export function ChatView() {
         </button>
       </div>
 
+      {/* in-chat search */}
+      {searchOpen && (
+        <div className="flex items-center gap-2 border-b border-[var(--border)] bg-[var(--panel-2)] px-3 py-2">
+          <Search size={16} className="text-[var(--muted)]" />
+          <input
+            autoFocus
+            value={query}
+            onChange={(e) => { setQuery(e.target.value); setMatchIdx(0) }}
+            placeholder="Найти в этом чате…"
+            className="flex-1 bg-transparent text-sm outline-none"
+          />
+          {query && (
+            <span className="shrink-0 text-xs text-[var(--muted)]">{matches.length ? `${matchIdx + 1} из ${matches.length}` : 'ничего'}</span>
+          )}
+          <button disabled={!matches.length} onClick={() => setMatchIdx((i) => (i + 1) % matches.length)} className="grid h-7 w-7 place-items-center rounded-full hover:bg-[var(--panel-hover)] disabled:opacity-40" title="Предыдущее"><ChevronUp size={16} /></button>
+          <button disabled={!matches.length} onClick={() => setMatchIdx((i) => (i - 1 + matches.length) % matches.length)} className="grid h-7 w-7 place-items-center rounded-full hover:bg-[var(--panel-hover)] disabled:opacity-40" title="Следующее"><ChevronDown size={16} /></button>
+          <button onClick={() => { setSearchOpen(false); setQuery('') }} className="grid h-7 w-7 place-items-center rounded-full hover:bg-[var(--panel-hover)]"><X size={16} /></button>
+        </div>
+      )}
+
       {/* pinned banner */}
       {pinned.length > 0 && (
-        <div className="flex items-center gap-2 border-b border-[var(--border)] bg-[var(--panel-2)] px-4 py-2 text-sm">
+        <button onClick={() => jumpTo(pinned[pinned.length - 1].id)} className="flex w-full items-center gap-2 border-b border-[var(--border)] bg-[var(--panel-2)] px-4 py-2 text-left text-sm hover:bg-[var(--panel-hover)]">
           <Pin size={15} className="text-[var(--accent)]" />
           <div className="min-w-0 flex-1">
             <div className="text-[11px] font-bold text-[var(--accent)]">Закреплённое{pinned.length > 1 ? ` · ${pinned.length}` : ''}</div>
             <div className="truncate text-[var(--muted)]">{pinned[pinned.length - 1].sticker ? 'стикер' : pinned[pinned.length - 1].text}</div>
           </div>
-        </div>
+        </button>
       )}
 
       {/* messages */}
-      <div ref={scroller} className={classNames('flex-1 overflow-y-auto py-3 fancy-scroll', `wallpaper-${wallpaper}`)}>
-        {visibleMsgs.length === 0 && (
-          <div className="mt-16 flex flex-col items-center gap-2 text-center text-[var(--muted)]">
-            <div className="text-5xl">{headerVisual.emoji}</div>
-            <p className="font-semibold">Пока нет сообщений</p>
-            <p className="text-sm">Напиши первым — это всегда приятно 🎀</p>
-          </div>
-        )}
-        {visibleMsgs.map((m, i) => {
-          const prev = visibleMsgs[i - 1]
-          const newDay = !prev || dayLabel(prev.ts) !== dayLabel(m.ts)
-          const grouped = !newDay && prev && prev.senderUid === m.senderUid && m.ts - prev.ts < 5 * 60_000 && !prev.system
-          const sender = resolve(m.senderUid)
-          const replied = m.replyToId ? msgs.find((x) => x.id === m.replyToId) : undefined
-          return (
-            <div key={m.id}>
-              {newDay && (
-                <div className="my-3 flex justify-center">
-                  <span className="rounded-full bg-[var(--panel)] px-3 py-1 text-xs font-semibold text-[var(--muted)] shadow-sm">{dayLabel(m.ts)}</span>
-                </div>
-              )}
-              <MessageBubble
-                message={m}
-                chat={chat}
-                isMine={m.senderUid === account.uid}
-                sender={sender}
-                showName={!grouped}
-                showAvatar={!grouped}
-                repliedMessage={replied}
-                repliedSender={replied ? resolve(replied.senderUid) : undefined}
-                now={now}
-                bigEmoji={account.settings.bigEmoji}
-                otherUid={counterpartUid}
-              />
+      <div className="relative min-h-0 flex-1">
+        <Ambient kind={ambient} />
+        <div ref={scroller} onScroll={onScroll} onClick={onScrollerClick} className={classNames('relative z-[2] h-full overflow-y-auto py-3 fancy-scroll', `wallpaper-${wallpaper}`)}>
+          {visibleMsgs.length === 0 && (
+            <div className="mt-16 flex flex-col items-center gap-2 text-center text-[var(--muted)]">
+              <div className="text-5xl">{headerVisual.emoji}</div>
+              <p className="font-semibold">Пока нет сообщений</p>
+              <p className="text-sm">Напиши первым — это всегда приятно 🎀</p>
             </div>
-          )
-        })}
+          )}
+          {visibleMsgs.map((m, i) => {
+            const prev = visibleMsgs[i - 1]
+            const next = visibleMsgs[i + 1]
+            const newDay = !prev || dayLabel(prev.ts) !== dayLabel(m.ts)
+            const win = 5 * 60_000
+            const firstOfGroup = newDay || !prev || prev.senderUid !== m.senderUid || m.ts - prev.ts >= win || !!prev.system
+            const lastOfGroup =
+              !next || next.senderUid !== m.senderUid || next.ts - m.ts >= win || !!next.system || dayLabel(next.ts) !== dayLabel(m.ts)
+            const sender = resolve(m.senderUid)
+            const replied = m.replyToId ? msgs.find((x) => x.id === m.replyToId) : undefined
+            return (
+              <div key={m.id}>
+                {newDay && (
+                  <div className="my-3 flex justify-center">
+                    <span className="rounded-full bg-[var(--panel)] px-3 py-1 text-xs font-semibold text-[var(--muted)] shadow-sm">{dayLabel(m.ts)}</span>
+                  </div>
+                )}
+                <MessageBubble
+                  message={m}
+                  chat={chat}
+                  isMine={m.senderUid === account.uid}
+                  sender={sender}
+                  firstOfGroup={firstOfGroup}
+                  showAvatar={lastOfGroup}
+                  repliedMessage={replied}
+                  repliedSender={replied ? resolve(replied.senderUid) : undefined}
+                  now={now}
+                  bigEmoji={account.settings.bigEmoji}
+                  otherUid={counterpartUid}
+                  fresh={account.settings.animations && m.ts > openedAt.current}
+                  onJump={jumpTo}
+                />
+              </div>
+            )
+          })}
 
-        {typers.length > 0 && (
-          <div className="px-4 py-1">
-            <span className="inline-flex items-center gap-1 rounded-2xl bg-[var(--bubble-in)] px-3 py-2 shadow-sm">
-              <Dot /> <Dot /> <Dot />
-            </span>
-          </div>
+          {typers.length > 0 && (
+            <div className="px-4 py-1">
+              <span className="inline-flex items-center gap-1 rounded-2xl bg-[var(--bubble-in)] px-3 py-2 shadow-sm">
+                <Dot /> <Dot /> <Dot />
+              </span>
+            </div>
+          )}
+        </div>
+
+        {!atBottom && (
+          <button
+            onClick={scrollToBottom}
+            className="absolute bottom-4 right-4 z-[3] grid h-11 w-11 place-items-center rounded-full border border-[var(--border)] bg-[var(--panel)] text-[var(--text)] shadow-lg transition hover:scale-105 active:scale-95"
+            style={{ boxShadow: 'var(--shadow)' }}
+            title="Вниз"
+          >
+            <ArrowDown size={20} />
+          </button>
         )}
       </div>
 

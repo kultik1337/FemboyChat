@@ -236,10 +236,111 @@ body {
   background-clip: content-box;
 }
 
+/* ───────────────────────── Rich text extras ───────────────────────── */
+.spoiler {
+  background: color-mix(in srgb, var(--muted) 55%, transparent);
+  color: transparent;
+  border-radius: 6px;
+  padding: 0 3px;
+  cursor: pointer;
+  filter: blur(0.4px);
+  transition: color 0.15s, background 0.15s, filter 0.15s;
+  user-select: none;
+}
+.spoiler.revealed {
+  background: color-mix(in srgb, var(--muted) 16%, transparent);
+  color: inherit;
+  filter: none;
+  user-select: text;
+}
+.mention {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+/* ───────────────────────── Message niceties ───────────────────────── */
+@keyframes msg-flash {
+  0%, 100% { background: transparent; }
+  25% { background: color-mix(in srgb, var(--accent) 26%, transparent); }
+}
+.msg-flash {
+  animation: msg-flash 1.4s ease-out;
+  border-radius: 18px;
+}
+@keyframes heart-pop {
+  0% { transform: translate(-50%, -50%) scale(0.2); opacity: 0; }
+  30% { opacity: 1; }
+  100% { transform: translate(-50%, -180%) scale(1.5); opacity: 0; }
+}
+.heart-pop {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  pointer-events: none;
+  font-size: 40px;
+  animation: heart-pop 0.7s ease-out forwards;
+  z-index: 5;
+}
+@keyframes jumbo-in {
+  0% { transform: scale(0.4) rotate(-8deg); opacity: 0; }
+  70% { transform: scale(1.08) rotate(2deg); }
+  100% { transform: scale(1) rotate(0); opacity: 1; }
+}
+.jumbo-in {
+  animation: jumbo-in 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+  transform-origin: bottom;
+}
+
+/* ───────────────────────── Full-screen effects ───────────────────────── */
+@keyframes fx-fall {
+  0% { transform: translateY(-12vh) translateX(0) rotate(0); opacity: 0; }
+  8% { opacity: 1; }
+  100% { transform: translateY(112vh) translateX(var(--drift, 0)) rotate(var(--spin, 360deg)); opacity: 0.9; }
+}
+.fx-particle {
+  position: absolute;
+  top: 0;
+  will-change: transform, opacity;
+  animation-name: fx-fall;
+  animation-timing-function: cubic-bezier(0.3, 0.2, 0.5, 1);
+  animation-fill-mode: both;
+}
+
+/* ───────────────────────── Ambient particles ───────────────────────── */
+.ambient-layer {
+  z-index: 3;
+}
+@keyframes ambient-fall {
+  0% { transform: translateY(-8%) translateX(0) rotate(0); opacity: 0; }
+  10% { opacity: 0.75; }
+  90% { opacity: 0.75; }
+  100% { transform: translateY(108%) translateX(var(--drift, 0)) rotate(220deg); opacity: 0; }
+}
+@keyframes ambient-rise {
+  0% { transform: translateY(108%) translateX(0); opacity: 0; }
+  10% { opacity: 0.7; }
+  90% { opacity: 0.7; }
+  100% { transform: translateY(-8%) translateX(var(--drift, 0)); opacity: 0; }
+}
+.ambient-item {
+  position: absolute;
+  top: 0;
+  will-change: transform, opacity;
+  animation: ambient-fall linear infinite;
+  filter: saturate(0.9);
+}
+.ambient-item.ambient-up {
+  animation-name: ambient-rise;
+}
+
 @media (prefers-reduced-motion: reduce) {
   * {
     animation-duration: 0.001ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
+  }
+  .ambient-layer,
+  .fx-particle {
+    display: none !important;
   }
 }

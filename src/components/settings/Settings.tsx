@@ -152,6 +152,14 @@ function AppearanceTab() {
     { id: 'hearts', label: 'Сердечки' },
     { id: 'plain', label: 'Гладкий' },
   ]
+  const ambients: { id: UserSettings['ambient']; label: string; emoji: string }[] = [
+    { id: 'off', label: 'Выкл', emoji: '🚫' },
+    { id: 'petals', label: 'Лепестки', emoji: '🌸' },
+    { id: 'snow', label: 'Снег', emoji: '❄️' },
+    { id: 'hearts', label: 'Сердечки', emoji: '💗' },
+    { id: 'stars', label: 'Звёзды', emoji: '✨' },
+    { id: 'bubbles', label: 'Пузырьки', emoji: '🫧' },
+  ]
   return (
     <div className="space-y-6">
       <div>
@@ -190,9 +198,22 @@ function AppearanceTab() {
         </div>
       </div>
 
+      <div>
+        <div className="mb-2 text-sm font-semibold">Атмосфера ✨ <span className="font-normal text-[var(--muted)]">— частицы поверх чата</span></div>
+        <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
+          {ambients.map((a) => (
+            <button key={a.id} onClick={() => patch({ ambient: a.id })} className={classNames('rounded-2xl border p-2 text-center', s.ambient === a.id ? 'border-[var(--accent)] ring-2 ring-[var(--ring)]' : 'border-[var(--border)]')}>
+              <div className="text-xl">{a.emoji}</div>
+              <div className="mt-0.5 text-[11px] font-semibold">{a.label}</div>
+            </button>
+          ))}
+        </div>
+      </div>
+
       <Slider label="Размер текста" value={s.fontScale} min={0.9} max={1.2} step={0.05} onChange={(v) => patch({ fontScale: v })} format={(v) => `${Math.round(v * 100)}%`} />
       <Slider label="Скругление сообщений" value={s.bubbleRadius} min={6} max={26} step={1} onChange={(v) => patch({ bubbleRadius: v })} format={(v) => `${v}px`} />
       <ToggleRow label="Крупные эмодзи" desc="Одиночные эмодзи показываются большими" value={s.bigEmoji} onChange={(v) => patch({ bigEmoji: v })} />
+      <ToggleRow label="Эффекты в чате" desc="Конфетти и сердечки на /party, 🎉, ❤️ и т.д." value={s.chatEffects} onChange={(v) => patch({ chatEffects: v })} />
       <ToggleRow label="Анимации" desc="Плавные переходы и эффекты" value={s.animations} onChange={(v) => patch({ animations: v })} />
       <ToggleRow label="Градиентное имя" desc="Требует FemPremium 👑" value={s.nameGradient} onChange={(v) => patch({ nameGradient: v })} />
     </div>
@@ -247,7 +268,8 @@ function NotificationsTab() {
   }
   return (
     <div className="space-y-4">
-      <ToggleRow label="Звук сообщений" value={s.notifySound} onChange={(v) => patch({ notifySound: v })} />
+      <ToggleRow label="Звук входящих" value={s.notifySound} onChange={(v) => patch({ notifySound: v })} />
+      <ToggleRow label="Звук при отправке" desc="Тихий «поп» когда отправляешь сообщение" value={s.sendSound} onChange={(v) => patch({ sendSound: v })} />
       <ToggleRow label="Показывать превью" desc="Текст сообщения в системном уведомлении" value={s.notifyPreview} onChange={(v) => patch({ notifyPreview: v })} />
       <button onClick={requestPerm} className="btn-ghost w-full">Разрешить браузерные уведомления</button>
     </div>
@@ -261,9 +283,14 @@ function ChatsTab() {
   return (
     <div className="space-y-4">
       <ToggleRow label="Enter отправляет сообщение" desc="Иначе Enter — перенос строки, отправка по кнопке" value={s.enterToSend} onChange={(v) => patch({ enterToSend: v })} />
+      <ToggleRow label="Смайлы-текст → эмодзи" desc="Автозамена :) <3 :3 xD uwu на эмодзи при отправке" value={s.emoticons} onChange={(v) => patch({ emoticons: v })} />
       <div className="rounded-2xl border border-[var(--border)] p-4 text-sm">
         <div className="font-bold">Форматирование</div>
-        <div className="mt-1 text-[var(--muted)]">В сообщениях работают <b>**жирный**</b>, <i>*курсив*</i>, <code className="rich-code">`код`</code>, ~~зачёркнутый~~ и ссылки.</div>
+        <div className="mt-1 text-[var(--muted)]">В сообщениях работают <b>**жирный**</b>, <i>*курсив*</i>, <code className="rich-code">`код`</code>, ~~зачёркнутый~~, <span className="spoiler revealed">||спойлер||</span>, @упоминания и ссылки.</div>
+      </div>
+      <div className="rounded-2xl border border-[var(--border)] p-4 text-sm">
+        <div className="font-bold">Команды</div>
+        <div className="mt-1 text-[var(--muted)]">Начни сообщение с <code className="rich-code">/</code> — доступны <b>/me</b>, <b>/shrug</b>, <b>/roll</b>, <b>/flip</b>, <b>/8ball</b>, <b>/love</b>, <b>/party</b>, <b>/rain</b> и другие.</div>
       </div>
     </div>
   )

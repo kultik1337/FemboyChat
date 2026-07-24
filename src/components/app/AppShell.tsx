@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { X } from 'lucide-react'
 import { useStore } from '../../store/useStore'
 import { Sidebar } from './Sidebar'
@@ -6,13 +6,41 @@ import { ChatView } from './ChatView'
 import { RightPanel } from './RightPanel'
 import { Settings } from '../settings/Settings'
 import { NewChatModal } from './NewChatModal'
+import { EffectsLayer } from '../ui/EffectsLayer'
 import { classNames } from '../../lib/util'
 
 export function AppShell() {
   const activeChatId = useStore((s) => s.activeChatId)
   const mode = useStore((s) => s.mode)
+  const unread = useStore((s) => s.unread)
   const [tipHidden, setTipHidden] = useState(() => localStorage.getItem('fc:hideRealtimeTip') === '1')
   const showTip = mode === 'local' && !tipHidden
+
+  useEffect(() => {
+    const total = Object.values(unread).reduce((a, b) => a + b, 0)
+    document.title = total > 0 ? `(${total}) FemboyChat 🎀` : 'FemboyChat 🎀 — тёплый мессенджер'
+  }, [unread])
+
+  // ⌘/Ctrl+K → focus search · Konami code → confetti easter egg
+  useEffect(() => {
+    const KONAMI = ['arrowup', 'arrowup', 'arrowdown', 'arrowdown', 'arrowleft', 'arrowright', 'arrowleft', 'arrowright', 'b', 'a']
+    let seq: string[] = []
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault()
+        document.getElementById('sidebar-search')?.focus()
+        return
+      }
+      seq = [...seq, e.key.toLowerCase()].slice(-KONAMI.length)
+      if (seq.length === KONAMI.length && KONAMI.every((k, i) => seq[i] === k)) {
+        useStore.getState().playEffect('confetti')
+        useStore.getState().toast('Пасхалка активирована! 🎀', '🕹️')
+        seq = []
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
   return (
     <div className="flex h-full flex-col">
@@ -38,6 +66,7 @@ export function AppShell() {
       <RightPanel />
       <Settings />
       <NewChatModal />
+      <EffectsLayer />
     </div>
   )
 }

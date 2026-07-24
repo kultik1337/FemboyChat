@@ -53,21 +53,24 @@ export function lastSeenLabel(ts: number, online: boolean, lang: 'ru' | 'en' = '
   return lang === 'ru' ? `был(а) ${d} дн назад` : `last seen ${d}d ago`
 }
 
-/** Tiny, safe inline formatter: **bold**, *italic*, `code`, ~~strike~~, links. */
+/** Tiny, safe inline formatter: **bold**, *italic*, `code`, ~~strike~~, ||spoiler||, @mention, links. */
 export function renderRich(text: string): { __html: string } {
   const esc = text
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
   const withCode = esc.replace(/`([^`]+)`/g, '<code class="rich-code">$1</code>')
-  const withBold = withCode.replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
+  const withSpoiler = withCode.replace(/\|\|([^|]+)\|\|/g, '<span class="spoiler" data-spoiler role="button" tabindex="0">$1</span>')
+  const withBold = withSpoiler.replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
   const withItalic = withBold.replace(/(^|\s)\*([^*]+)\*/g, '$1<i>$2</i>')
-  const withStrike = withItalic.replace(/~~([^~]+)~~/g, '<s>$1</s>')
+  const withUnderline = withItalic.replace(/(^|\s)__([^_]+)__/g, '$1<u>$2</u>')
+  const withStrike = withUnderline.replace(/~~([^~]+)~~/g, '<s>$1</s>')
   const withLinks = withStrike.replace(
     /\b(https?:\/\/[^\s<]+)/g,
     '<a href="$1" target="_blank" rel="noreferrer noopener" class="rich-link">$1</a>',
   )
-  return { __html: withLinks.replace(/\n/g, '<br/>') }
+  const withMentions = withLinks.replace(/(^|\s)@([a-zA-Z0-9_]{2,32})/g, '$1<span class="mention">@$2</span>')
+  return { __html: withMentions.replace(/\n/g, '<br/>') }
 }
 
 export function normalizeUsername(u: string) {

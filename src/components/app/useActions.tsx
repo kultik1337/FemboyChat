@@ -1,4 +1,4 @@
-import { Ban, Bell, BellOff, Copy, CornerUpLeft, Hash, Info, LogOut, MessageCircle, Pencil, Pin, Trash2, UserRound } from 'lucide-react'
+import { Ban, Bell, BellOff, Copy, CornerUpLeft, Forward, Hash, Info, LogOut, MessageCircle, Pencil, Pin, Trash2, UserRound } from 'lucide-react'
 import { useStore } from '../../store/useStore'
 import { usePeople } from './people'
 import type { MenuItem } from '../ui/ContextMenu'
@@ -97,11 +97,21 @@ export function useActions() {
     startWith(dir ?? ({ uid, kind: 'user' } as any))
   }
 
+  async function forwardToSaved(m: Message) {
+    const st = useStore.getState()
+    const saved = st.chats.find((c) => c.type === 'saved')
+    if (!saved || !st.account) return toast('Избранное недоступно', '🔖')
+    await st.backend!.send({ chatId: saved.id, senderUid: st.account.uid, text: m.text, sticker: m.sticker, forwardedFrom: m.senderUid })
+    if (st.activeChatId === saved.id) await openChat(saved.id)
+    toast('Переслано в Избранное', '🔖')
+  }
+
   function messageMenu(m: Message): { items: MenuItem[]; reactions: { onPick: (e: string) => void } } {
     const me = useStore.getState().account
     const mine = m.senderUid === me?.uid
     const items: MenuItem[] = [
       { label: 'Ответить', icon: <CornerUpLeft size={15} />, onClick: () => setComposeReply(m) },
+      { label: 'Переслать в Избранное', icon: <Forward size={15} />, onClick: () => forwardToSaved(m) },
       { label: 'Копировать', icon: <Copy size={15} />, onClick: () => copy(m.sticker ?? m.text) },
       { label: m.pinned ? 'Открепить' : 'Закрепить', icon: <Pin size={15} />, checked: m.pinned, onClick: () => pin(m.id) },
     ]
