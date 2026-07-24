@@ -8,14 +8,12 @@ import type { Backend, AuthResult } from './types'
  *
  * It is only selected when VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY are set.
  *
- * Auth is nickname + password. There is no e-mail step for the user: under the
- * hood we map a @username to a synthetic address (`<username>@femboychat.fun`)
- * and use Supabase's email/password auth, so the same account can be logged
- * into again from any device. Realtime message streams come from Supabase.
+ * Auth is e-mail + password. Users register with a real e-mail, a @username and
+ * a password; Supabase (with the project's custom SMTP) sends a confirmation
+ * e-mail, and after confirming they can log in from any device. Realtime
+ * message streams come from Supabase.
  *
  * The SQL schema this expects lives in supabase/schema.sql.
- * NOTE: "Confirm email" must be OFF in Supabase Auth settings so sign-up
- * returns a session immediately (the synthetic addresses can't receive mail).
  */
 export class SupabaseBackend implements Backend {
   readonly mode = 'supabase' as const
@@ -29,7 +27,7 @@ export class SupabaseBackend implements Backend {
   async init() {
     const { createClient } = await import('@supabase/supabase-js')
     this.client = createClient(this.url, this.key, {
-      auth: { persistSession: true, autoRefreshToken: true },
+      auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
     })
     // Preload the public directory so @-name resolution works immediately
     // (otherwise peers render as "Кто-то" until something refreshes it).
@@ -51,9 +49,6 @@ export class SupabaseBackend implements Backend {
       .subscribe()
   }
 
-  private emailFor(username: string) {
-    return `${username}@femboychat.fun`
-  }
   private async refreshDirectory() {
     try {
       const { data } = await this.client.from('directory').select('*')
@@ -63,51 +58,62 @@ export class SupabaseBackend implements Backend {
     }
   }
 
-  // Register a brand-new account with a nickname + password.
-  async register(username: string, name: string, password: string): Promise<AuthResult> {
+  // Register with e-mail + @username + password. If e-mail confirmation is on,
+  // no session is returned yet — the caller shows a "check your inbox" screen.
+  async register(email: string, username: string, name: string, password: string): Promise<AuthResult> {
     const uname = normalizeUsername(username ?? '')
+    const mail = (email ?? '').trim().toLowerCase()
+    if (!mail || !mail.includes('@')) return { ok: false, error: 'Введите корректный e-mail' }
     if (!uname || uname.length < 3) return { ok: false, error: 'Ник — минимум 3 символа (a-z, 0-9, _)' }
     if (!password || password.length < 6) return { ok: false, error: 'Пароль — минимум 6 символов' }
     const { data: taken } = await this.client.from('profiles').select('uid').eq('username', uname).maybeSingle()
     if (taken) return { ok: false, error: 'Этот ник уже занят, выбери другой 🥺' }
 
     const { data, error } = await this.client.auth.signUp({
-      email: this.emailFor(uname),
+      email: mail,
       password,
-      options: { data: { username: uname, name: name ?? '' } },
+      options: {
+        data: { username: uname, name: name ?? '' },
+        emailRedirectTo: typeof window !== 'undefined' ? window.location.origin : undefined,
+      },
     })
     if (error) {
       const m = (error.message ?? '').toLowerCase()
-      if (m.includes('registered') || m.includes('exists') || m.includes('already'))
-        return { ok: false, error: 'Этот ник уже занят, выбери другой 🥺' }
+      if (m.includes('registered') || m.includes('already'))
+        return { ok: false, error: 'На эту почту уже есть аккаунт — попробуй войти' }
       return { ok: false, error: error.message }
     }
-    if (!data?.session || !data?.user) {
-      return { ok: false, error: 'Почти готово! Владельцу: выключи «Confirm email» в настройках Supabase Auth.' }
+    if (!data?.session) {
+      // Confirmation is required: a letter was sent.
+      return { ok: false, pendingConfirm: true }
     }
     this.account = await this.ensureProfile(data.user, uname, name)
     await this.refreshDirectory()
     return { ok: true, account: this.account }
   }
 
-  // Log back into an existing account with nickname + password.
-  async login(username: string, password: string): Promise<AuthResult> {
-    const uname = normalizeUsername(username ?? '')
-    if (!uname) return { ok: false, error: 'Введите ник' }
-    const { data, error } = await this.client.auth.signInWithPassword({ email: this.emailFor(uname), password })
-    if (error || !data?.user) return { ok: false, error: 'Неверный ник или пароль 🥺' }
-    this.account = await this.ensureProfile(data.user, uname)
+  // Log in with e-mail + password.
+  async login(email: string, password: string): Promise<AuthResult> {
+    const mail = (email ?? '').trim().toLowerCase()
+    if (!mail) return { ok: false, error: 'Введите e-mail' }
+    const { data, error } = await this.client.auth.signInWithPassword({ email: mail, password })
+    if (error) {
+      const m = (error.message ?? '').toLowerCase()
+      if (m.includes('confirm')) return { ok: false, error: 'Сначала подтверди почту — мы прислали письмо ✉️' }
+      return { ok: false, error: 'Неверный e-mail или пароль 🥺' }
+    }
+    if (!data?.user) return { ok: false, error: 'Неверный e-mail или пароль 🥺' }
+    this.account = await this.ensureProfile(data.user, data.user.user_metadata?.username, data.user.user_metadata?.name)
     await this.refreshDirectory()
     return { ok: true, account: this.account }
   }
 
-  private async ensureProfile(user: any, username: string, name?: string): Promise<Account> {
+  private async ensureProfile(user: any, username?: string, name?: string): Promise<Account> {
     const { data: existing } = await this.client.from('profiles').select('*').eq('uid', user.id).maybeSingle()
     if (existing) return rowToAccount(existing)
-    const uname = normalizeUsername(username || user.user_metadata?.username || `user${Date.now().toString(36)}`)
-    const row = {
+    let uname = normalizeUsername(username || user.user_metadata?.username || `user${Date.now().toString(36)}`)
+    const base = {
       uid: user.id,
-      username: uname,
       name: name || user.user_metadata?.name || uname,
       email: user.email ?? null,
       bio: '',
@@ -118,15 +124,24 @@ export class SupabaseBackend implements Backend {
       is_bot: false,
       settings: defaultSettings(),
     }
-    const { data: inserted } = await this.client.from('profiles').insert(row).select('*').single()
+    let inserted: any = null
+    for (let attempt = 0; attempt < 2 && !inserted; attempt++) {
+      const { data, error } = await this.client.from('profiles').insert({ ...base, username: uname }).select('*').single()
+      if (data) inserted = data
+      else if (error && (error.code === '23505' || (error.message ?? '').includes('duplicate')))
+        uname = `${uname}_${Math.random().toString(36).slice(2, 5)}` // nick taken: append a short suffix
+      else break
+    }
     return rowToAccount(inserted)
   }
 
   async restore(): Promise<Account | null> {
     const { data } = await this.client.auth.getUser()
     if (!data?.user) return null
-    const { data: row } = await this.client.from('profiles').select('*').eq('uid', data.user.id).maybeSingle()
-    this.account = row ? rowToAccount(row) : null
+    // Create the profile on the first authenticated load (e.g. right after the
+    // e-mail confirmation link brings the user back with a fresh session).
+    this.account = await this.ensureProfile(data.user, data.user.user_metadata?.username, data.user.user_metadata?.name)
+    await this.refreshDirectory()
     return this.account
   }
 

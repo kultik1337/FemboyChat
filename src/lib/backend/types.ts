@@ -4,15 +4,16 @@ export interface AuthResult {
   ok: boolean
   account?: Account
   error?: string
+  pendingConfirm?: boolean // sign-up succeeded but the e-mail must be confirmed first
 }
 
 export interface Backend {
   readonly mode: 'local' | 'supabase'
   init(): Promise<void>
 
-  // auth (nickname + password)
-  register(username: string, name: string, password: string): Promise<AuthResult>
-  login(username: string, password: string): Promise<AuthResult>
+  // auth (e-mail + password; sign-up may require e-mail confirmation)
+  register(email: string, username: string, name: string, password: string): Promise<AuthResult>
+  login(email: string, password: string): Promise<AuthResult>
   restore(): Promise<Account | null>
   logout(): Promise<void>
   updateAccount(patch: Partial<Account>): Promise<Account>
