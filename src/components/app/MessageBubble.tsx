@@ -1,8 +1,10 @@
 import { useState } from 'react'
-import { Check, CheckCheck, Clock, CornerUpLeft, MoreHorizontal, Smile } from 'lucide-react'
-import type { Chat, Message } from '../../types'
+import { Check, CheckCheck, Clock, CornerUpLeft, Download, FileText, MoreHorizontal, Smile } from 'lucide-react'
+import type { Attachment, Chat, Message } from '../../types'
 import { classNames, renderRich, timeShort } from '../../lib/util'
+import { attachmentLabel, prettySize } from '../../lib/media'
 import { useStore } from '../../store/useStore'
+import { Avatar } from '../ui/Avatar'
 import { Sticker } from '../ui/Sticker'
 import { openContextMenu } from '../ui/ContextMenu'
 import { useActions } from './useActions'
@@ -91,9 +93,7 @@ export function MessageBubble({
       {!isMine && chat.type === 'group' ? (
         showAvatar ? (
           <button onClick={() => setProfileUid(sender.uid)} className="mt-auto">
-            <span className="grid h-8 w-8 place-items-center rounded-full text-white" style={{ background: `linear-gradient(135deg, ${sender.color}, ${sender.color})`, fontSize: 15 }}>
-              {sender.emoji}
-            </span>
+            <Avatar emoji={sender.emoji} color={sender.color} src={sender.avatarUrl} size={32} />
           </button>
         ) : (
           <div className="w-8 shrink-0" />
@@ -132,15 +132,17 @@ export function MessageBubble({
                 style={{ borderColor: isMine ? 'rgba(255,255,255,0.7)' : 'var(--accent)' }}
               >
                 <div className="font-semibold">{repliedSender?.name ?? 'Сообщение'}</div>
-                <div className="truncate opacity-80">{repliedMessage.deleted ? 'сообщение удалено' : repliedMessage.sticker ? 'стикер' : repliedMessage.text}</div>
+                <div className="truncate opacity-80">{repliedMessage.deleted ? 'сообщение удалено' : repliedMessage.sticker ? 'стикер' : repliedMessage.attachment ? attachmentLabel(repliedMessage.attachment) : repliedMessage.text}</div>
               </button>
             )}
 
+            {message.attachment && <AttachmentView a={message.attachment} name={message.attachment.name} />}
+
             {message.poll ? (
               <PollView message={message} onVote={(i) => vote(message.id, i)} />
-            ) : (
+            ) : message.text ? (
               <div className="whitespace-pre-wrap break-words" dangerouslySetInnerHTML={renderRich(message.text)} />
-            )}
+            ) : null}
 
             <div className={classNames('mt-1 flex items-center gap-1 text-[10px]', isMine ? 'justify-end text-white/80' : 'text-[var(--muted)]')}>
               {ttlLeft > 0 && <span className="flex items-center gap-0.5"><Clock size={11} /> {ttlLeft}s</span>}
@@ -184,6 +186,74 @@ export function MessageBubble({
       </div>
     </div>
   )
+}
+
+/** Renders a media attachment inside a bubble: photo, GIF, video, voice/audio or a file card. */
+function AttachmentView({ a, name }: { a: Attachment; name?: string }) {
+  const setLightbox = useStore((s) => s.setLightbox)
+
+  if (a.kind === 'image' || a.kind === 'gif') {
+    const ratio = a.w && a.h ? a.w / a.h : undefined
+    return (
+      <button
+        onClick={() => setLightbox({ url: a.url, name: name ?? a.name })}
+        className="mb-1 block max-w-full cursor-zoom-in overflow-hidden rounded-xl"
+        title={a.kind === 'gif' ? 'GIF' : 'Открыть фото'}
+      >
+        <img
+          src={a.url}
+          alt={a.name ?? ''}
+          loading="lazy"
+          className="block max-h-80 w-auto max-w-full rounded-xl object-cover"
+          style={ratio ? { aspectRatio: `${a.w} / ${a.h}`, minWidth: 120 } : { minWidth: 120 }}
+        />
+      </button>
+    )
+  }
+
+  if (a.kind === 'video') {
+    return (
+      <video controls preload="metadata" className="mb-1 block max-h-80 max-w-full rounded-xl" src={a.url}>
+        Видео не поддерживается
+      </video>
+    )
+  }
+
+  if (a.kind === 'voice' || a.kind === 'audio') {
+    return (
+      <div className="mb-1 flex min-w-[220px] flex-col gap-1">
+        <div className="flex items-center gap-1.5 text-[12px] font-semibold opacity-90">
+          {a.kind === 'voice' ? '🎤 Голосовое сообщение' : `🎵 ${a.name ?? 'Аудио'}`}
+          {a.durationSec ? <span className="opacity-70">· {fmtDuration(a.durationSec)}</span> : null}
+        </div>
+        <audio controls preload="metadata" src={a.url} className="h-10 w-full max-w-[260px]" />
+      </div>
+    )
+  }
+
+  return (
+    <a
+      href={a.url}
+      download={a.name}
+      target="_blank"
+      rel="noreferrer noopener"
+      className="mb-1 flex min-w-[200px] items-center gap-2.5 rounded-xl border border-current/20 px-2.5 py-2 no-underline transition hover:border-current/40"
+    >
+      <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-current/15">
+        <FileText size={19} />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-sm font-semibold">{a.name ?? 'Файл'}</span>
+        <span className="block text-[11px] opacity-70">{prettySize(a.size)}</span>
+      </span>
+      <Download size={16} className="shrink-0 opacity-70" />
+    </a>
+  )
+}
+
+function fmtDuration(s: number) {
+  const m = Math.floor(s / 60)
+  return `${m}:${String(Math.round(s % 60)).padStart(2, '0')}`
 }
 
 function PollView({ message, onVote }: { message: Message; onVote: (i: number) => void }) {
