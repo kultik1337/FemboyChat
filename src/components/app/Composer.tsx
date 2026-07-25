@@ -566,7 +566,7 @@ function StickerTray({ onPick, onClose }: { onPick: (s: string) => void; onClose
   return (
     <>
       <div className="fixed inset-0 z-20" onClick={onClose} />
-      <div className="absolute bottom-16 left-2 right-2 z-30 mx-auto max-w-md rounded-2xl border border-[var(--border)] bg-[var(--panel)] shadow-xl animate-pop-in" style={{ boxShadow: 'var(--shadow)' }}>
+      <div className="absolute bottom-16 left-2 z-30 w-[26rem] max-w-[calc(100vw-16px)] rounded-2xl border border-[var(--border)] bg-[var(--panel)] shadow-xl animate-pop-in" style={{ boxShadow: 'var(--shadow)' }}>
         <div className="fancy-scroll grid max-h-64 grid-cols-4 gap-1 overflow-y-auto p-2 sm:grid-cols-5">
           {active.items.map((s) => (
             <button key={s} onClick={() => onPick(s)} className="grid aspect-square place-items-center rounded-xl transition hover:scale-105 hover:bg-[var(--panel-hover)]">
@@ -609,7 +609,7 @@ function GifTray({ onPick, onClose }: { onPick: (g: GifResult) => void; onClose:
   return (
     <>
       <div className="fixed inset-0 z-20" onClick={onClose} />
-      <div className="absolute bottom-16 left-2 right-2 z-30 mx-auto max-w-md rounded-2xl border border-[var(--border)] bg-[var(--panel)] shadow-xl animate-pop-in" style={{ boxShadow: 'var(--shadow)' }}>
+      <div className="absolute bottom-16 left-2 z-30 w-[26rem] max-w-[calc(100vw-16px)] rounded-2xl border border-[var(--border)] bg-[var(--panel)] shadow-xl animate-pop-in" style={{ boxShadow: 'var(--shadow)' }}>
         <div className="fancy-scroll max-h-72 overflow-y-auto p-2">
           {state === 'loading' && (
             <div className="grid grid-cols-3 gap-1.5">
