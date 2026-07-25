@@ -80,6 +80,14 @@ export function ChatView() {
   }
 
   function onScrollerClick(e: React.MouseEvent) {
+    const invite = (e.target as HTMLElement).closest('a.invite-link')
+    if (invite) {
+      // Invite links join the chat right here instead of opening a new tab.
+      e.preventDefault()
+      const code = invite.getAttribute('data-invite')
+      if (code) void useStore.getState().joinInvite(code)
+      return
+    }
     const t = (e.target as HTMLElement).closest('.spoiler')
     if (t) t.classList.toggle('revealed')
   }
@@ -135,10 +143,10 @@ export function ChatView() {
 
   const headerVisual =
     chat.type === 'saved'
-      ? { title: 'Избранное', emoji: '🔖', color: '#7cc4ff' }
+      ? { title: 'Избранное', emoji: '🔖', color: '#7cc4ff', avatarUrl: undefined }
       : counterpart
-      ? { title: counterpart.name, emoji: counterpart.emoji, color: counterpart.color }
-      : { title: chat.title, emoji: chat.emoji, color: chat.color }
+      ? { title: counterpart.name, emoji: counterpart.emoji, color: counterpart.color, avatarUrl: counterpart.avatarUrl }
+      : { title: chat.title, emoji: chat.emoji, color: chat.color, avatarUrl: chat.avatarUrl }
 
   const headerMenu = (e: React.MouseEvent) => openContextMenu(e, counterpartUid ? personMenu(counterpartUid) : chatMenu(chat))
 
@@ -185,7 +193,7 @@ export function ChatView() {
           <ArrowLeft size={20} />
         </button>
         <button onClick={() => (counterpartUid ? setProfileUid(counterpartUid) : setRightPanel(true))} className="flex min-w-0 flex-1 items-center gap-3 text-left">
-          <Avatar emoji={headerVisual.emoji} color={headerVisual.color} src={counterpart?.avatarUrl} size={42} online={counterpartUid ? presence[counterpartUid]?.online : undefined} />
+          <Avatar emoji={headerVisual.emoji} color={headerVisual.color} src={headerVisual.avatarUrl} size={42} online={counterpartUid ? presence[counterpartUid]?.online : undefined} />
           <div className="min-w-0">
             <div className="flex items-center gap-1 font-bold">
               <span className="truncate">{headerVisual.title}</span>
