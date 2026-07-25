@@ -58,6 +58,34 @@ function metaRe(prop: string): RegExp[] {
   ];
 }
 
+/** YouTube blocks bots with consent pages, but its oEmbed endpoint is open. */
+function youtubeVideoUrl(u: URL): string | null {
+  const h = u.hostname.replace(/^www\.|^m\./, "");
+  if (h === "youtu.be" && u.pathname.length > 1) return `https://www.youtube.com/watch?v=${u.pathname.slice(1)}`;
+  if (h === "youtube.com") {
+    if (u.pathname === "/watch" && u.searchParams.get("v")) return `https://www.youtube.com/watch?v=${u.searchParams.get("v")}`;
+    const short = u.pathname.match(/^\/(shorts|embed|live)\/([\w-]{5,})/);
+    if (short) return `https://www.youtube.com/watch?v=${short[2]}`;
+  }
+  return null;
+}
+
+async function fetchOEmbed(endpoint: string, videoUrl: string, siteName: string, ctrl: AbortController): Promise<Preview | null> {
+  const r = await fetch(`${endpoint}?url=${encodeURIComponent(videoUrl)}&format=json`, {
+    signal: ctrl.signal,
+    headers: { accept: "application/json" },
+  });
+  if (!r.ok) return null;
+  const d = await r.json();
+  if (!d?.title) return null;
+  return {
+    title: String(d.title).slice(0, 200),
+    description: d.author_name ? `${d.author_name}` : "",
+    image: typeof d.thumbnail_url === "string" ? d.thumbnail_url : "",
+    siteName,
+  };
+}
+
 async function fetchPreview(target: string): Promise<Preview | null> {
   const u = new URL(target);
   if (u.protocol !== "http:" && u.protocol !== "https:") return null;
@@ -66,11 +94,17 @@ async function fetchPreview(target: string): Promise<Preview | null> {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
   try {
+    // YouTube: og-scraping hits consent/bot pages -> use the official oEmbed API.
+    const yt = youtubeVideoUrl(u);
+    if (yt) {
+      const p = await fetchOEmbed("https://www.youtube.com/oembed", yt, "YouTube", ctrl).catch(() => null);
+      if (p) return p;
+    }
     const r = await fetch(u.toString(), {
       signal: ctrl.signal,
       redirect: "follow",
       headers: {
-        "user-agent": "Mozilla/5.0 (compatible; FemboyChatBot/1.0; +https://femboychat.fun)",
+        "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
         accept: "text/html,application/xhtml+xml",
       },
     });

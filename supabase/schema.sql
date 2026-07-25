@@ -380,6 +380,10 @@ for each row execute function public.fc_trigger_femboy();
 --   fn   public.fc_kiskis_help() -> text                                -- /comands list
 --   fn   public.fc_group_defaults() + trigger fc_group_defaults (BEFORE INSERT on chats):
 --        new groups auto-add their creator (member+admin) and KisKis; sets member_count.
+--        Since `fc_auto_private_invites`: chats created without a @username are
+--        marked is_private, and every group/channel gets an invite_code
+--        (encode(gen_random_bytes(6),'hex')) automatically; existing rows were
+--        backfilled the same way.
 --   fn   public.fc_trigger_kiskis() + trigger fc_kiskis_reply (AFTER INSERT on messages):
 --        - in the KisKis DM, "/comands" (comands|команды|help|…) -> posts the action list;
 --        - a reply whose text equals an action key -> posts "<actor> <phrase> <target> <emoji>".
