@@ -414,6 +414,8 @@ export class LocalBackend implements Backend {
     const chats = this.chats()
     const chat = chats[entityUid]
     if (!chat) throw new Error('not found')
+    if (chat.isPrivate && !chat.memberUids.includes(me.uid))
+      throw new Error('Это приватный чат — вступить можно только по инвайт-ссылке')
     if (!chat.memberUids.includes(me.uid)) {
       chat.memberUids.push(me.uid)
       if (typeof chat.memberCount === 'number') chat.memberCount += 1
@@ -423,11 +425,60 @@ export class LocalBackend implements Backend {
     return chat
   }
 
+  async joinByInvite(code: string): Promise<Chat> {
+    const me = this.me()
+    if (!me) throw new Error('not authed')
+    const chats = this.chats()
+    const chat = Object.values(chats).find((c) => c.inviteCode === code)
+    if (!chat) throw new Error('Инвайт-ссылка недействительна')
+    if (!chat.memberUids.includes(me.uid)) {
+      chat.memberUids.push(me.uid)
+      if (typeof chat.memberCount === 'number') chat.memberCount += 1
+      write(K.chats, chats)
+      this.emit({ type: 'chat:update', chat })
+    }
+    return chat
+  }
+
+  async fetchLinkPreview(): Promise<null> {
+    return null // превью ссылок доступно только на сервере (edge-функция)
+  }
+
   async updateChat(id: string, patch: Partial<Chat>): Promise<Chat> {
     const chats = this.chats()
     const chat = { ...chats[id], ...patch } as Chat
+    if (patch.memberUids && patch.memberCount === undefined) chat.memberCount = patch.memberUids.length
     chats[id] = chat
     write(K.chats, chats)
+    // keep the searchable directory in sync (private chats are hidden)
+    if (chat.type === 'group' || chat.type === 'channel') {
+      const dir = this.directory()
+      const idx = dir.findIndex((d) => d.uid === chat.id)
+      if (chat.isPrivate) {
+        if (idx >= 0) {
+          dir.splice(idx, 1)
+          write(K.directory, dir)
+        }
+      } else {
+        const entry: Directory = {
+          uid: chat.id,
+          kind: chat.type,
+          numId: idx >= 0 ? dir[idx].numId : 0,
+          username: chat.username ?? '',
+          name: chat.title,
+          emoji: chat.emoji,
+          color: chat.color ?? '#ff7ab8',
+          bio: chat.description ?? '',
+          verified: idx >= 0 ? dir[idx].verified : false,
+          members: chat.memberCount ?? chat.memberUids.length,
+          avatarUrl: chat.avatarUrl,
+        }
+        if (idx >= 0) dir[idx] = entry
+        else dir.unshift(entry)
+        write(K.directory, dir)
+        this.emit({ type: 'directory', entry })
+      }
+    }
     this.emit({ type: 'chat:update', chat })
     return chat
   }
