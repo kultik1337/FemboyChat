@@ -346,11 +346,12 @@ export class LocalBackend implements Backend {
     const me = this.me()
     if (!me) throw new Error('not authed')
     const chats = this.chats()
+    const username = input.username ? normalizeUsername(input.username) : undefined
     const chat: Chat = {
       id: (input.type === 'channel' ? 'chan-' : 'grp-') + rid().slice(0, 8),
       type: input.type,
       title: input.title,
-      username: input.username ? normalizeUsername(input.username) : undefined,
+      username,
       emoji: input.emoji,
       color: me.color,
       description: input.description,
@@ -359,24 +360,29 @@ export class LocalBackend implements Backend {
       ownerUid: me.uid,
       memberCount: 1 + (input.memberUids?.length ?? 0),
       createdAt: Date.now(),
+      // Telegram-style: no @username -> private, invite-link only.
+      isPrivate: !username,
+      inviteCode: rid().replace(/-/g, '').slice(0, 12),
     }
     chats[chat.id] = chat
     write(K.chats, chats)
-    // publish to directory so it's searchable
-    const dir = this.directory()
-    dir.unshift({
-      uid: chat.id,
-      kind: input.type,
-      numId: 0,
-      username: chat.username ?? '',
-      name: chat.title,
-      emoji: chat.emoji,
-      color: chat.color,
-      bio: chat.description ?? '',
-      verified: false,
-      members: chat.memberCount,
-    })
-    write(K.directory, dir)
+    // publish to directory so it's searchable (private chats stay hidden)
+    if (!chat.isPrivate) {
+      const dir = this.directory()
+      dir.unshift({
+        uid: chat.id,
+        kind: input.type,
+        numId: 0,
+        username: chat.username ?? '',
+        name: chat.title,
+        emoji: chat.emoji,
+        color: chat.color,
+        bio: chat.description ?? '',
+        verified: false,
+        members: chat.memberCount,
+      })
+      write(K.directory, dir)
+    }
     this.emit({ type: 'chat:update', chat })
     return chat
   }
