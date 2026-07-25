@@ -1,4 +1,4 @@
-import { Ban, Bell, BellOff, Copy, CornerUpLeft, Forward, Hash, Info, LogOut, MessageCircle, Pencil, Pin, Trash2, UserRound } from 'lucide-react'
+import { Ban, Bell, BellOff, Copy, CornerUpLeft, Download, Forward, Hash, Info, LogOut, MessageCircle, Pencil, Pin, Trash2, UserRound } from 'lucide-react'
 import { useStore } from '../../store/useStore'
 import { usePeople } from './people'
 import type { MenuItem } from '../ui/ContextMenu'
@@ -101,7 +101,7 @@ export function useActions() {
     const st = useStore.getState()
     const saved = st.chats.find((c) => c.type === 'saved')
     if (!saved || !st.account) return toast('Избранное недоступно', '🔖')
-    await st.backend!.send({ chatId: saved.id, senderUid: st.account.uid, text: m.text, sticker: m.sticker, forwardedFrom: m.senderUid })
+    await st.backend!.send({ chatId: saved.id, senderUid: st.account.uid, text: m.text, sticker: m.sticker, attachment: m.attachment, forwardedFrom: m.senderUid })
     if (st.activeChatId === saved.id) await openChat(saved.id)
     toast('Переслано в Избранное', '🔖')
   }
@@ -115,6 +115,20 @@ export function useActions() {
       { label: 'Копировать', icon: <Copy size={15} />, onClick: () => copy(m.sticker ?? m.text) },
       { label: m.pinned ? 'Открепить' : 'Закрепить', icon: <Pin size={15} />, checked: m.pinned, onClick: () => pin(m.id) },
     ]
+    if (m.attachment) {
+      items.push({
+        label: 'Скачать вложение',
+        icon: <Download size={15} />,
+        onClick: () => {
+          const a = document.createElement('a')
+          a.href = m.attachment!.url
+          a.download = m.attachment!.name ?? 'file'
+          a.target = '_blank'
+          a.rel = 'noreferrer noopener'
+          a.click()
+        },
+      })
+    }
     if (mine && !m.poll && !m.sticker) items.push({ label: 'Изменить', icon: <Pencil size={15} />, onClick: () => setComposeEdit(m) })
     if (mine) {
       items.push({ kind: 'divider' })

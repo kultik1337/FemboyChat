@@ -48,6 +48,9 @@ export interface Backend {
   votePoll(chatId: string, id: string, optionIndex: number): Promise<void>
   pin(chatId: string, id: string): Promise<void>
 
+  // media uploads (avatars + message attachments)
+  uploadFile(kind: 'avatar' | 'attachment', file: Blob, name?: string): Promise<{ url: string }>
+
   // presence / typing
   setTyping(chatId: string): void
   setPresence(online: boolean): void

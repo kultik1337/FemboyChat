@@ -23,8 +23,6 @@ export interface UserSettings {
   // cosmetics
   premium: boolean
   nameGradient: boolean
-  ambient: 'off' | 'petals' | 'snow' | 'hearts' | 'stars' | 'bubbles'
-  chatEffects: boolean // full-screen bursts on /party, 🎉, ❤️ etc.
   emoticons: boolean // auto-convert :) <3 :3 → emoji on send
   sendSound: boolean // soft pop when you send
 }
@@ -39,6 +37,7 @@ export interface Account {
   bio: string
   emoji: string
   color: string
+  avatarUrl?: string // custom uploaded avatar (overrides emoji)
   status: string // mood / custom status
   verified: boolean
   isBot: boolean
@@ -56,6 +55,7 @@ export interface Directory {
   name: string
   emoji: string
   color: string
+  avatarUrl?: string
   bio: string
   verified: boolean
   members?: number
@@ -94,6 +94,20 @@ export interface Poll {
   multi: boolean
 }
 
+export type AttachmentKind = 'image' | 'gif' | 'video' | 'audio' | 'voice' | 'file'
+
+/** A media payload attached to a message (photo, video, file, voice note, GIF…). */
+export interface Attachment {
+  kind: AttachmentKind
+  url: string
+  name?: string
+  size?: number // bytes
+  mime?: string
+  w?: number
+  h?: number
+  durationSec?: number // for audio / voice / video
+}
+
 export interface Message {
   id: string
   chatId: string
@@ -111,6 +125,7 @@ export interface Message {
   ttl?: number // self-destruct seconds
   poll?: Poll
   sticker?: string
+  attachment?: Attachment
 }
 
 // ───────────────────────── Realtime events ─────────────────────────

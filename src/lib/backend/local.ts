@@ -269,7 +269,7 @@ export class LocalBackend implements Backend {
     const dir = this.directory()
     const idx = dir.findIndex((d) => d.uid === cur.uid)
     if (idx >= 0) {
-      dir[idx] = { ...dir[idx], name: next.name, username: next.username, emoji: next.emoji, color: next.color, bio: next.bio }
+      dir[idx] = { ...dir[idx], name: next.name, username: next.username, emoji: next.emoji, color: next.color, bio: next.bio, avatarUrl: next.avatarUrl }
       write(K.directory, dir)
       this.emit({ type: 'directory', entry: dir[idx] })
     }
@@ -570,6 +570,19 @@ export class LocalBackend implements Backend {
       write(K.msgs, msgs)
       this.emit({ type: 'read', chatId, uid: me.uid, upToTs: Date.now() })
     }
+  }
+
+  // ── media uploads ──
+  // Demo mode has no server, so files become data: URLs stored inline with the
+  // message. Capped to keep localStorage happy.
+  async uploadFile(_kind: 'avatar' | 'attachment', file: Blob): Promise<{ url: string }> {
+    const MAX = 3 * 1024 * 1024
+    if (file.size > MAX) throw new Error('В демо-режиме файлы до 3 МБ. Подключи Supabase для больших файлов 🎀')
+    const buf = new Uint8Array(await file.arrayBuffer())
+    let bin = ''
+    const CHUNK = 0x8000
+    for (let i = 0; i < buf.length; i += CHUNK) bin += String.fromCharCode(...buf.subarray(i, i + CHUNK))
+    return { url: `data:${file.type || 'application/octet-stream'};base64,${btoa(bin)}` }
   }
 
   // ── presence / typing ──

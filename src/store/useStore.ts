@@ -1,8 +1,8 @@
 import { create } from 'zustand'
-import type { Account, Chat, Directory, Message, Poll, RealtimeEvent, UserSettings } from '../types'
+import type { Account, Attachment, Chat, Directory, Message, Poll, RealtimeEvent, UserSettings } from '../types'
 import { getBackend, type Backend } from '../lib/backend'
+import { attachmentLabel } from '../lib/media'
 import { beep } from '../lib/sound'
-import type { EffectKind } from '../lib/commands'
 
 type Route = 'landing' | 'auth' | 'app'
 
@@ -27,7 +27,7 @@ interface StoreState {
   chats: Chat[]
   activeChatId: string | null
   messages: Record<string, Message[]>
-  previews: Record<string, { text: string; ts: number; senderUid: string; sticker?: string; deleted?: boolean }>
+  previews: Record<string, { text: string; ts: number; senderUid: string; sticker?: string; attachment?: Attachment; deleted?: boolean }>
   directory: Directory[]
   presence: Record<string, { online: boolean; lastSeen: number }>
   typing: Record<string, Record<string, TypingInfo>>
@@ -35,6 +35,8 @@ interface StoreState {
   now: number
   composeReply: Message | null
   composeEdit: Message | null
+  /** Files dropped/pasted into the chat, waiting in the composer. */
+  pendingFiles: File[]
 
   // ui
   settingsOpen: boolean
@@ -44,7 +46,7 @@ interface StoreState {
   searchResults: Directory[]
   profileUid: string | null
   toasts: Toast[]
-  effect: { kind: EffectKind; id: string } | null
+  lightbox: { url: string; name?: string } | null
 
   // actions
   boot: () => Promise<void>
@@ -67,7 +69,7 @@ interface StoreState {
     memberUids?: string[]
   }) => Promise<void>
 
-  send: (input: { text: string; replyToId?: string; sticker?: string; poll?: Poll; ttl?: number; forwardedFrom?: string }) => Promise<void>
+  send: (input: { text: string; replyToId?: string; sticker?: string; poll?: Poll; ttl?: number; forwardedFrom?: string; attachment?: Attachment }) => Promise<void>
   edit: (id: string, text: string) => Promise<void>
   remove: (id: string) => Promise<void>
   react: (id: string, emoji: string) => Promise<void>
@@ -75,10 +77,13 @@ interface StoreState {
   pin: (id: string) => Promise<void>
   setComposeReply: (m: Message | null) => void
   setComposeEdit: (m: Message | null) => void
+  addPendingFiles: (files: File[]) => void
+  removePendingFile: (index: number) => void
+  clearPendingFiles: () => void
+  setLightbox: (l: { url: string; name?: string } | null) => void
   typingPing: (chatId: string) => void
 
   search: (q: string) => void
-  playEffect: (kind: EffectKind) => void
   toast: (text: string, emoji?: string) => void
   dismissToast: (id: string) => void
   setRightPanel: (open: boolean) => void
@@ -108,6 +113,7 @@ export const useStore = create<StoreState>((set, get) => ({
   now: Date.now(),
   composeReply: null,
   composeEdit: null,
+  pendingFiles: [],
 
   settingsOpen: false,
   rightPanelOpen: false,
@@ -116,7 +122,7 @@ export const useStore = create<StoreState>((set, get) => ({
   searchResults: [],
   profileUid: null,
   toasts: [],
-  effect: null,
+  lightbox: null,
 
   async boot() {
     const backend = await getBackend()
@@ -187,7 +193,7 @@ export const useStore = create<StoreState>((set, get) => ({
       chats.map(async (c) => {
         const msgs = await backend.listMessages(c.id)
         const last = msgs[msgs.length - 1]
-        if (last) previews[c.id] = { text: last.text, ts: last.ts, senderUid: last.senderUid, sticker: last.sticker, deleted: last.deleted }
+        if (last) previews[c.id] = { text: last.text, ts: last.ts, senderUid: last.senderUid, sticker: last.sticker, attachment: last.attachment, deleted: last.deleted }
       }),
     )
     set({ chats, previews })
@@ -209,6 +215,7 @@ export const useStore = create<StoreState>((set, get) => ({
       searchResults: [],
       composeReply: null,
       composeEdit: null,
+      pendingFiles: [],
     }))
     await backend.markRead(id)
   },
@@ -233,7 +240,7 @@ export const useStore = create<StoreState>((set, get) => ({
     const { account, activeChatId, backend } = get()
     if (!account || !activeChatId || !backend) return
     const text = input.text.trim()
-    if (!text && !input.sticker && !input.poll) return
+    if (!text && !input.sticker && !input.poll && !input.attachment) return
     await backend.send({
       chatId: activeChatId,
       senderUid: account.uid,
@@ -243,6 +250,7 @@ export const useStore = create<StoreState>((set, get) => ({
       poll: input.poll,
       ttl: input.ttl,
       forwardedFrom: input.forwardedFrom,
+      attachment: input.attachment,
     })
   },
 
@@ -278,6 +286,20 @@ export const useStore = create<StoreState>((set, get) => ({
     set({ composeEdit: m, composeReply: null })
   },
 
+  addPendingFiles(files) {
+    if (!files.length) return
+    set((s) => ({ pendingFiles: [...s.pendingFiles, ...files].slice(0, 10) }))
+  },
+  removePendingFile(index) {
+    set((s) => ({ pendingFiles: s.pendingFiles.filter((_, i) => i !== index) }))
+  },
+  clearPendingFiles() {
+    set({ pendingFiles: [] })
+  },
+  setLightbox(l) {
+    set({ lightbox: l })
+  },
+
   typingPing(chatId) {
     const t = Date.now()
     if (t - typingThrottle < 1500) return
@@ -288,13 +310,6 @@ export const useStore = create<StoreState>((set, get) => ({
   search(q) {
     const results = get().backend?.searchDirectory(q) ?? []
     set({ searchQuery: q, searchResults: results })
-  },
-
-  playEffect(kind) {
-    if (!get().account?.settings.chatEffects) return
-    const id = Math.random().toString(36).slice(2)
-    set({ effect: { kind, id } })
-    setTimeout(() => set((s) => (s.effect?.id === id ? { effect: null } : {})), 2600)
   },
 
   toast(text, emoji) {
@@ -339,10 +354,6 @@ export const useStore = create<StoreState>((set, get) => ({
           if (state.account?.settings.notifySound) beep()
           if (isActive) get().backend?.markRead(chatId)
           maybeNotify(state, e.message)
-        }
-        if (isActive && !e.message.sticker) {
-          const fx = detectEffect(e.message.text)
-          if (fx) get().playEffect(fx)
         }
         break
       }
@@ -406,17 +417,6 @@ export const useStore = create<StoreState>((set, get) => ({
   },
 }))
 
-/** Detect a celebratory full-screen effect from message text. */
-function detectEffect(text: string): EffectKind | null {
-  const t = (text ?? '').trim()
-  if (!t) return null
-  if (/[\u{1F389}\u{1F38A}\u{1F973}\u{1F388}]/u.test(t)) return 'confetti' // 🎉 🎊 🥳 🎈
-  const onlyEmoji = !/[a-zA-Zа-яёА-ЯЁ0-9]/.test(t) && t.length <= 12
-  if (onlyEmoji && /[\u2764\u{1F9E1}\u{1F49B}\u{1F49A}\u{1F499}\u{1F49C}\u{1F5A4}\u{1F90D}\u{1F90E}\u{1F497}\u{1F493}\u{1F49E}\u{1F495}\u{1F496}\u{1F498}\u{1F49D}\u{1F60D}\u{1F970}\u{1F618}]/u.test(t)) return 'hearts'
-  if (onlyEmoji && /[\u2728\u{1F31F}\u{1F4AB}\u2B50\u{1F320}]/u.test(t)) return 'stars'
-  return null
-}
-
 function clearTyping(typing: StoreState['typing'], chatId: string, uid: string) {
   const chat = typing[chatId]
   if (!chat || !chat[uid]) return typing
@@ -431,7 +431,8 @@ function maybeNotify(state: StoreState, m: Message) {
   if (document.visibilityState === 'visible' && state.activeChatId === m.chatId) return
   const chat = state.chats.find((c) => c.id === m.chatId)
   try {
-    new Notification(chat?.title ?? 'FemboyChat', { body: m.text.slice(0, 120), silent: true })
+    const body = m.text ? m.text.slice(0, 120) : m.attachment ? attachmentLabel(m.attachment) : m.sticker ? `${m.sticker} стикер` : ''
+    new Notification(chat?.title ?? 'FemboyChat', { body, silent: true })
   } catch {
     /* ignore */
   }

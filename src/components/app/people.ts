@@ -6,6 +6,7 @@ export interface Person {
   name: string
   emoji: string
   color: string
+  avatarUrl?: string
   username: string
   verified: boolean
   isBot: boolean
@@ -25,6 +26,7 @@ export function usePeople() {
         name: account.name,
         emoji: account.emoji,
         color: account.color,
+        avatarUrl: account.avatarUrl,
         username: account.username,
         verified: account.verified,
         isBot: false,
@@ -32,7 +34,7 @@ export function usePeople() {
       }
     const d = directory.find((x) => x.uid === uid)
     if (d)
-      return { uid, name: d.name, emoji: d.emoji, color: d.color, username: d.username, verified: d.verified, isBot: d.kind === 'bot', numId: d.numId }
+      return { uid, name: d.name, emoji: d.emoji, color: d.color, avatarUrl: d.avatarUrl, username: d.username, verified: d.verified, isBot: d.kind === 'bot', numId: d.numId }
     return { uid, name: 'Кто-то', emoji: '💬', color: '#ff7ab8', username: '', verified: false, isBot: false, numId: 0 }
   }
 

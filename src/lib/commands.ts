@@ -2,8 +2,6 @@
 // Everything here is pure text transformation, so it works identically on the
 // local demo backend and on Supabase.
 
-export type EffectKind = 'confetti' | 'hearts' | 'stars'
-
 export interface SlashSpec {
   name: string
   hint: string
@@ -15,8 +13,6 @@ export interface SlashSpec {
 export const SLASH_COMMANDS: SlashSpec[] = [
   { name: 'me', hint: '/me <действие>', desc: 'Сообщение-действие от третьего лица', emoji: '🎭' },
   { name: 'shrug', hint: '/shrug', desc: 'Добавить ¯\\_(ツ)_/¯', emoji: '🤷' },
-  { name: 'party', hint: '/party', desc: 'Конфетти на весь экран', emoji: '🎉' },
-  { name: 'rain', hint: '/rain', desc: 'Дождь из сердечек', emoji: '💗' },
   { name: 'roll', hint: '/roll [грани]', desc: 'Бросить кубик', emoji: '🎲' },
   { name: 'flip', hint: '/flip', desc: 'Подбросить монетку', emoji: '🪙' },
   { name: '8ball', hint: '/8ball <вопрос>', desc: 'Магический шар отвечает', emoji: '🎱' },
@@ -46,7 +42,6 @@ function pick<T>(arr: T[]): T {
 export interface CommandOutput {
   text?: string
   sticker?: string
-  effect?: EffectKind
   /** local-only feedback (not sent), e.g. an easter-egg toast */
   toast?: { text: string; emoji?: string }
 }
@@ -69,9 +64,7 @@ export function runCommand(raw: string, selfName: string): CommandOutput | null 
     case 'shrug':
       return { text: `${arg} ¯\\_(ツ)_/¯`.trim() }
     case 'party':
-      return { text: arg || '🎉 вечеринка!', effect: 'confetti' }
-    case 'rain':
-      return { text: arg || '💗', effect: 'hearts' }
+      return { text: arg || '🎉 вечеринка!' }
     case 'roll': {
       const faces = Math.max(2, Math.min(1000, parseInt(arg, 10) || 6))
       return { text: `🎲 выпало ${1 + rnd(faces)} (из ${faces})` }
@@ -85,12 +78,12 @@ export function runCommand(raw: string, selfName: string): CommandOutput | null 
     case 'love': {
       const pct = rnd(101)
       const heart = pct > 80 ? '💗' : pct > 50 ? '💓' : pct > 20 ? '💔' : '🥀'
-      return { text: `${heart} Совместимость${arg ? ` с ${arg}` : ''}: ${pct}%`, effect: pct > 80 ? 'hearts' : undefined }
+      return { text: `${heart} Совместимость${arg ? ` с ${arg}` : ''}: ${pct}%` }
     }
     case 'hug':
       return { text: `🫂 крепко обнимает${arg ? ` ${arg}` : ' тебя'}` }
     case 'nya':
-      return { text: 'ня~ 🐾', effect: 'stars' }
+      return { text: 'ня~ 🐾' }
     case 'lenny':
       return { text: `${arg} ( ͡° ͜ʖ ͡°)`.trim() }
     case 'table':

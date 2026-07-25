@@ -1,12 +1,30 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Clock, CornerUpLeft, ListChecks, Send, Smile, Sticker as StickerIcon, X } from 'lucide-react'
+import {
+  Clock,
+  CornerUpLeft,
+  FileText,
+  ImagePlay,
+  ListChecks,
+  Loader2,
+  Mic,
+  Music,
+  Paperclip,
+  Send,
+  Smile,
+  Sticker as StickerIcon,
+  Trash2,
+  Video,
+  X,
+} from 'lucide-react'
 import { useStore } from '../../store/useStore'
 import { EmojiPicker } from '../ui/EmojiPicker'
 import { Sticker } from '../ui/Sticker'
 import { STICKER_PACKS } from '../../lib/stickers'
 import { SLASH_COMMANDS, applyEmoticons, runCommand } from '../../lib/commands'
+import { GIF_CATEGORIES, fetchGifs, type GifResult } from '../../lib/gifs'
+import { attachmentKindFor, downscaleImage, imageSize, prettySize } from '../../lib/media'
 import { beep } from '../../lib/sound'
-import type { Poll } from '../../types'
+import type { Attachment, Poll } from '../../types'
 import { usePeople } from './people'
 import { classNames } from '../../lib/util'
 
@@ -28,21 +46,28 @@ export function Composer() {
   const account = useStore((s) => s.account!)
   const settings = account.settings
   const messages = useStore((s) => s.messages)
-  const playEffect = useStore((s) => s.playEffect)
   const toast = useStore((s) => s.toast)
   const replyTo = useStore((s) => s.composeReply)
   const editing = useStore((s) => s.composeEdit)
   const setReply = useStore((s) => s.setComposeReply)
   const setEdit = useStore((s) => s.setComposeEdit)
+  const pending = useStore((s) => s.pendingFiles)
+  const addPendingFiles = useStore((s) => s.addPendingFiles)
+  const removePendingFile = useStore((s) => s.removePendingFile)
+  const clearPendingFiles = useStore((s) => s.clearPendingFiles)
   const { resolve } = usePeople()
 
   const [text, setText] = useState('')
   const [emoji, setEmoji] = useState(false)
   const [stickers, setStickers] = useState(false)
+  const [gifs, setGifs] = useState(false)
   const [ttl, setTtl] = useState(0)
   const [ttlOpen, setTtlOpen] = useState(false)
   const [pollOpen, setPollOpen] = useState(false)
+  const [sending, setSending] = useState(false)
+  const [recording, setRecording] = useState(false)
   const ref = useRef<HTMLTextAreaElement>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
 
   // Load per-chat draft when switching chats.
   useEffect(() => {
@@ -83,37 +108,90 @@ export function Composer() {
     [slashQuery],
   )
 
-  function submit() {
-    const t = text.trim()
-    if (!t) return
-    if (editing) {
-      edit(editing.id, t)
-      setEdit(null)
-      setText('')
-      return
-    }
-
-    const cmd = runCommand(t, account.name)
-    if (cmd) {
-      if (cmd.toast) toast(cmd.toast.text, cmd.toast.emoji)
-      if (cmd.text || cmd.sticker) send({ text: cmd.text ?? '', sticker: cmd.sticker, replyToId: replyTo?.id, ttl: ttl || undefined })
-      if (cmd.effect) playEffect(cmd.effect)
-    } else {
-      const body = settings.emoticons ? applyEmoticons(t) : t
-      send({ text: body, replyToId: replyTo?.id, ttl: ttl || undefined })
-    }
-
+  function afterSend() {
     if (settings.sendSound) beep()
     setReply(null)
     setText('')
     localStorage.removeItem(draftKey(chatId))
   }
 
+  async function sendPendingFiles(caption: string) {
+    setSending(true)
+    try {
+      const backend = useStore.getState().backend!
+      const files = [...pending]
+      for (let i = 0; i < files.length; i++) {
+        const f = files[i]
+        const kind = attachmentKindFor(f)
+        const blob = kind === 'image' ? await downscaleImage(f) : f
+        const dims = kind === 'image' || kind === 'gif' ? await imageSize(blob) : null
+        const { url } = await backend.uploadFile('attachment', blob, f.name)
+        const attachment: Attachment = {
+          kind,
+          url,
+          name: f.name,
+          size: blob.size,
+          mime: blob.type || f.type || undefined,
+          w: dims?.w,
+          h: dims?.h,
+        }
+        await send({
+          text: i === 0 ? caption : '',
+          attachment,
+          replyToId: i === 0 ? replyTo?.id : undefined,
+          ttl: ttl || undefined,
+        })
+      }
+      clearPendingFiles()
+      afterSend()
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Не удалось отправить файл', '⚠️')
+    } finally {
+      setSending(false)
+    }
+  }
+
+  async function sendGif(g: GifResult) {
+    setGifs(false)
+    await send({ text: '', attachment: { kind: 'gif', url: g.url, name: g.anime }, replyToId: replyTo?.id })
+    setReply(null)
+    if (settings.sendSound) beep()
+  }
+
+  function submit() {
+    if (sending) return
+    const t = text.trim()
+
+    if (editing) {
+      if (!t) return
+      edit(editing.id, t)
+      setEdit(null)
+      setText('')
+      return
+    }
+
+    if (pending.length) {
+      void sendPendingFiles(t)
+      return
+    }
+
+    if (!t) return
+    const cmd = runCommand(t, account.name)
+    if (cmd) {
+      if (cmd.toast) toast(cmd.toast.text, cmd.toast.emoji)
+      if (cmd.text || cmd.sticker) send({ text: cmd.text ?? '', sticker: cmd.sticker, replyToId: replyTo?.id, ttl: ttl || undefined })
+    } else {
+      const body = settings.emoticons ? applyEmoticons(t) : t
+      send({ text: body, replyToId: replyTo?.id, ttl: ttl || undefined })
+    }
+    afterSend()
+  }
+
   function editLastMine() {
     const arr = messages[chatId] ?? []
     for (let i = arr.length - 1; i >= 0; i--) {
       const m = arr[i]
-      if (m.senderUid === account.uid && !m.deleted && !m.poll && !m.sticker) {
+      if (m.senderUid === account.uid && !m.deleted && !m.poll && !m.sticker && !m.attachment) {
         setEdit(m)
         return
       }
@@ -135,6 +213,17 @@ export function Composer() {
     }
   }
 
+  function onPaste(e: React.ClipboardEvent) {
+    const files = Array.from(e.clipboardData?.files ?? [])
+    if (files.length) {
+      e.preventDefault()
+      addPendingFiles(files)
+    }
+  }
+
+  const canSend = !!text.trim() || pending.length > 0
+  const showMic = !canSend && !editing && typeof navigator !== 'undefined' && !!navigator.mediaDevices
+
   return (
     <div className="relative border-t border-[var(--border)] bg-[var(--panel)] px-3 py-2.5">
       {(replyTo || editing) && (
@@ -142,11 +231,19 @@ export function Composer() {
           <CornerUpLeft size={16} className="text-[var(--accent)]" />
           <div className="min-w-0 flex-1">
             <div className="font-semibold text-[var(--accent)]">{editing ? 'Редактирование' : `Ответ · ${replyTo ? resolve(replyTo.senderUid).name : ''}`}</div>
-            <div className="truncate text-[var(--muted)]">{editing ? editing.text : replyTo?.sticker ? 'стикер' : replyTo?.text}</div>
+            <div className="truncate text-[var(--muted)]">{editing ? editing.text : replyTo?.sticker ? 'стикер' : replyTo?.attachment ? attachmentChipLabel(replyTo.attachment) : replyTo?.text}</div>
           </div>
           <button onClick={() => { setReply(null); setEdit(null); setText('') }} className="grid h-7 w-7 place-items-center rounded-full hover:bg-[var(--panel-hover)]">
             <X size={15} />
           </button>
+        </div>
+      )}
+
+      {pending.length > 0 && (
+        <div className="no-scrollbar mb-2 flex gap-2 overflow-x-auto">
+          {pending.map((f, i) => (
+            <PendingChip key={`${f.name}-${i}`} file={f} onRemove={() => removePendingFile(i)} />
+          ))}
         </div>
       )}
 
@@ -172,50 +269,229 @@ export function Composer() {
 
       {emoji && <EmojiPicker onPick={(e) => updateText(text + e)} onClose={() => setEmoji(false)} />}
       {stickers && <StickerTray onPick={(s) => { send({ text: '', sticker: s }); setStickers(false) }} onClose={() => setStickers(false)} />}
+      {gifs && <GifTray onPick={sendGif} onClose={() => setGifs(false)} />}
 
-      <div className="flex items-end gap-1.5">
-        <button onClick={() => { setEmoji((v) => !v); setStickers(false) }} className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-[var(--muted)] hover:bg-[var(--panel-hover)]" title="Эмодзи">
-          <Smile size={21} />
-        </button>
-        <button onClick={() => { setStickers((v) => !v); setEmoji(false) }} className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-[var(--muted)] hover:bg-[var(--panel-hover)]" title="Стикеры">
-          <StickerIcon size={21} />
-        </button>
+      <input ref={fileRef} type="file" multiple hidden onChange={(e) => { addPendingFiles(Array.from(e.target.files ?? [])); e.target.value = '' }} />
 
-        <textarea
-          ref={ref}
-          value={text}
-          onChange={(e) => updateText(e.target.value)}
-          onKeyDown={onKey}
-          rows={1}
-          placeholder="Сообщение…  (/ — команды)"
-          className="max-h-40 flex-1 resize-none rounded-2xl border border-[var(--border)] bg-[var(--panel-2)] px-4 py-2.5 outline-none focus:ring-2 focus:ring-[var(--ring)]"
+      {recording ? (
+        <VoiceRecorder
+          onCancel={() => setRecording(false)}
+          onDone={async (blob, durationSec) => {
+            setRecording(false)
+            setSending(true)
+            try {
+              const backend = useStore.getState().backend!
+              const { url } = await backend.uploadFile('attachment', blob, 'voice')
+              await send({
+                text: '',
+                attachment: { kind: 'voice', url, size: blob.size, mime: blob.type, durationSec },
+                replyToId: replyTo?.id,
+              })
+              afterSend()
+            } catch (e) {
+              toast(e instanceof Error ? e.message : 'Не удалось отправить голосовое', '⚠️')
+            } finally {
+              setSending(false)
+            }
+          }}
         />
+      ) : (
+        <div className="flex items-end gap-1">
+          <IconButton title="Эмодзи" active={emoji} onClick={() => { setEmoji((v) => !v); setStickers(false); setGifs(false) }}>
+            <Smile size={21} />
+          </IconButton>
+          <IconButton title="Стикеры" active={stickers} onClick={() => { setStickers((v) => !v); setEmoji(false); setGifs(false) }}>
+            <StickerIcon size={21} />
+          </IconButton>
+          <IconButton title="GIF" active={gifs} onClick={() => { setGifs((v) => !v); setEmoji(false); setStickers(false) }}>
+            <ImagePlay size={21} />
+          </IconButton>
+          <IconButton title="Прикрепить файл" onClick={() => fileRef.current?.click()}>
+            <Paperclip size={20} />
+          </IconButton>
 
-        <div className="relative">
-          <button onClick={() => setTtlOpen((v) => !v)} className={classNames('grid h-10 w-10 shrink-0 place-items-center rounded-full hover:bg-[var(--panel-hover)]', ttl ? 'text-[var(--accent)]' : 'text-[var(--muted)]')} title="Исчезающее сообщение">
-            <Clock size={20} />
-          </button>
-          {ttlOpen && (
-            <>
-              <div className="fixed inset-0 z-20" onClick={() => setTtlOpen(false)} />
-              <div className="absolute bottom-12 right-0 z-30 w-36 rounded-xl border border-[var(--border)] bg-[var(--panel)] p-1 shadow-xl animate-pop-in" style={{ boxShadow: 'var(--shadow)' }}>
-                {TTLS.map((o) => (
-                  <button key={o.v} onClick={() => { setTtl(o.v); setTtlOpen(false) }} className={classNames('block w-full rounded-lg px-3 py-1.5 text-left text-sm hover:bg-[var(--panel-hover)]', ttl === o.v && 'font-bold accent-text')}>{o.label}</button>
-                ))}
-              </div>
-            </>
+          <textarea
+            ref={ref}
+            value={text}
+            onChange={(e) => updateText(e.target.value)}
+            onKeyDown={onKey}
+            onPaste={onPaste}
+            rows={1}
+            placeholder={pending.length ? 'Подпись…' : 'Сообщение…  (/ — команды)'}
+            className="max-h-40 min-w-0 flex-1 resize-none rounded-2xl border border-[var(--border)] bg-[var(--panel-2)] px-4 py-2.5 outline-none focus:ring-2 focus:ring-[var(--ring)]"
+          />
+
+          <div className="relative">
+            <IconButton title="Исчезающее сообщение" onClick={() => setTtlOpen((v) => !v)} active={!!ttl}>
+              <Clock size={20} />
+            </IconButton>
+            {ttlOpen && (
+              <>
+                <div className="fixed inset-0 z-20" onClick={() => setTtlOpen(false)} />
+                <div className="absolute bottom-12 right-0 z-30 w-36 rounded-xl border border-[var(--border)] bg-[var(--panel)] p-1 shadow-xl animate-pop-in" style={{ boxShadow: 'var(--shadow)' }}>
+                  {TTLS.map((o) => (
+                    <button key={o.v} onClick={() => { setTtl(o.v); setTtlOpen(false) }} className={classNames('block w-full rounded-lg px-3 py-1.5 text-left text-sm hover:bg-[var(--panel-hover)]', ttl === o.v && 'font-bold accent-text')}>{o.label}</button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+          <IconButton title="Опрос" onClick={() => setPollOpen(true)}>
+            <ListChecks size={20} />
+          </IconButton>
+
+          {showMic ? (
+            <button onClick={() => setRecording(true)} className="grid h-11 w-11 shrink-0 place-items-center rounded-full accent-gradient text-white shadow-md transition hover:brightness-105 active:scale-95" title="Голосовое сообщение">
+              <Mic size={19} />
+            </button>
+          ) : (
+            <button onClick={submit} disabled={sending} className="grid h-11 w-11 shrink-0 place-items-center rounded-full accent-gradient text-white shadow-md transition hover:brightness-105 active:scale-95 disabled:opacity-60" title="Отправить">
+              {sending ? <Loader2 size={19} className="animate-spin" /> : <Send size={19} />}
+            </button>
           )}
         </div>
-        <button onClick={() => setPollOpen(true)} className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-[var(--muted)] hover:bg-[var(--panel-hover)]" title="Опрос">
-          <ListChecks size={20} />
-        </button>
-
-        <button onClick={submit} className="grid h-11 w-11 shrink-0 place-items-center rounded-full accent-gradient text-white shadow-md transition hover:brightness-105 active:scale-95" title="Отправить">
-          <Send size={19} />
-        </button>
-      </div>
+      )}
 
       {pollOpen && <PollCreator onClose={() => setPollOpen(false)} onCreate={(p) => { send({ text: '', poll: p }); setPollOpen(false) }} />}
+    </div>
+  )
+}
+
+function attachmentChipLabel(a: Attachment) {
+  switch (a.kind) {
+    case 'image': return '📷 фото'
+    case 'gif': return '🖼 GIF'
+    case 'video': return '🎬 видео'
+    case 'voice': return '🎤 голосовое'
+    case 'audio': return '🎵 аудио'
+    default: return `📎 ${a.name ?? 'файл'}`
+  }
+}
+
+function IconButton({ children, onClick, title, active }: { children: React.ReactNode; onClick: () => void; title: string; active?: boolean }) {
+  return (
+    <button
+      onClick={onClick}
+      title={title}
+      className={classNames(
+        'grid h-10 w-10 shrink-0 place-items-center rounded-full transition hover:bg-[var(--panel-hover)]',
+        active ? 'text-[var(--accent)]' : 'text-[var(--muted)]',
+      )}
+    >
+      {children}
+    </button>
+  )
+}
+
+/** Thumbnail chip of a file waiting to be sent. */
+function PendingChip({ file, onRemove }: { file: File; onRemove: () => void }) {
+  const kind = attachmentKindFor(file)
+  const [preview, setPreview] = useState<string | null>(null)
+  useEffect(() => {
+    if (kind !== 'image' && kind !== 'gif') return
+    const url = URL.createObjectURL(file)
+    setPreview(url)
+    return () => URL.revokeObjectURL(url)
+  }, [file, kind])
+
+  return (
+    <div className="relative shrink-0 animate-pop-in">
+      {preview ? (
+        <img src={preview} alt={file.name} className="h-16 w-16 rounded-xl border border-[var(--border)] object-cover" />
+      ) : (
+        <div className="flex h-16 w-40 items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--panel-2)] px-2.5">
+          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg accent-gradient text-white">
+            {kind === 'video' ? <Video size={17} /> : kind === 'audio' ? <Music size={17} /> : <FileText size={17} />}
+          </span>
+          <div className="min-w-0">
+            <div className="truncate text-xs font-semibold">{file.name}</div>
+            <div className="text-[10px] text-[var(--muted)]">{prettySize(file.size)}</div>
+          </div>
+        </div>
+      )}
+      <button onClick={onRemove} className="absolute -right-1.5 -top-1.5 grid h-5 w-5 place-items-center rounded-full bg-rose-500 text-white shadow" title="Убрать">
+        <X size={12} />
+      </button>
+    </div>
+  )
+}
+
+/** Inline voice-note recorder (Telegram-style). */
+function VoiceRecorder({ onDone, onCancel }: { onDone: (blob: Blob, durationSec: number) => void; onCancel: () => void }) {
+  const toast = useStore((s) => s.toast)
+  const [elapsed, setElapsed] = useState(0)
+  const recRef = useRef<MediaRecorder | null>(null)
+  const chunksRef = useRef<Blob[]>([])
+  const cancelledRef = useRef(false)
+  const startRef = useRef(0)
+
+  useEffect(() => {
+    let stream: MediaStream | null = null
+    let tick: ReturnType<typeof setInterval> | null = null
+    ;(async () => {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      } catch {
+        toast('Нет доступа к микрофону 🥺', '🎤')
+        onCancel()
+        return
+      }
+      const mime = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'].find((m) => MediaRecorder.isTypeSupported(m))
+      const rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined)
+      recRef.current = rec
+      chunksRef.current = []
+      rec.ondataavailable = (e) => e.data.size && chunksRef.current.push(e.data)
+      rec.onstop = () => {
+        stream?.getTracks().forEach((t) => t.stop())
+        if (cancelledRef.current) return
+        const durationSec = Math.round((Date.now() - startRef.current) / 1000)
+        const blob = new Blob(chunksRef.current, { type: rec.mimeType || 'audio/webm' })
+        if (durationSec < 1 || blob.size === 0) {
+          toast('Слишком коротко — зажми и скажи что-нибудь 🎀', '🎤')
+          onCancel()
+          return
+        }
+        onDone(blob, durationSec)
+      }
+      startRef.current = Date.now()
+      rec.start(250)
+      tick = setInterval(() => setElapsed(Math.floor((Date.now() - startRef.current) / 1000)), 500)
+    })()
+    return () => {
+      if (tick) clearInterval(tick)
+      if (recRef.current && recRef.current.state !== 'inactive') {
+        cancelledRef.current = true
+        recRef.current.stop()
+      }
+      stream?.getTracks().forEach((t) => t.stop())
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const mm = String(Math.floor(elapsed / 60)).padStart(1, '0')
+  const ss = String(elapsed % 60).padStart(2, '0')
+
+  return (
+    <div className="flex items-center gap-2">
+      <button
+        onClick={() => { cancelledRef.current = true; recRef.current?.stop(); onCancel() }}
+        className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-rose-500 hover:bg-rose-500/10"
+        title="Отменить"
+      >
+        <Trash2 size={20} />
+      </button>
+      <div className="flex flex-1 items-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--panel-2)] px-4 py-2.5">
+        <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-rose-500" />
+        <span className="text-sm font-bold tabular-nums">{mm}:{ss}</span>
+        <span className="text-sm text-[var(--muted)]">Запись голосового…</span>
+      </div>
+      <button
+        onClick={() => { cancelledRef.current = false; recRef.current?.stop() }}
+        className="grid h-11 w-11 shrink-0 place-items-center rounded-full accent-gradient text-white shadow-md transition hover:brightness-105 active:scale-95"
+        title="Отправить"
+      >
+        <Send size={19} />
+      </button>
     </div>
   )
 }
@@ -243,6 +519,67 @@ function StickerTray({ onPick, onClose }: { onPick: (s: string) => void; onClose
               title={p.label}
             >
               <Sticker emoji={p.cover} size={26} />
+            </button>
+          ))}
+        </div>
+      </div>
+    </>
+  )
+}
+
+/** Anime-GIF tray backed by the keyless nekos.best API. */
+function GifTray({ onPick, onClose }: { onPick: (g: GifResult) => void; onClose: () => void }) {
+  const [cat, setCat] = useState(GIF_CATEGORIES[0].id)
+  const [items, setItems] = useState<GifResult[]>([])
+  const [state, setState] = useState<'loading' | 'ok' | 'error'>('loading')
+
+  useEffect(() => {
+    let alive = true
+    setState('loading')
+    fetchGifs(cat, 12)
+      .then((res) => { if (alive) { setItems(res); setState('ok') } })
+      .catch(() => { if (alive) setState('error') })
+    return () => { alive = false }
+  }, [cat])
+
+  return (
+    <>
+      <div className="fixed inset-0 z-20" onClick={onClose} />
+      <div className="absolute bottom-16 left-2 right-2 z-30 mx-auto max-w-md rounded-2xl border border-[var(--border)] bg-[var(--panel)] shadow-xl animate-pop-in" style={{ boxShadow: 'var(--shadow)' }}>
+        <div className="fancy-scroll max-h-72 overflow-y-auto p-2">
+          {state === 'loading' && (
+            <div className="grid grid-cols-3 gap-1.5">
+              {Array.from({ length: 9 }).map((_, i) => (
+                <div key={i} className="shimmer aspect-square rounded-xl bg-[var(--panel-2)]" />
+              ))}
+            </div>
+          )}
+          {state === 'error' && (
+            <div className="py-8 text-center text-sm text-[var(--muted)]">GIF-сервис недоступен 🥺 Попробуй позже.</div>
+          )}
+          {state === 'ok' && (
+            <div className="grid grid-cols-3 gap-1.5">
+              {items.map((g) => (
+                <button key={g.url} onClick={() => onPick(g)} className="group aspect-square overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--panel-2)]">
+                  <img src={g.url} alt={g.anime ?? 'gif'} loading="lazy" className="h-full w-full object-cover transition group-hover:scale-105" />
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="no-scrollbar flex items-center gap-1 overflow-x-auto border-t border-[var(--border)] p-1.5">
+          {GIF_CATEGORIES.map((c) => (
+            <button
+              key={c.id}
+              onClick={() => setCat(c.id)}
+              title={c.label}
+              className={classNames(
+                'flex shrink-0 items-center gap-1 rounded-xl px-2.5 py-1.5 text-sm font-semibold transition',
+                cat === c.id ? 'bg-[var(--panel-hover)] ring-2 ring-[var(--accent)]' : 'hover:bg-[var(--panel-hover)]',
+              )}
+            >
+              <span>{c.emoji}</span>
+              <span className="hidden sm:inline text-xs">{c.label}</span>
             </button>
           ))}
         </div>
