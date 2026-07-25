@@ -45,6 +45,9 @@ export function NewChatModal() {
             <span className="text-[var(--muted)]">@</span>
             <input value={username} onChange={(e) => setUsername(normalizeUsername(e.target.value))} placeholder={isChannel ? 'my_channel' : 'my_group'} className="w-full bg-transparent px-1 py-2.5 outline-none" />
           </div>
+          <span className="mt-1 block text-xs text-[var(--muted)]">
+            {username ? '🌐 Публичный — виден в поиске по @имени' : `🔒 Без @имени ${isChannel ? 'канал будет приватным' : 'группа будет приватной'} — вход только по инвайт-ссылке`}
+          </span>
         </label>
 
         <label className="block">
