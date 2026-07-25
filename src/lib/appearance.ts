@@ -23,5 +23,9 @@ export function applyAppearance(s: UserSettings) {
 }
 
 export function resolveTheme(t: UserSettings['theme']) {
+  if (t === 'auto') {
+    const dark = typeof window !== 'undefined' && window.matchMedia?.('(prefers-color-scheme: dark)').matches
+    return dark ? 'dark' : 'light'
+  }
   return t
 }

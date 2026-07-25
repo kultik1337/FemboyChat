@@ -323,6 +323,34 @@ audio::-webkit-media-controls-panel {
   background: #fff;
 }
 
+/* ───────────────────────── Landing ───────────────────────── */
+.landing-bg {
+  background: linear-gradient(160deg, var(--bg-grad-1), var(--bg-grad-2));
+}
+@keyframes blob-drift {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(40px, -30px) scale(1.08); }
+  66% { transform: translate(-30px, 25px) scale(0.94); }
+}
+.landing-blob {
+  position: absolute;
+  border-radius: 999px;
+  opacity: 0.16;
+  filter: blur(70px);
+  animation: blob-drift 16s ease-in-out infinite;
+}
+@keyframes marquee {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+.landing-marquee {
+  width: max-content;
+  animation: marquee 28s linear infinite;
+}
+.landing-marquee:hover {
+  animation-play-state: paused;
+}
+
 @media (prefers-reduced-motion: reduce) {
   * {
     animation-duration: 0.001ms !important;

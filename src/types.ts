@@ -3,7 +3,7 @@
 export type EntityKind = 'user' | 'group' | 'channel' | 'bot'
 
 export interface UserSettings {
-  theme: 'light' | 'dark' | 'midnight'
+  theme: 'light' | 'dark' | 'midnight' | 'auto'
   accent: string // hex
   wallpaper: 'aurora' | 'dots' | 'plain' | 'hearts'
   fontScale: number // 0.9 .. 1.2
