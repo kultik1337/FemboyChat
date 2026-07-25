@@ -51,8 +51,8 @@ export function AppShell() {
           </button>
         </div>
       )}
-      <div className="min-h-0 flex-1">
-        <div className="mx-auto grid h-full max-w-[1500px] grid-cols-1 md:grid-cols-[minmax(300px,380px)_1fr]">
+      <div className="min-h-0 flex-1 md:px-3 md:pb-3 md:pt-2" style={{ background: 'linear-gradient(160deg, var(--bg-grad-1), var(--bg-grad-2))' }}>
+        <div className="mx-auto grid h-full max-w-[1500px] grid-cols-1 overflow-hidden md:grid-cols-[minmax(300px,380px)_1fr] md:rounded-3xl md:border md:border-[var(--border)] md:shadow-xl">
           <aside className={classNames('h-full min-h-0', activeChatId ? 'hidden md:block' : 'block')}>
             <Sidebar />
           </aside>
