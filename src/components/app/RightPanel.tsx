@@ -1,10 +1,12 @@
-import { Ban, Bell, BellOff, LogOut, MessageCircle, Pin, X } from 'lucide-react'
+import { useState } from 'react'
+import { Ban, Bell, BellOff, Copy, LogOut, MessageCircle, Pencil, Pin, Shield, ShieldOff, UserMinus, UserPlus, X } from 'lucide-react'
 import { useStore } from '../../store/useStore'
 import { Avatar } from '../ui/Avatar'
 import { chatCounterpart, usePeople } from './people'
 import { useActions } from './useActions'
-import { openContextMenu } from '../ui/ContextMenu'
+import { openContextMenu, type MenuItem } from '../ui/ContextMenu'
 import { classNames, lastSeenLabel } from '../../lib/util'
+import { GroupEditModal } from './GroupEditModal'
 
 export function RightPanel() {
   const open = useStore((s) => s.rightPanelOpen)
@@ -23,6 +25,9 @@ export function RightPanel() {
   const toast = useStore((s) => s.toast)
   const { resolve } = usePeople()
   const { personMenu } = useActions()
+  const [editOpen, setEditOpen] = useState(false)
+  const [adding, setAdding] = useState(false)
+  const [addQuery, setAddQuery] = useState('')
 
   if (!open) return null
   const close = () => { setRightPanel(false); setProfileUid(null) }
@@ -41,6 +46,71 @@ export function RightPanel() {
     await updateChatState.updateChat(chat.id, { pinned: !chat.pinned })
     await refreshChats()
   }
+  const isAdmin = !!chat && (chat.adminUids.includes(account.uid) || chat.ownerUid === account.uid)
+  const inviteLink = chat?.inviteCode ? `${location.origin}/#join=${chat.inviteCode}` : ''
+
+  function copyInvite() {
+    navigator.clipboard.writeText(inviteLink).then(
+      () => toast('Инвайт-ссылка скопирована', '📋'),
+      () => toast('Не удалось скопировать', '⚠️'),
+    )
+  }
+
+  async function addMember(uid: string) {
+    if (!chat || !updateChatState) return
+    try {
+      await updateChatState.updateChat(chat.id, { memberUids: [...chat.memberUids, uid] })
+      await refreshChats()
+      toast('Участник добавлен', '➕')
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Не удалось добавить', '⚠️')
+    }
+  }
+
+  async function removeMember(uid: string) {
+    if (!chat || !updateChatState) return
+    try {
+      await updateChatState.updateChat(chat.id, {
+        memberUids: chat.memberUids.filter((u) => u !== uid),
+        adminUids: chat.adminUids.filter((u) => u !== uid),
+      })
+      await refreshChats()
+      toast('Участник удалён из группы', '👋')
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Не удалось удалить', '⚠️')
+    }
+  }
+
+  async function toggleAdmin(uid: string) {
+    if (!chat || !updateChatState) return
+    const on = chat.adminUids.includes(uid)
+    try {
+      await updateChatState.updateChat(chat.id, {
+        adminUids: on ? chat.adminUids.filter((u) => u !== uid) : [...chat.adminUids, uid],
+      })
+      await refreshChats()
+      toast(on ? 'Права админа сняты' : 'Назначен админом', '🛡️')
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Не получилось', '⚠️')
+    }
+  }
+
+  function memberMenu(uid: string): MenuItem[] {
+    const base = personMenu(uid)
+    if (!isAdmin || !chat || uid === account.uid || uid === chat.ownerUid) return base
+    const isUidAdmin = chat.adminUids.includes(uid)
+    return [
+      ...base,
+      { kind: 'divider' },
+      {
+        label: isUidAdmin ? 'Снять админа' : 'Назначить админом',
+        icon: isUidAdmin ? <ShieldOff size={15} /> : <Shield size={15} />,
+        onClick: () => toggleAdmin(uid),
+      },
+      { label: 'Удалить из группы', icon: <UserMinus size={15} />, danger: true, onClick: () => removeMember(uid) },
+    ]
+  }
+
   async function leave() {
     if (!chat || !updateChatState) return
     await updateChatState.leaveChat(chat.id)
@@ -64,7 +134,7 @@ export function RightPanel() {
         ) : chat ? (
           <div className="px-5 pb-8">
             <div className="flex flex-col items-center text-center">
-              <Avatar emoji={chat.emoji} color={chat.color} size={92} />
+              <Avatar emoji={chat.emoji} color={chat.color} src={chat.avatarUrl} size={92} />
               <div className="mt-3 flex items-center gap-1 text-xl font-black">{chat.title} {chat.verified && <span className="text-[var(--accent)]">✔</span>}</div>
               {chat.username && <div className="text-sm text-[var(--muted)]">@{chat.username}</div>}
               <div className="mt-1 text-sm text-[var(--muted)]">
@@ -74,25 +144,58 @@ export function RightPanel() {
 
             {chat.description && <p className="mt-4 rounded-2xl bg-[var(--panel-2)] p-3 text-sm">{chat.description}</p>}
 
+            {chat.isPrivate && <div className="mt-1 text-center text-xs text-[var(--muted)]">🔒 приватный {chat.type === 'channel' ? 'канал' : 'чат'}</div>}
+
             <div className="mt-4 space-y-1">
+              {(chat.type === 'group' || chat.type === 'channel') && isAdmin && (
+                <Row onClick={() => setEditOpen(true)} icon={<Pencil size={18} />} label="Редактировать" />
+              )}
               <Row onClick={mute} icon={chat.muted ? <BellOff size={18} /> : <Bell size={18} />} label={chat.muted ? 'Включить уведомления' : 'Выключить уведомления'} />
               <Row onClick={pinChat} icon={<Pin size={18} />} label={chat.pinned ? 'Открепить чат' : 'Закрепить чат'} />
+              {chat.isPrivate && chat.inviteCode && (
+                <Row onClick={copyInvite} icon={<Copy size={18} />} label="Скопировать инвайт-ссылку" />
+              )}
             </div>
 
             {chat.type === 'group' && (
               <div className="mt-5">
-                <div className="mb-2 text-xs font-bold uppercase text-[var(--muted)]">Участники</div>
+                <div className="mb-2 flex items-center justify-between">
+                  <div className="text-xs font-bold uppercase text-[var(--muted)]">Участники</div>
+                  {isAdmin && (
+                    <button onClick={() => { setAdding((v) => !v); setAddQuery('') }} className="flex items-center gap-1 text-xs font-semibold text-[var(--accent)] hover:underline">
+                      <UserPlus size={13} /> Добавить
+                    </button>
+                  )}
+                </div>
+                {adding && (
+                  <div className="mb-2 rounded-xl border border-[var(--border)] p-2">
+                    <input autoFocus value={addQuery} onChange={(e) => setAddQuery(e.target.value)} placeholder="Найти человека…" className="input mb-1 !py-1.5 text-sm" />
+                    <div className="max-h-40 space-y-0.5 overflow-y-auto fancy-scroll">
+                      {directory
+                        .filter((d) => d.kind === 'user' && !chat.memberUids.includes(d.uid))
+                        .filter((d) => !addQuery.trim() || d.name.toLowerCase().includes(addQuery.toLowerCase()) || d.username.toLowerCase().includes(addQuery.toLowerCase()))
+                        .slice(0, 8)
+                        .map((d) => (
+                          <button key={d.uid} onClick={() => addMember(d.uid)} className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-[var(--panel-hover)]">
+                            <Avatar emoji={d.emoji} color={d.color} src={d.avatarUrl} size={28} />
+                            <div className="min-w-0 flex-1 truncate text-sm font-semibold">{d.name}</div>
+                            <UserPlus size={14} className="text-[var(--accent)]" />
+                          </button>
+                        ))}
+                    </div>
+                  </div>
+                )}
                 <div className="space-y-1">
                   {chat.memberUids.map((uid) => {
                     const p = resolve(uid)
                     return (
-                      <button key={uid} onClick={() => setProfileUid(uid)} onContextMenu={(e) => uid !== account.uid && openContextMenu(e, personMenu(uid))} className="flex w-full items-center gap-3 rounded-xl px-2 py-1.5 text-left hover:bg-[var(--panel-hover)]">
+                      <button key={uid} onClick={() => setProfileUid(uid)} onContextMenu={(e) => uid !== account.uid && openContextMenu(e, memberMenu(uid))} className="flex w-full items-center gap-3 rounded-xl px-2 py-1.5 text-left hover:bg-[var(--panel-hover)]">
                         <Avatar emoji={p.emoji} color={p.color} src={p.avatarUrl} size={36} online={presence[uid]?.online} />
                         <div className="min-w-0">
                           <div className="truncate text-sm font-semibold">{p.name}{uid === account.uid ? ' (вы)' : ''}</div>
                           <div className="truncate text-xs text-[var(--muted)]">@{p.username}</div>
                         </div>
-                        {chat.adminUids.includes(uid) && <span className="ml-auto chip">admin</span>}
+                        {uid === chat.ownerUid ? <span className="ml-auto chip">👑 владелец</span> : chat.adminUids.includes(uid) ? <span className="ml-auto chip">admin</span> : null}
                       </button>
                     )
                   })}
@@ -108,6 +211,7 @@ export function RightPanel() {
           </div>
         ) : null}
       </div>
+      {chat && editOpen && <GroupEditModal key={chat.id} chat={chat} open={editOpen} onClose={() => setEditOpen(false)} />}
     </div>
   )
 }

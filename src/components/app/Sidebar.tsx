@@ -52,7 +52,7 @@ export function Sidebar() {
       const p = other ? resolve(other) : null
       return { title: p?.name ?? c.title, emoji: p?.emoji ?? c.emoji, color: p?.color ?? c.color, avatarUrl: p?.avatarUrl, verified: p?.verified }
     }
-    return { title: c.title, emoji: c.emoji, color: c.color, avatarUrl: undefined, verified: c.verified }
+    return { title: c.title, emoji: c.emoji, color: c.color, avatarUrl: c.avatarUrl, verified: c.verified }
   }
 
   function previewText(c: Chat) {

@@ -71,6 +71,9 @@ export interface Chat {
   username?: string
   emoji: string
   color: string
+  avatarUrl?: string // custom uploaded chat photo
+  isPrivate?: boolean // private communities are invite-only and hidden from search
+  inviteCode?: string // join code for invite links (visible to members)
   description?: string
   memberUids: string[]
   adminUids: string[]
@@ -127,6 +130,14 @@ export interface Message {
   poll?: Poll
   sticker?: string
   attachment?: Attachment
+}
+
+/** Open Graph preview of a link inside a message. */
+export interface LinkPreview {
+  title: string
+  description: string
+  image: string
+  siteName: string
 }
 
 // ───────────────────────── Realtime events ─────────────────────────

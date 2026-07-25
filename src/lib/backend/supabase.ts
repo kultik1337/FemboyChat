@@ -1,4 +1,4 @@
-import type { Account, Chat, Directory, Message, RealtimeEvent } from '../../types'
+import type { Account, Chat, Directory, LinkPreview, Message, RealtimeEvent } from '../../types'
 import { defaultSettings } from '../defaults'
 import { normalizeUsername, uid as rid } from '../util'
 import type { Backend, AuthResult } from './types'
@@ -211,11 +211,44 @@ export class SupabaseBackend implements Backend {
     return rowToChat(data)
   }
   async joinEntity(entityUid: string): Promise<Chat> {
-    const { data } = await this.client.rpc('join_entity', { entity: entityUid })
+    const { data, error } = await this.client.rpc('join_entity', { entity: entityUid })
+    if (error) throw new Error(error.message ?? 'Не удалось открыть чат')
+    return rowToChat(data)
+  }
+  async joinByInvite(code: string): Promise<Chat> {
+    const { data, error } = await this.client.rpc('join_by_invite', { code })
+    if (error) throw new Error(error.message ?? 'Приглашение недействительно')
     return rowToChat(data)
   }
   async updateChat(id: string, patch: Partial<Chat>): Promise<Chat> {
-    const { data } = await this.client.from('chats').update(patch).eq('id', id).select('*').single()
+    // pin/mute is allowed for every member — route through a security-definer
+    // RPC because the chats UPDATE policy only covers owners/admins.
+    const keys = Object.keys(patch)
+    if (keys.length > 0 && keys.every((k) => k === 'pinned' || k === 'muted')) {
+      const { data, error } = await this.client.rpc('set_chat_flags', {
+        chat: id,
+        want_pinned: patch.pinned ?? null,
+        want_muted: patch.muted ?? null,
+      })
+      if (error) throw new Error(error.message ?? 'Не удалось обновить чат')
+      return rowToChat(data)
+    }
+    // Map camelCase Chat fields onto snake_case columns; only editable ones.
+    const row: Record<string, unknown> = {}
+    if (patch.title !== undefined) row.title = patch.title
+    if (patch.description !== undefined) row.description = patch.description
+    if (patch.emoji !== undefined) row.emoji = patch.emoji
+    if (patch.color !== undefined) row.color = patch.color
+    if (patch.username !== undefined) row.username = patch.username || null
+    if (patch.avatarUrl !== undefined) row.avatar_url = patch.avatarUrl ?? null
+    if (patch.isPrivate !== undefined) row.is_private = patch.isPrivate
+    if (patch.inviteCode !== undefined) row.invite_code = patch.inviteCode ?? null
+    if (patch.pinned !== undefined) row.pinned = patch.pinned
+    if (patch.muted !== undefined) row.muted = patch.muted
+    if (patch.memberUids !== undefined) { row.member_uids = patch.memberUids; row.member_count = patch.memberUids.length }
+    if (patch.adminUids !== undefined) row.admin_uids = patch.adminUids
+    const { data, error } = await this.client.from('chats').update(row).eq('id', id).select('*').single()
+    if (error) throw new Error(error.message ?? 'Не удалось обновить чат')
     return rowToChat(data)
   }
   async leaveChat(id: string) {
@@ -280,6 +313,16 @@ export class SupabaseBackend implements Backend {
     return { url: data.publicUrl as string }
   }
 
+  async fetchLinkPreview(url: string): Promise<LinkPreview | null> {
+    try {
+      const { data, error } = await this.client.functions.invoke('link-preview', { body: { url } })
+      if (error || !data?.preview) return null
+      return data.preview as LinkPreview
+    } catch {
+      return null
+    }
+  }
+
   setTyping(chatId: string) {
     this.client?.channel(`typing-${chatId}`).send({
       type: 'broadcast',
@@ -341,6 +384,9 @@ function rowToChat(r: any): Chat {
     username: r.username ?? undefined,
     emoji: r.emoji ?? '💬',
     color: r.color ?? '#ff7ab8',
+    avatarUrl: r.avatar_url ?? undefined,
+    isPrivate: r.is_private ?? undefined,
+    inviteCode: r.invite_code ?? undefined,
     description: r.description ?? undefined,
     memberUids: r.member_uids ?? [],
     adminUids: r.admin_uids ?? [],

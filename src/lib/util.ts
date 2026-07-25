@@ -65,12 +65,33 @@ export function renderRich(text: string): { __html: string } {
   const withItalic = withBold.replace(/(^|\s)\*([^*]+)\*/g, '$1<i>$2</i>')
   const withUnderline = withItalic.replace(/(^|\s)__([^_]+)__/g, '$1<u>$2</u>')
   const withStrike = withUnderline.replace(/~~([^~]+)~~/g, '<s>$1</s>')
-  const withLinks = withStrike.replace(
-    /\b(https?:\/\/[^\s<]+)/g,
-    '<a href="$1" target="_blank" rel="noreferrer noopener" class="rich-link">$1</a>',
-  )
+  const withLinks = withStrike.replace(/\b(https?:\/\/[^\s<]+)/g, (url) => {
+    const invite = inviteCodeFromUrl(url)
+    if (invite)
+      return `<a href="${url}" data-invite="${invite}" class="rich-link invite-link">${url}</a>`
+    return `<a href="${url}" target="_blank" rel="noreferrer noopener" class="rich-link">${url}</a>`
+  })
   const withMentions = withLinks.replace(/(^|\s)@([a-zA-Z0-9_]{2,32})/g, '$1<span class="mention">@$2</span>')
   return { __html: withMentions.replace(/\n/g, '<br/>') }
+}
+
+/** Extracts the invite code from a FemboyChat invite link (#join=CODE), or null. */
+export function inviteCodeFromUrl(url: string): string | null {
+  const m = /#join=([A-Za-z0-9_-]+)/.exec(url)
+  if (!m) return null
+  try {
+    const host = new URL(url).hostname
+    const ours = host === location.hostname || host === 'femboychat.fun' || host === 'www.femboychat.fun'
+    return ours ? m[1] : null
+  } catch {
+    return null
+  }
+}
+
+/** First http(s) URL in a message text, for link previews. */
+export function firstUrl(text: string): string | null {
+  const m = /\bhttps?:\/\/[^\s<]+/.exec(text)
+  return m ? m[0] : null
 }
 
 export function normalizeUsername(u: string) {

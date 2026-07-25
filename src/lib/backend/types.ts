@@ -1,4 +1,4 @@
-import type { Account, Chat, Directory, Message, RealtimeEvent } from '../../types'
+import type { Account, Chat, Directory, LinkPreview, Message, RealtimeEvent } from '../../types'
 
 export interface AuthResult {
   ok: boolean
@@ -35,6 +35,7 @@ export interface Backend {
   }): Promise<Chat>
   openDM(otherUid: string): Promise<Chat>
   joinEntity(entityUid: string): Promise<Chat>
+  joinByInvite(code: string): Promise<Chat>
   updateChat(id: string, patch: Partial<Chat>): Promise<Chat>
   leaveChat(id: string): Promise<void>
 
@@ -50,6 +51,9 @@ export interface Backend {
 
   // media uploads (avatars + message attachments)
   uploadFile(kind: 'avatar' | 'attachment', file: Blob, name?: string): Promise<{ url: string }>
+
+  // link previews (og:-tags, fetched server-side; null in demo mode)
+  fetchLinkPreview(url: string): Promise<LinkPreview | null>
 
   // presence / typing
   setTyping(chatId: string): void
