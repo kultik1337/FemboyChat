@@ -49,6 +49,19 @@ export function RightPanel() {
   const isAdmin = !!chat && (chat.adminUids.includes(account.uid) || chat.ownerUid === account.uid)
   const inviteLink = chat?.inviteCode ? `${location.origin}/#join=${chat.inviteCode}` : ''
 
+  async function makeInvite() {
+    if (!chat || !updateChatState) return
+    try {
+      const code = crypto.randomUUID().replace(/-/g, '').slice(0, 12)
+      await updateChatState.updateChat(chat.id, { inviteCode: code })
+      await refreshChats()
+      await navigator.clipboard.writeText(`${location.origin}/#join=${code}`).catch(() => {})
+      toast('Инвайт-ссылка создана и скопирована', '💌')
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Не получилось', '⚠️')
+    }
+  }
+
   function copyInvite() {
     navigator.clipboard.writeText(inviteLink).then(
       () => toast('Инвайт-ссылка скопирована', '📋'),
@@ -152,8 +165,11 @@ export function RightPanel() {
               )}
               <Row onClick={mute} icon={chat.muted ? <BellOff size={18} /> : <Bell size={18} />} label={chat.muted ? 'Включить уведомления' : 'Выключить уведомления'} />
               <Row onClick={pinChat} icon={<Pin size={18} />} label={chat.pinned ? 'Открепить чат' : 'Закрепить чат'} />
-              {chat.isPrivate && chat.inviteCode && (
+              {(chat.type === 'group' || chat.type === 'channel') && chat.inviteCode && (
                 <Row onClick={copyInvite} icon={<Copy size={18} />} label="Скопировать инвайт-ссылку" />
+              )}
+              {(chat.type === 'group' || chat.type === 'channel') && !chat.inviteCode && isAdmin && (
+                <Row onClick={makeInvite} icon={<Copy size={18} />} label="Создать инвайт-ссылку" />
               )}
             </div>
 
