@@ -6,6 +6,8 @@ import { attachmentLabel, prettySize } from '../../lib/media'
 import { useStore } from '../../store/useStore'
 import { Avatar } from '../ui/Avatar'
 import { Sticker } from '../ui/Sticker'
+import { VoicePlayer } from '../ui/VoicePlayer'
+import { VideoPlayer } from '../ui/VideoPlayer'
 import { openContextMenu } from '../ui/ContextMenu'
 import { useActions } from './useActions'
 import type { Person } from './people'
@@ -121,6 +123,41 @@ export function MessageBubble({
     </span>
   )
 
+  // Telegram-style reaction pills, living INSIDE the bubble next to the time.
+  const reactionPills = (overlay: boolean) =>
+    message.reactions.length > 0 ? (
+      <span className="flex min-w-0 flex-wrap items-center gap-1">
+        {message.reactions.map((r) => {
+          const mine = account ? r.uids.includes(account.uid) : false
+          return (
+            <button
+              key={r.emoji}
+              onClick={(e) => { e.stopPropagation(); react(message.id, r.emoji) }}
+              className={classNames(
+                'flex items-center gap-1 rounded-full px-2 py-[3px] text-[11px] font-bold leading-none transition hover:scale-105 active:scale-95',
+                overlay
+                  ? mine ? 'bg-white text-[var(--accent)] shadow' : 'bg-black/45 text-white backdrop-blur-[2px]'
+                  : mine
+                    ? isMine ? 'bg-white text-[var(--accent)] shadow-sm' : 'accent-gradient text-white shadow-sm'
+                    : isMine ? 'bg-white/25 text-white' : 'bg-[var(--accent)]/15 accent-text',
+              )}
+            >
+              <span className="text-[13px] leading-none">{r.emoji}</span>
+              <span className="tabular-nums">{r.uids.length}</span>
+            </button>
+          )
+        })}
+      </span>
+    ) : null
+
+  // Shared bottom strip: reactions on the left, time on the right (как в TG).
+  const footer = (
+    <div className="mt-1 flex flex-wrap items-end justify-end gap-x-2 gap-y-1">
+      {reactionPills(false)}
+      <span className="ml-auto">{meta(false)}</span>
+    </div>
+  )
+
   return (
     <div
       id={`msg-${message.id}`}
@@ -154,6 +191,8 @@ export function MessageBubble({
             caption={message.text}
             header={header}
             meta={meta}
+            reactionPills={reactionPills}
+            footer={footer}
             isMine={isMine}
             radius={radius}
           />
@@ -171,33 +210,10 @@ export function MessageBubble({
             {message.poll ? (
               <PollView message={message} onVote={(i) => vote(message.id, i)} />
             ) : message.text ? (
-              <div className="whitespace-pre-wrap break-words" dangerouslySetInnerHTML={renderRich(message.text)} />
+              <LongText text={message.text} isMine={isMine} />
             ) : null}
 
-            <div className={classNames('mt-1 flex', isMine ? 'justify-end' : 'justify-start')}>{meta(false)}</div>
-          </div>
-        )}
-
-        {message.reactions.length > 0 && (
-          <div className={classNames('mt-1.5 flex flex-wrap gap-1.5', isMine ? 'justify-end' : 'justify-start')}>
-            {message.reactions.map((r) => {
-              const mine = account ? r.uids.includes(account.uid) : false
-              return (
-                <button
-                  key={r.emoji}
-                  onClick={() => react(message.id, r.emoji)}
-                  className={classNames(
-                    'flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold transition hover:scale-105 active:scale-95',
-                    mine
-                      ? 'bg-[var(--accent)]/25 ring-1 ring-[var(--accent)] text-[var(--text)]'
-                      : 'border border-[var(--border)] bg-[var(--panel-2)] text-[var(--muted)]',
-                  )}
-                >
-                  <span className="text-sm leading-none">{r.emoji}</span>
-                  <span className="tabular-nums">{r.uids.length}</span>
-                </button>
-              )
-            })}
+            {footer}
           </div>
         )}
 
@@ -227,6 +243,8 @@ function MediaMessage({
   caption,
   header,
   meta,
+  reactionPills,
+  footer,
   isMine,
   radius,
 }: {
@@ -234,18 +252,23 @@ function MediaMessage({
   caption: string
   header: React.ReactNode
   meta: (overlay: boolean) => React.ReactNode
+  reactionPills: (overlay: boolean) => React.ReactNode
+  footer: React.ReactNode
   isMine: boolean
   radius: string
 }) {
   const isVisual = a.kind === 'image' || a.kind === 'gif' || a.kind === 'video'
   const bare = isVisual && !caption && !header
 
-  // Bare photo / GIF / video: just the media, meta floats on top of it.
+  // Bare photo / GIF / video: just the media; reactions + time float on top.
   if (bare) {
     return (
       <div className="relative max-w-[380px] overflow-hidden shadow-sm" style={{ borderRadius: radius }}>
         <VisualMedia a={a} />
-        <div className="pointer-events-none absolute bottom-1.5 right-1.5 z-[1]">{meta(true)}</div>
+        <div className="pointer-events-none absolute inset-x-1.5 bottom-1.5 z-[1] flex flex-wrap items-end justify-end gap-1 [&_button]:pointer-events-auto">
+          {reactionPills(true)}
+          <span className="ml-auto">{meta(true)}</span>
+        </div>
       </div>
     )
   }
@@ -262,23 +285,18 @@ function MediaMessage({
       {header && <div className="px-3 pt-1.5">{header}</div>}
 
       {isVisual ? (
-        <div className="relative">
-          <VisualMedia a={a} fill />
-          {!caption && <div className="pointer-events-none absolute bottom-1.5 right-1.5 z-[1]">{meta(true)}</div>}
-        </div>
+        <VisualMedia a={a} fill />
       ) : a.kind === 'voice' || a.kind === 'audio' ? (
-        <VoiceMedia a={a} />
+        <div className="px-3 pt-2.5"><VoicePlayer a={a} /></div>
       ) : (
         <FileMedia a={a} />
       )}
 
       {/* slim caption strip under the media, как в Telegram */}
-      {(caption || !isVisual) && (
-        <div className={classNames('px-3 pb-1.5', caption ? 'pt-1.5' : 'pt-0')}>
-          {caption && <div className="whitespace-pre-wrap break-words" dangerouslySetInnerHTML={renderRich(caption)} />}
-          <div className={classNames('mt-0.5 flex', isMine ? 'justify-end' : 'justify-end')}>{meta(false)}</div>
-        </div>
-      )}
+      <div className={classNames('px-3 pb-1.5', caption ? 'pt-1.5' : 'pt-0')}>
+        {caption && <LongText text={caption} isMine={isMine} />}
+        {footer}
+      </div>
     </div>
   )
 }
@@ -286,10 +304,31 @@ function MediaMessage({
 /** Photo / GIF / video renderer (edge-to-edge, no own corners — the parent clips). */
 function VisualMedia({ a, fill }: { a: Attachment; fill?: boolean }) {
   const setLightbox = useStore((s) => s.setLightbox)
+  const [revealed, setRevealed] = useState(false)
   const ratio = a.w && a.h ? `${a.w} / ${a.h}` : undefined
+  const hidden = !!a.spoiler && !revealed
+
+  if (hidden) {
+    return (
+      <button
+        onClick={(e) => { e.stopPropagation(); setRevealed(true) }}
+        className={classNames('relative block max-w-full overflow-hidden', fill && 'w-full')}
+        title="Показать спойлер"
+      >
+        {a.kind === 'video' ? (
+          <video src={a.url} preload="metadata" muted playsInline className={classNames('block max-h-80 max-w-full scale-110 blur-2xl', fill && 'w-full')} style={ratio ? { aspectRatio: ratio } : { minHeight: 160, minWidth: 200 }} />
+        ) : (
+          <img src={a.url} alt="" loading="lazy" className={classNames('block max-h-80 max-w-full scale-110 object-cover blur-2xl', fill ? 'w-full' : 'w-auto')} style={{ minWidth: 200, minHeight: 120, ...(ratio ? { aspectRatio: ratio } : {}) }} />
+        )}
+        <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-black/55 px-3 py-1.5 text-xs font-bold text-white backdrop-blur-[2px]">
+          👁 Спойлер
+        </span>
+      </button>
+    )
+  }
 
   if (a.kind === 'video') {
-    return <video controls preload="metadata" className={classNames('block max-h-80 max-w-full', fill && 'w-full')} src={a.url} />
+    return <VideoPlayer a={a} fill={fill} />
   }
   return (
     <button
@@ -308,16 +347,24 @@ function VisualMedia({ a, fill }: { a: Attachment; fill?: boolean }) {
   )
 }
 
-/** Voice / audio: compact row inside the bubble card. */
-function VoiceMedia({ a }: { a: Attachment }) {
+/** Long messages collapse behind a «Показать полностью» toggle. */
+function LongText({ text, isMine }: { text: string; isMine: boolean }) {
+  const LIMIT = 700
+  const [expanded, setExpanded] = useState(false)
+  const isLong = text.length > LIMIT
+  const shown = isLong && !expanded ? text.slice(0, 550).trimEnd() + '…' : text
   return (
-    <div className="min-w-[230px] px-3 pt-2">
-      <div className="flex items-center gap-1.5 text-[12px] font-semibold opacity-90">
-        {a.kind === 'voice' ? '🎤 Голосовое сообщение' : `🎵 ${a.name ?? 'Аудио'}`}
-        {a.durationSec ? <span className="opacity-70">· {fmtDuration(a.durationSec)}</span> : null}
-      </div>
-      <audio controls preload="metadata" src={a.url} className="mt-1 h-9 w-full max-w-[260px]" />
-    </div>
+    <>
+      <div className="whitespace-pre-wrap break-words" dangerouslySetInnerHTML={renderRich(shown)} />
+      {isLong && (
+        <button
+          onClick={(e) => { e.stopPropagation(); setExpanded((v) => !v) }}
+          className={classNames('mt-0.5 text-xs font-bold underline-offset-2 hover:underline', isMine ? 'text-white/90' : 'accent-text')}
+        >
+          {expanded ? 'Свернуть' : 'Показать полностью'}
+        </button>
+      )}
+    </>
   )
 }
 
@@ -341,11 +388,6 @@ function FileMedia({ a }: { a: Attachment }) {
       <Download size={16} className="shrink-0 opacity-70" />
     </a>
   )
-}
-
-function fmtDuration(s: number) {
-  const m = Math.floor(s / 60)
-  return `${m}:${String(Math.round(s % 60)).padStart(2, '0')}`
 }
 
 function PollView({ message, onVote }: { message: Message; onVote: (i: number) => void }) {
