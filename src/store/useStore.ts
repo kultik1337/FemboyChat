@@ -60,6 +60,8 @@ interface StoreState {
   refreshChats: () => Promise<void>
   openChat: (id: string) => Promise<void>
   startWith: (entry: Directory) => Promise<void>
+  joinInvite: (code: string) => Promise<void>
+  consumePendingInvite: () => Promise<void>
   createChat: (input: {
     type: 'group' | 'channel'
     title: string
@@ -125,6 +127,13 @@ export const useStore = create<StoreState>((set, get) => ({
   lightbox: null,
 
   async boot() {
+    // Invite links look like https://femboychat.fun/#join=CODE — stash the code
+    // so it survives the login/register flow for logged-out visitors.
+    const joinMatch = /#join=([A-Za-z0-9_-]+)/.exec(location.hash)
+    if (joinMatch) {
+      localStorage.setItem('fc:pendingInvite', joinMatch[1])
+      history.replaceState(null, '', location.pathname + location.search)
+    }
     const backend = await getBackend()
     backend.subscribe((e) => get().handleEvent(e))
     const account = await backend.restore()
@@ -138,7 +147,28 @@ export const useStore = create<StoreState>((set, get) => ({
     })
     // 1s heartbeat drives relative times, typing expiry, self-destruct.
     setInterval(() => set({ now: Date.now() }), 1000)
-    if (account) await get().refreshChats()
+    if (account) {
+      await get().refreshChats()
+      await get().consumePendingInvite()
+    }
+  },
+
+  async consumePendingInvite() {
+    const code = localStorage.getItem('fc:pendingInvite')
+    if (!code) return
+    localStorage.removeItem('fc:pendingInvite')
+    await get().joinInvite(code)
+  },
+
+  async joinInvite(code) {
+    try {
+      const chat = await get().backend!.joinByInvite(code)
+      await get().refreshChats()
+      await get().openChat(chat.id)
+      get().toast(`Вы вступили в «${chat.title}»`, '💌')
+    } catch (e) {
+      get().toast(e instanceof Error ? e.message : 'Инвайт-ссылка недействительна', '⚠️')
+    }
   },
 
   goto(route) {
@@ -150,6 +180,7 @@ export const useStore = create<StoreState>((set, get) => ({
     if (res.ok && res.account) {
       set({ account: res.account, route: 'app', directory: get().backend!.getDirectoryList() })
       await get().refreshChats()
+      await get().consumePendingInvite()
       return { ok: true }
     }
     if (res.pendingConfirm) return { ok: false, pendingConfirm: true }
@@ -162,6 +193,7 @@ export const useStore = create<StoreState>((set, get) => ({
     if (res.ok && res.account) {
       set({ account: res.account, route: 'app', directory: get().backend!.getDirectoryList() })
       await get().refreshChats()
+      await get().consumePendingInvite()
       return true
     }
     if (res.error) get().toast(res.error, '⚠️')
