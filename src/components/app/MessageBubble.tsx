@@ -86,26 +86,34 @@ export function MessageBubble({
     ? `${R} ${near.top} ${near.bot} ${R}`
     : `${near.top} ${R} ${R} ${near.bot}`
 
-  const header = (showName || message.forwardedFrom || repliedMessage) && (
-    <>
-      {showName && (
-        <button onClick={() => setProfileUid(sender.uid)} className="mb-0.5 block text-xs font-bold" style={{ color: sender.color }}>
-          {sender.name}
-        </button>
-      )}
-      {message.forwardedFrom && <div className="mb-0.5 text-[11px] opacity-70">↪ переслано</div>}
-      {repliedMessage && (
-        <button
-          onClick={() => onJump?.(repliedMessage.id)}
-          className="mb-1 block w-full border-l-2 pl-2 text-left text-[0.8rem] opacity-90 transition hover:opacity-100"
-          style={{ borderColor: isMine ? 'rgba(255,255,255,0.7)' : 'var(--accent)' }}
-        >
-          <div className="font-semibold">{repliedSender?.name ?? 'Сообщение'}</div>
-          <div className="truncate opacity-80">{repliedMessage.deleted ? 'сообщение удалено' : repliedMessage.sticker ? 'стикер' : repliedMessage.attachment ? attachmentLabel(repliedMessage.attachment) : repliedMessage.text}</div>
-        </button>
-      )}
-    </>
-  )
+  const buildHeader = (withName: boolean) => {
+    const showNameHere = withName && showName
+    if (!showNameHere && !message.forwardedFrom && !repliedMessage) return null
+    return (
+      <>
+        {showNameHere && (
+          <button onClick={() => setProfileUid(sender.uid)} className="mb-0.5 block text-xs font-bold" style={{ color: sender.color }}>
+            {sender.name}
+          </button>
+        )}
+        {message.forwardedFrom && <div className="mb-0.5 text-[11px] opacity-70">↪ переслано</div>}
+        {repliedMessage && (
+          <button
+            onClick={() => onJump?.(repliedMessage.id)}
+            className="mb-1 block w-full border-l-2 pl-2 text-left text-[0.8rem] opacity-90 transition hover:opacity-100"
+            style={{ borderColor: isMine ? 'rgba(255,255,255,0.7)' : 'var(--accent)' }}
+          >
+            <div className="font-semibold">{repliedSender?.name ?? 'Сообщение'}</div>
+            <div className="truncate opacity-80">{repliedMessage.deleted ? 'сообщение удалено' : repliedMessage.sticker ? 'стикер' : repliedMessage.attachment ? attachmentLabel(repliedMessage.attachment) : repliedMessage.text}</div>
+          </button>
+        )}
+      </>
+    )
+  }
+  const header = buildHeader(true)
+  // Фото/GIF/видео идут без полоски с ником (как в TG) — отправителя видно по аватарке.
+  const visualKind = message.attachment && (message.attachment.kind === 'image' || message.attachment.kind === 'gif' || message.attachment.kind === 'video')
+  const mediaHeader = buildHeader(!visualKind)
 
   const meta = (overlay: boolean) => (
     <span
@@ -189,7 +197,7 @@ export function MessageBubble({
           <MediaMessage
             a={message.attachment}
             caption={message.text}
-            header={header}
+            header={mediaHeader}
             meta={meta}
             reactionPills={reactionPills}
             footer={footer}
