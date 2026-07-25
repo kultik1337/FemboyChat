@@ -37,6 +37,8 @@ export function ChatView() {
   const [dragOver, setDragOver] = useState(false)
   const dragDepth = useRef(0)
   const addPendingFiles = useStore((s) => s.addPendingFiles)
+  // «Новые сообщения» divider: freeze the first-unread timestamp per chat visit.
+  const unreadMark = useRef<{ chatId: string; ts: number | null }>({ chatId: '', ts: null })
   const wallpaper = account.settings.wallpaper
 
   useEffect(() => {
@@ -102,6 +104,11 @@ export function ChatView() {
 
   if (!chat) return <EmptyState />
 
+  if (unreadMark.current.chatId !== chat.id && msgs.length) {
+    const first = msgs.find((m) => m.senderUid !== account.uid && !m.system && !m.readByUids.includes(account.uid))
+    unreadMark.current = { chatId: chat.id, ts: first ? first.ts : null }
+  }
+
   const counterpartUid = chatCounterpart(chat, account.uid)
   const counterpart = counterpartUid ? resolve(counterpartUid) : null
   const isAdmin = chat.adminUids.includes(account.uid)
@@ -111,7 +118,10 @@ export function ChatView() {
 
   function subtitle() {
     if (typers.length) return { text: chat!.type === 'group' ? `${typers.map((t) => t[1].name.split(' ')[0]).join(', ')} печатает…` : 'печатает…', accent: true }
-    if (chat!.type === 'group') return { text: `${chat!.memberCount ?? chat!.memberUids.length} участников`, accent: false }
+    if (chat!.type === 'group') {
+      const online = chat!.memberUids.filter((u) => u !== account.uid && presence[u]?.online).length
+      return { text: `${chat!.memberCount ?? chat!.memberUids.length} участников${online > 0 ? ` · ${online} в сети` : ''}`, accent: online > 0 }
+    }
     if (chat!.type === 'channel') return { text: `${(chat!.memberCount ?? 0).toLocaleString('ru-RU')} подписчиков`, accent: false }
     if (chat!.type === 'saved') return { text: 'ваши личные заметки', accent: false }
     if (counterpartUid) {
@@ -248,6 +258,13 @@ export function ChatView() {
                 {newDay && (
                   <div className="my-3 flex justify-center">
                     <span className="rounded-full bg-[var(--panel)] px-3 py-1 text-xs font-semibold text-[var(--muted)] shadow-sm">{dayLabel(m.ts)}</span>
+                  </div>
+                )}
+                {unreadMark.current.chatId === chat.id && unreadMark.current.ts === m.ts && (
+                  <div className="my-2 flex items-center gap-3 px-4">
+                    <span className="h-px flex-1 bg-[var(--accent)]/40" />
+                    <span className="text-[11px] font-bold uppercase tracking-wide accent-text">Новые сообщения</span>
+                    <span className="h-px flex-1 bg-[var(--accent)]/40" />
                   </div>
                 )}
                 <MessageBubble

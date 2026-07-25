@@ -106,6 +106,7 @@ export interface Attachment {
   w?: number
   h?: number
   durationSec?: number // for audio / voice / video
+  spoiler?: boolean // media hidden behind a blur until tapped
 }
 
 export interface Message {

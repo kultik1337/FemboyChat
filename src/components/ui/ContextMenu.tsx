@@ -1,6 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { create } from 'zustand'
+import { Plus } from 'lucide-react'
 import { REACTIONS } from '../../lib/stickers'
+import { EmojiGrid } from './EmojiPicker'
 import { classNames } from '../../lib/util'
 
 export interface MenuAction {
@@ -52,10 +54,12 @@ export function ContextMenu() {
   const close = useMenu((s) => s.close)
   const ref = useRef<HTMLDivElement>(null)
   const [pos, setPos] = useState({ x: 0, y: 0, ready: false })
+  const [allEmoji, setAllEmoji] = useState(false)
 
   useLayoutEffect(() => {
     if (!data) {
       setPos((p) => ({ ...p, ready: false }))
+      setAllEmoji(false)
       return
     }
     const el = ref.current
@@ -72,7 +76,12 @@ export function ContextMenu() {
   useEffect(() => {
     if (!data) return
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && close()
-    const onScroll = () => close()
+    // Close when the page behind scrolls, but NOT when scrolling inside the
+    // menu itself (e.g. the emoji strip or a long emoji grid).
+    const onScroll = (e: Event) => {
+      if (ref.current && e.target instanceof Node && ref.current.contains(e.target)) return
+      close()
+    }
     window.addEventListener('keydown', onKey)
     window.addEventListener('resize', close)
     window.addEventListener('scroll', onScroll, true)
@@ -94,17 +103,31 @@ export function ContextMenu() {
         onMouseDown={(e) => e.stopPropagation()}
       >
         {data.reactions && (
-          <div className="no-scrollbar mb-1 flex items-center gap-0.5 overflow-x-auto rounded-xl bg-[var(--panel-2)] px-1.5 py-1">
-            {REACTIONS.map((emoji) => (
+          <>
+            <div className="no-scrollbar mb-1 flex items-center gap-0.5 overflow-x-auto rounded-xl bg-[var(--panel-2)] px-1.5 py-1">
+              {REACTIONS.map((emoji) => (
+                <button
+                  key={emoji}
+                  onClick={() => { data.reactions!.onPick(emoji); close() }}
+                  className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-xl transition hover:scale-125 hover:bg-[var(--panel-hover)]"
+                >
+                  {emoji}
+                </button>
+              ))}
               <button
-                key={emoji}
-                onClick={() => { data.reactions!.onPick(emoji); close() }}
-                className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-xl transition hover:scale-125 hover:bg-[var(--panel-hover)]"
+                onClick={() => setAllEmoji((v) => !v)}
+                className={classNames('grid h-8 w-8 shrink-0 place-items-center rounded-full border border-dashed border-[var(--border)] text-[var(--muted)] transition hover:scale-110 hover:bg-[var(--panel-hover)]', allEmoji && 'rotate-45')}
+                title="Все эмодзи"
               >
-                {emoji}
+                <Plus size={16} />
               </button>
-            ))}
-          </div>
+            </div>
+            {allEmoji && (
+              <div className="mb-1 rounded-xl bg-[var(--panel-2)] p-1.5">
+                <EmojiGrid compact onPick={(e) => { data.reactions!.onPick(e); close() }} />
+              </div>
+            )}
+          </>
         )}
         {data.header && <div className="px-3 py-1.5 text-xs font-bold text-[var(--muted)]">{data.header}</div>}
         {data.items.map((it, i) =>

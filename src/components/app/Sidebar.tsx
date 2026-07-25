@@ -57,13 +57,15 @@ export function Sidebar() {
 
   function previewText(c: Chat) {
     const typers = Object.values(typing[c.id] ?? {}).filter((t) => now - t.at < 4000)
-    if (typers.length) return { text: c.type === 'group' ? `${typers[0].name} печатает…` : 'печатает…', typing: true }
+    if (typers.length) return { text: c.type === 'group' ? `${typers[0].name} печатает…` : 'печатает…', typing: true, draft: false }
+    const draft = c.id !== activeChatId ? localStorage.getItem(`fc:draft:${c.id}`) : null
+    if (draft) return { text: draft, typing: false, draft: true }
     const p = previews[c.id]
-    if (!p) return { text: c.description ?? 'Нет сообщений', typing: false }
-    if (p.deleted) return { text: 'сообщение удалено', typing: false }
+    if (!p) return { text: c.description ?? 'Нет сообщений', typing: false, draft: false }
+    if (p.deleted) return { text: 'сообщение удалено', typing: false, draft: false }
     const prefix = c.type === 'group' && p.senderUid !== account.uid ? `${resolve(p.senderUid).name.split(' ')[0]}: ` : ''
     const body = p.sticker ? `${p.sticker} стикер` : p.attachment ? attachmentLabel(p.attachment) + (p.text ? ` · ${p.text}` : '') : p.text || 'вложение'
-    return { text: prefix + body, typing: false }
+    return { text: prefix + body, typing: false, draft: false }
   }
 
   return (
@@ -163,7 +165,10 @@ export function Sidebar() {
                       </span>
                     </div>
                     <div className="flex items-center gap-2">
-                      <span className={classNames('truncate text-sm', pv.typing ? 'text-[var(--accent)]' : 'text-[var(--muted)]')}>{pv.text}</span>
+                      <span className={classNames('truncate text-sm', pv.typing ? 'text-[var(--accent)]' : 'text-[var(--muted)]')}>
+                        {pv.draft && <span className="font-semibold text-rose-500">Черновик: </span>}
+                        {pv.text}
+                      </span>
                       {count > 0 && (
                         <span className="ml-auto grid h-5 min-w-5 place-items-center rounded-full accent-gradient px-1.5 text-[11px] font-bold text-white">
                           {count}

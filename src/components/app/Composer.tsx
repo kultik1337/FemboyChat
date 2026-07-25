@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Clock,
   CornerUpLeft,
+  Eye,
+  EyeOff,
   FileText,
   ImagePlay,
   ListChecks,
@@ -18,6 +20,7 @@ import {
 } from 'lucide-react'
 import { useStore } from '../../store/useStore'
 import { EmojiPicker } from '../ui/EmojiPicker'
+import { Avatar } from '../ui/Avatar'
 import { Sticker } from '../ui/Sticker'
 import { STICKER_PACKS } from '../../lib/stickers'
 import { SLASH_COMMANDS, applyEmoticons, runCommand } from '../../lib/commands'
@@ -55,7 +58,9 @@ export function Composer() {
   const addPendingFiles = useStore((s) => s.addPendingFiles)
   const removePendingFile = useStore((s) => s.removePendingFile)
   const clearPendingFiles = useStore((s) => s.clearPendingFiles)
+  const chats = useStore((s) => s.chats)
   const { resolve } = usePeople()
+  const chat = chats.find((c) => c.id === chatId)
 
   const [text, setText] = useState('')
   const [emoji, setEmoji] = useState(false)
@@ -66,11 +71,13 @@ export function Composer() {
   const [pollOpen, setPollOpen] = useState(false)
   const [sending, setSending] = useState(false)
   const [recording, setRecording] = useState(false)
+  const [spoiler, setSpoiler] = useState(false)
   const ref = useRef<HTMLTextAreaElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
   // Load per-chat draft when switching chats.
   useEffect(() => {
+    setSpoiler(false)
     if (useStore.getState().composeEdit) return
     setText(localStorage.getItem(draftKey(chatId)) ?? '')
   }, [chatId])
@@ -108,6 +115,27 @@ export function Composer() {
     [slashQuery],
   )
 
+  // @mention autocomplete: matches the trailing "@..." token.
+  const mentionQuery = useMemo(() => {
+    if (editing) return null
+    const m = /(^|\s)@([a-zA-Z0-9_]{0,24})$/.exec(text)
+    return m ? m[2].toLowerCase() : null
+  }, [text, editing])
+  const mentionMatches = useMemo(() => {
+    if (mentionQuery === null || !chat) return []
+    return chat.memberUids
+      .filter((u) => u !== account.uid)
+      .map(resolve)
+      .filter((p) => p.username && (p.username.toLowerCase().startsWith(mentionQuery) || p.name.toLowerCase().startsWith(mentionQuery)))
+      .slice(0, 6)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mentionQuery, chat?.id, chat?.memberUids.length])
+
+  function pickMention(username: string) {
+    updateText(text.replace(/@[a-zA-Z0-9_]{0,24}$/, `@${username} `))
+    ref.current?.focus()
+  }
+
   function afterSend() {
     if (settings.sendSound) beep()
     setReply(null)
@@ -134,6 +162,7 @@ export function Composer() {
           mime: blob.type || f.type || undefined,
           w: dims?.w,
           h: dims?.h,
+          spoiler: spoiler && (kind === 'image' || kind === 'gif' || kind === 'video') ? true : undefined,
         }
         await send({
           text: i === 0 ? caption : '',
@@ -143,6 +172,7 @@ export function Composer() {
         })
       }
       clearPendingFiles()
+      setSpoiler(false)
       afterSend()
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Не удалось отправить файл', '⚠️')
@@ -240,10 +270,44 @@ export function Composer() {
       )}
 
       {pending.length > 0 && (
-        <div className="no-scrollbar mb-2 flex gap-2 overflow-x-auto">
-          {pending.map((f, i) => (
-            <PendingChip key={`${f.name}-${i}`} file={f} onRemove={() => removePendingFile(i)} />
-          ))}
+        <div className="mb-2 flex items-center gap-2">
+          <div className="no-scrollbar flex min-w-0 flex-1 gap-2 overflow-x-auto">
+            {pending.map((f, i) => (
+              <PendingChip key={`${f.name}-${i}`} file={f} spoiler={spoiler} onRemove={() => removePendingFile(i)} />
+            ))}
+          </div>
+          {pending.some((f) => attachmentKindFor(f) !== 'file' && attachmentKindFor(f) !== 'audio') && (
+            <button
+              onClick={() => setSpoiler((v) => !v)}
+              className={classNames(
+                'flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-xs font-bold transition',
+                spoiler ? 'border-[var(--accent)] accent-text' : 'border-[var(--border)] text-[var(--muted)] hover:bg-[var(--panel-hover)]',
+              )}
+              title="Скрыть медиа за размытием до клика"
+            >
+              {spoiler ? <EyeOff size={14} /> : <Eye size={14} />} Спойлер
+            </button>
+          )}
+        </div>
+      )}
+
+      {mentionMatches.length > 0 && (
+        <div className="absolute bottom-full left-2 right-2 z-30 mb-2 overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--panel)] shadow-xl animate-pop-in" style={{ boxShadow: 'var(--shadow)' }}>
+          <div className="fancy-scroll max-h-56 overflow-y-auto p-1">
+            {mentionMatches.map((p) => (
+              <button
+                key={p.uid}
+                onClick={() => pickMention(p.username)}
+                className="flex w-full items-center gap-2.5 rounded-xl px-3 py-1.5 text-left hover:bg-[var(--panel-hover)]"
+              >
+                <Avatar emoji={p.emoji} color={p.color} src={p.avatarUrl} size={30} />
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-semibold">{p.name}</div>
+                  <div className="truncate text-xs text-[var(--muted)]">@{p.username}</div>
+                </div>
+              </button>
+            ))}
+          </div>
         </div>
       )}
 
@@ -384,7 +448,7 @@ function IconButton({ children, onClick, title, active }: { children: React.Reac
 }
 
 /** Thumbnail chip of a file waiting to be sent. */
-function PendingChip({ file, onRemove }: { file: File; onRemove: () => void }) {
+function PendingChip({ file, spoiler, onRemove }: { file: File; spoiler?: boolean; onRemove: () => void }) {
   const kind = attachmentKindFor(file)
   const [preview, setPreview] = useState<string | null>(null)
   useEffect(() => {
@@ -397,7 +461,7 @@ function PendingChip({ file, onRemove }: { file: File; onRemove: () => void }) {
   return (
     <div className="relative shrink-0 animate-pop-in">
       {preview ? (
-        <img src={preview} alt={file.name} className="h-16 w-16 rounded-xl border border-[var(--border)] object-cover" />
+        <img src={preview} alt={file.name} className={classNames('h-16 w-16 rounded-xl border border-[var(--border)] object-cover transition', spoiler && 'blur-[6px]')} />
       ) : (
         <div className="flex h-16 w-40 items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--panel-2)] px-2.5">
           <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg accent-gradient text-white">
