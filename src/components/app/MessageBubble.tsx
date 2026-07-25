@@ -8,6 +8,7 @@ import { Avatar } from '../ui/Avatar'
 import { Sticker } from '../ui/Sticker'
 import { VoicePlayer } from '../ui/VoicePlayer'
 import { VideoPlayer } from '../ui/VideoPlayer'
+import { LinkPreviewCard } from './LinkPreviewCard'
 import { openContextMenu } from '../ui/ContextMenu'
 import { useActions } from './useActions'
 import type { Person } from './people'
@@ -218,7 +219,10 @@ export function MessageBubble({
             {message.poll ? (
               <PollView message={message} onVote={(i) => vote(message.id, i)} />
             ) : message.text ? (
-              <LongText text={message.text} isMine={isMine} />
+              <>
+                <LongText text={message.text} isMine={isMine} />
+                <LinkPreviewCard text={message.text} isMine={isMine} />
+              </>
             ) : null}
 
             {footer}
@@ -303,6 +307,7 @@ function MediaMessage({
       {/* slim caption strip under the media, как в Telegram */}
       <div className={classNames('px-3 pb-1.5', caption ? 'pt-1.5' : 'pt-0')}>
         {caption && <LongText text={caption} isMine={isMine} />}
+        {caption && <LinkPreviewCard text={caption} isMine={isMine} />}
         {footer}
       </div>
     </div>
