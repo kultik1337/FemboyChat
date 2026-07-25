@@ -201,6 +201,7 @@ function AppearanceTab() {
   const s = useStore((st) => st.account!.settings)
   const patch = useStore((st) => st.patchSettings)
   const themes: { id: UserSettings['theme']; label: string; emoji: string }[] = [
+    { id: 'auto', label: 'Как в системе', emoji: '🌗' },
     { id: 'light', label: 'Пастель', emoji: '🌸' },
     { id: 'dark', label: 'Catgirl Night', emoji: '🐈‍⬛' },
     { id: 'midnight', label: 'Programmer Socks', emoji: '🧦' },
@@ -215,7 +216,7 @@ function AppearanceTab() {
     <div className="space-y-6">
       <div>
         <div className="mb-2 text-sm font-semibold">Тема</div>
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           {themes.map((t) => (
             <button key={t.id} onClick={() => patch({ theme: t.id })} className={classNames('rounded-2xl border p-3 text-center', s.theme === t.id ? 'border-[var(--accent)] ring-2 ring-[var(--ring)]' : 'border-[var(--border)]')}>
               <div className="text-2xl">{t.emoji}</div>
