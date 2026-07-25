@@ -71,8 +71,9 @@ export function MessageBubble({
 
   const ttlLeft = message.ttl ? Math.max(0, Math.ceil((message.ts + message.ttl * 1000 - now) / 1000)) : 0
   const read = otherUid ? message.readByUids.includes(otherUid) : message.readByUids.length > 1
-  const big = bigEmoji && !message.sticker && emojiOnly(message.text)
+  const big = bigEmoji && !message.sticker && !message.attachment && emojiOnly(message.text)
   const showName = firstOfGroup && !isMine && chat.type === 'group'
+  const showChecks = isMine && chat.type !== 'channel'
 
   // Telegram-style stacked corners: tighten the corner on the sender's side
   // between consecutive messages, keep the outer "tail" corners round.
@@ -82,6 +83,43 @@ export function MessageBubble({
   const radius = isMine
     ? `${R} ${near.top} ${near.bot} ${R}`
     : `${near.top} ${R} ${R} ${near.bot}`
+
+  const header = (showName || message.forwardedFrom || repliedMessage) && (
+    <>
+      {showName && (
+        <button onClick={() => setProfileUid(sender.uid)} className="mb-0.5 block text-xs font-bold" style={{ color: sender.color }}>
+          {sender.name}
+        </button>
+      )}
+      {message.forwardedFrom && <div className="mb-0.5 text-[11px] opacity-70">↪ переслано</div>}
+      {repliedMessage && (
+        <button
+          onClick={() => onJump?.(repliedMessage.id)}
+          className="mb-1 block w-full border-l-2 pl-2 text-left text-[0.8rem] opacity-90 transition hover:opacity-100"
+          style={{ borderColor: isMine ? 'rgba(255,255,255,0.7)' : 'var(--accent)' }}
+        >
+          <div className="font-semibold">{repliedSender?.name ?? 'Сообщение'}</div>
+          <div className="truncate opacity-80">{repliedMessage.deleted ? 'сообщение удалено' : repliedMessage.sticker ? 'стикер' : repliedMessage.attachment ? attachmentLabel(repliedMessage.attachment) : repliedMessage.text}</div>
+        </button>
+      )}
+    </>
+  )
+
+  const meta = (overlay: boolean) => (
+    <span
+      className={classNames(
+        'flex items-center gap-1 text-[10px] leading-none',
+        overlay
+          ? 'rounded-full bg-black/45 px-1.5 py-1 text-white/95 backdrop-blur-[2px]'
+          : isMine ? 'text-white/80' : 'text-[var(--muted)]',
+      )}
+    >
+      {ttlLeft > 0 && <span className="flex items-center gap-0.5"><Clock size={11} /> {ttlLeft}s</span>}
+      {message.editedTs && <span>изменено</span>}
+      <span>{timeShort(message.ts)}</span>
+      {showChecks && (read ? <CheckCheck size={13} /> : <Check size={13} />)}
+    </span>
+  )
 
   return (
     <div
@@ -110,6 +148,15 @@ export function MessageBubble({
           <div className="rounded-2xl border border-[var(--border)] px-3.5 py-2 text-sm italic text-[var(--muted)]">сообщение удалено</div>
         ) : big ? (
           <div className={classNames('text-5xl leading-tight', isMine ? 'text-right' : 'text-left', fresh && 'jumbo-in')}>{message.text}</div>
+        ) : message.attachment && !message.poll ? (
+          <MediaMessage
+            a={message.attachment}
+            caption={message.text}
+            header={header}
+            meta={meta}
+            isMine={isMine}
+            radius={radius}
+          />
         ) : (
           <div
             className="relative px-3.5 py-2 text-[0.95rem] leading-relaxed shadow-sm"
@@ -119,24 +166,7 @@ export function MessageBubble({
               color: isMine ? 'var(--bubble-out-text)' : 'var(--bubble-in-text)',
             }}
           >
-            {showName && (
-              <button onClick={() => setProfileUid(sender.uid)} className="mb-0.5 block text-xs font-bold" style={{ color: sender.color }}>
-                {sender.name}
-              </button>
-            )}
-            {message.forwardedFrom && <div className="mb-0.5 text-[11px] opacity-70">↪ переслано</div>}
-            {repliedMessage && (
-              <button
-                onClick={() => onJump?.(repliedMessage.id)}
-                className="mb-1 block w-full border-l-2 pl-2 text-left text-[0.8rem] opacity-90 transition hover:opacity-100"
-                style={{ borderColor: isMine ? 'rgba(255,255,255,0.7)' : 'var(--accent)' }}
-              >
-                <div className="font-semibold">{repliedSender?.name ?? 'Сообщение'}</div>
-                <div className="truncate opacity-80">{repliedMessage.deleted ? 'сообщение удалено' : repliedMessage.sticker ? 'стикер' : repliedMessage.attachment ? attachmentLabel(repliedMessage.attachment) : repliedMessage.text}</div>
-              </button>
-            )}
-
-            {message.attachment && <AttachmentView a={message.attachment} name={message.attachment.name} />}
+            {header}
 
             {message.poll ? (
               <PollView message={message} onVote={(i) => vote(message.id, i)} />
@@ -144,12 +174,7 @@ export function MessageBubble({
               <div className="whitespace-pre-wrap break-words" dangerouslySetInnerHTML={renderRich(message.text)} />
             ) : null}
 
-            <div className={classNames('mt-1 flex items-center gap-1 text-[10px]', isMine ? 'justify-end text-white/80' : 'text-[var(--muted)]')}>
-              {ttlLeft > 0 && <span className="flex items-center gap-0.5"><Clock size={11} /> {ttlLeft}s</span>}
-              {message.editedTs && <span>изменено</span>}
-              <span>{timeShort(message.ts)}</span>
-              {isMine && chat.type !== 'channel' && (read ? <CheckCheck size={13} /> : <Check size={13} />)}
-            </div>
+            <div className={classNames('mt-1 flex', isMine ? 'justify-end' : 'justify-start')}>{meta(false)}</div>
           </div>
         )}
 
@@ -188,58 +213,125 @@ export function MessageBubble({
   )
 }
 
-/** Renders a media attachment inside a bubble: photo, GIF, video, voice/audio or a file card. */
-function AttachmentView({ a, name }: { a: Attachment; name?: string }) {
-  const setLightbox = useStore((s) => s.setLightbox)
+/**
+ * Telegram-style media message.
+ * - Photo/GIF/video without caption: bare media with rounded corners and the
+ *   time overlaid on the picture — no fat bubble around it.
+ * - With a caption (or name/reply header): the media sits edge-to-edge at the
+ *   top of the bubble and a slim bubble section with the caption appears below.
+ * - Files and voice notes: one compact card (the card *is* the bubble), no
+ *   nested boxes; caption, when present, is a slim section underneath.
+ */
+function MediaMessage({
+  a,
+  caption,
+  header,
+  meta,
+  isMine,
+  radius,
+}: {
+  a: Attachment
+  caption: string
+  header: React.ReactNode
+  meta: (overlay: boolean) => React.ReactNode
+  isMine: boolean
+  radius: string
+}) {
+  const isVisual = a.kind === 'image' || a.kind === 'gif' || a.kind === 'video'
+  const bare = isVisual && !caption && !header
 
-  if (a.kind === 'image' || a.kind === 'gif') {
-    const ratio = a.w && a.h ? a.w / a.h : undefined
+  // Bare photo / GIF / video: just the media, meta floats on top of it.
+  if (bare) {
     return (
-      <button
-        onClick={() => setLightbox({ url: a.url, name: name ?? a.name })}
-        className="mb-1 block max-w-full cursor-zoom-in overflow-hidden rounded-xl"
-        title={a.kind === 'gif' ? 'GIF' : 'Открыть фото'}
-      >
-        <img
-          src={a.url}
-          alt={a.name ?? ''}
-          loading="lazy"
-          className="block max-h-80 w-auto max-w-full rounded-xl object-cover"
-          style={ratio ? { aspectRatio: `${a.w} / ${a.h}`, minWidth: 120 } : { minWidth: 120 }}
-        />
-      </button>
-    )
-  }
-
-  if (a.kind === 'video') {
-    return (
-      <video controls preload="metadata" className="mb-1 block max-h-80 max-w-full rounded-xl" src={a.url}>
-        Видео не поддерживается
-      </video>
-    )
-  }
-
-  if (a.kind === 'voice' || a.kind === 'audio') {
-    return (
-      <div className="mb-1 flex min-w-[220px] flex-col gap-1">
-        <div className="flex items-center gap-1.5 text-[12px] font-semibold opacity-90">
-          {a.kind === 'voice' ? '🎤 Голосовое сообщение' : `🎵 ${a.name ?? 'Аудио'}`}
-          {a.durationSec ? <span className="opacity-70">· {fmtDuration(a.durationSec)}</span> : null}
-        </div>
-        <audio controls preload="metadata" src={a.url} className="h-10 w-full max-w-[260px]" />
+      <div className="relative max-w-[380px] overflow-hidden shadow-sm" style={{ borderRadius: radius }}>
+        <VisualMedia a={a} />
+        <div className="pointer-events-none absolute bottom-1.5 right-1.5 z-[1]">{meta(true)}</div>
       </div>
     )
   }
 
+  return (
+    <div
+      className={classNames('overflow-hidden text-[0.95rem] leading-relaxed shadow-sm', isVisual && 'max-w-[380px]')}
+      style={{
+        borderRadius: radius,
+        background: isMine ? 'var(--bubble-out)' : 'var(--bubble-in)',
+        color: isMine ? 'var(--bubble-out-text)' : 'var(--bubble-in-text)',
+      }}
+    >
+      {header && <div className="px-3 pt-1.5">{header}</div>}
+
+      {isVisual ? (
+        <div className="relative">
+          <VisualMedia a={a} fill />
+          {!caption && <div className="pointer-events-none absolute bottom-1.5 right-1.5 z-[1]">{meta(true)}</div>}
+        </div>
+      ) : a.kind === 'voice' || a.kind === 'audio' ? (
+        <VoiceMedia a={a} />
+      ) : (
+        <FileMedia a={a} />
+      )}
+
+      {/* slim caption strip under the media, как в Telegram */}
+      {(caption || !isVisual) && (
+        <div className={classNames('px-3 pb-1.5', caption ? 'pt-1.5' : 'pt-0')}>
+          {caption && <div className="whitespace-pre-wrap break-words" dangerouslySetInnerHTML={renderRich(caption)} />}
+          <div className={classNames('mt-0.5 flex', isMine ? 'justify-end' : 'justify-end')}>{meta(false)}</div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** Photo / GIF / video renderer (edge-to-edge, no own corners — the parent clips). */
+function VisualMedia({ a, fill }: { a: Attachment; fill?: boolean }) {
+  const setLightbox = useStore((s) => s.setLightbox)
+  const ratio = a.w && a.h ? `${a.w} / ${a.h}` : undefined
+
+  if (a.kind === 'video') {
+    return <video controls preload="metadata" className={classNames('block max-h-80 max-w-full', fill && 'w-full')} src={a.url} />
+  }
+  return (
+    <button
+      onClick={() => setLightbox({ url: a.url, name: a.name })}
+      className={classNames('block max-w-full cursor-zoom-in', fill && 'w-full')}
+      title={a.kind === 'gif' ? 'GIF' : 'Открыть фото'}
+    >
+      <img
+        src={a.url}
+        alt={a.name ?? ''}
+        loading="lazy"
+        className={classNames('block max-h-80 max-w-full object-cover', fill ? 'w-full' : 'w-auto')}
+        style={{ minWidth: 140, ...(ratio ? { aspectRatio: ratio } : {}) }}
+      />
+    </button>
+  )
+}
+
+/** Voice / audio: compact row inside the bubble card. */
+function VoiceMedia({ a }: { a: Attachment }) {
+  return (
+    <div className="min-w-[230px] px-3 pt-2">
+      <div className="flex items-center gap-1.5 text-[12px] font-semibold opacity-90">
+        {a.kind === 'voice' ? '🎤 Голосовое сообщение' : `🎵 ${a.name ?? 'Аудио'}`}
+        {a.durationSec ? <span className="opacity-70">· {fmtDuration(a.durationSec)}</span> : null}
+      </div>
+      <audio controls preload="metadata" src={a.url} className="mt-1 h-9 w-full max-w-[260px]" />
+    </div>
+  )
+}
+
+/** File: the row itself is the bubble content — no nested bordered box. */
+function FileMedia({ a }: { a: Attachment }) {
   return (
     <a
       href={a.url}
       download={a.name}
       target="_blank"
       rel="noreferrer noopener"
-      className="mb-1 flex min-w-[200px] items-center gap-2.5 rounded-xl border border-current/20 px-2.5 py-2 no-underline transition hover:border-current/40"
+      className="flex min-w-[220px] items-center gap-2.5 px-3 pt-2.5 no-underline"
     >
-      <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-current/15">
+      <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-current/15">
         <FileText size={19} />
       </span>
       <span className="min-w-0 flex-1">
