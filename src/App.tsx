@@ -20,8 +20,15 @@ export default function App() {
   }, [boot])
 
   // Apply appearance whenever settings change (and a sensible default before login).
+  // In «auto» theme, follow the OS light/dark switch live.
   useEffect(() => {
-    applyAppearance(settings ?? defaultSettings())
+    const s = settings ?? defaultSettings()
+    applyAppearance(s)
+    if (s.theme !== 'auto' || typeof window === 'undefined' || !window.matchMedia) return
+    const mq = window.matchMedia('(prefers-color-scheme: dark)')
+    const onChange = () => applyAppearance(s)
+    mq.addEventListener('change', onChange)
+    return () => mq.removeEventListener('change', onChange)
   }, [settings])
 
   // Suppress the browser's native context menu everywhere except inside text
