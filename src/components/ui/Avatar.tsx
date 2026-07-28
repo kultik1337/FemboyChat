@@ -19,6 +19,14 @@ export function Avatar({
 }) {
   const [broken, setBroken] = useState(false)
   const showImage = !!src && !broken
+
+  // Telegram-style presence dot: only drawn when the peer is actually online.
+  // Previously the offline state still rendered a bordered transparent circle,
+  // which read as a weird hollow ring punched into the avatar.
+  const dot = Math.round(Math.min(14, Math.max(8, size * 0.26)))
+  const border = size >= 40 ? 2.5 : 2
+  const inset = Math.round(size * 0.02)
+
   return (
     <div className="relative shrink-0" style={{ width: size, height: size }}>
       {showImage ? (
@@ -49,13 +57,17 @@ export function Avatar({
           <span>{emoji}</span>
         </div>
       )}
-      {online !== undefined && (
+      {online && (
         <span
-          className={classNames(
-            'absolute bottom-0 right-0 rounded-full border-2 border-[var(--panel)]',
-            online ? 'bg-emerald-400' : 'bg-transparent',
-          )}
-          style={{ width: size * 0.28, height: size * 0.28 }}
+          aria-label="в сети"
+          className="absolute rounded-full bg-emerald-400"
+          style={{
+            width: dot,
+            height: dot,
+            right: inset,
+            bottom: inset,
+            boxShadow: `0 0 0 ${border}px var(--panel)`,
+          }}
         />
       )}
     </div>
