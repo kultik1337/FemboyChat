@@ -90,6 +90,8 @@ interface StoreState {
   clearPendingFiles: () => void
   setLightbox: (l: { url: string; name?: string } | null) => void
   typingPing: (chatId: string) => void
+  /** Pull the real online state of the user's peers from the server. */
+  syncPresence: () => Promise<void>
 
   search: (q: string) => void
   toast: (text: string, emoji?: string) => void
@@ -108,12 +110,19 @@ const PAGE_SIZE = 50
 /**
  * Presence heartbeat. Without this `last_seen` was only ever written at
  * registration, so every user was permanently shown as "не в сети".
+ *
+ * The same beat also pulls in everyone else's state, so the two directions stay
+ * in step: we announce ourselves and refresh our peers at the same moments
+ * (load, focus, tab becoming visible, and once a minute).
  */
 let presenceStarted = false
-function startPresence(backend: Backend) {
+function startPresence(backend: Backend, pull: () => void) {
   if (presenceStarted) return
   presenceStarted = true
-  const beat = () => backend.setPresence(document.visibilityState === 'visible')
+  const beat = () => {
+    backend.setPresence(document.visibilityState === 'visible')
+    pull()
+  }
   beat()
   setInterval(beat, 60_000)
   document.addEventListener('visibilitychange', beat)
@@ -175,8 +184,11 @@ export const useStore = create<StoreState>((set, get) => ({
     // 1s heartbeat drives relative times, typing expiry, self-destruct.
     setInterval(() => set({ now: Date.now() }), 1000)
     if (account) {
-      startPresence(backend)
+      startPresence(backend, () => get().syncPresence())
       await get().refreshChats()
+      // Chats are known only now, so this is the first call that has anyone to
+      // ask about.
+      await get().syncPresence()
       await get().consumePendingInvite()
     }
   },
@@ -207,8 +219,9 @@ export const useStore = create<StoreState>((set, get) => ({
     const res = await get().backend!.register(email, username, name, password)
     if (res.ok && res.account) {
       set({ account: res.account, route: 'app', directory: get().backend!.getDirectoryList() })
-      startPresence(get().backend!)
+      startPresence(get().backend!, () => get().syncPresence())
       await get().refreshChats()
+      await get().syncPresence()
       await get().consumePendingInvite()
       return { ok: true }
     }
@@ -221,8 +234,9 @@ export const useStore = create<StoreState>((set, get) => ({
     const res = await get().backend!.login(email, password)
     if (res.ok && res.account) {
       set({ account: res.account, route: 'app', directory: get().backend!.getDirectoryList() })
-      startPresence(get().backend!)
+      startPresence(get().backend!, () => get().syncPresence())
       await get().refreshChats()
+      await get().syncPresence()
       await get().consumePendingInvite()
       return true
     }
@@ -233,7 +247,7 @@ export const useStore = create<StoreState>((set, get) => ({
   async logout() {
     get().backend?.setPresence(false)
     await get().backend!.logout()
-    set({ account: null, route: 'landing', chats: [], activeChatId: null, messages: {}, settingsOpen: false })
+    set({ account: null, route: 'landing', chats: [], activeChatId: null, messages: {}, presence: {}, settingsOpen: false })
   },
 
   async patchSettings(patch) {
@@ -246,6 +260,41 @@ export const useStore = create<StoreState>((set, get) => ({
   async patchProfile(patch) {
     const account = await get().backend!.updateAccount(patch)
     set({ account, directory: get().backend!.getDirectoryList() })
+  },
+
+  /**
+   * Ask the server for the real online state of the people this user talks to.
+   *
+   * Only direct conversations are queried: that is what the UI actually renders
+   * a dot for, and it keeps the request small no matter how many groups the
+   * user is in. The server applies each peer's privacy setting, so a peer who
+   * hides their activity comes back as offline with no last-seen time.
+   *
+   * A backend without `peerPresence` (demo mode) makes this a no-op and the UI
+   * keeps falling back to the directory's coarse flag.
+   */
+  async syncPresence() {
+    const { backend, chats, account } = get()
+    if (!backend?.peerPresence || !account) return
+    const uids = new Set<string>()
+    for (const c of chats) {
+      if (c.type !== 'dm' && c.type !== 'bot') continue
+      for (const u of c.memberUids) if (u && u !== account.uid) uids.add(u)
+    }
+    if (uids.size === 0) return
+    try {
+      const rows = await backend.peerPresence([...uids])
+      if (rows.length === 0) return
+      set((s) => {
+        const presence = { ...s.presence }
+        for (const r of rows) {
+          presence[r.uid] = { online: r.online, lastSeen: r.lastSeen ?? presence[r.uid]?.lastSeen ?? 0 }
+        }
+        return { presence }
+      })
+    } catch {
+      /* presence is decoration — never surface a failure for it */
+    }
   },
 
   async refreshChats() {
@@ -311,6 +360,8 @@ export const useStore = create<StoreState>((set, get) => ({
     }
 
     await backend.markRead(id)
+    // Opening a conversation is exactly when its dot needs to be right.
+    void get().syncPresence()
   },
 
   /** Prepend one older page of history (infinite scroll upwards). */
@@ -543,6 +594,13 @@ export const useStore = create<StoreState>((set, get) => ({
         // Only hit the network when the message belongs to a chat we don't know yet.
         if (!known) get().refreshChats()
         if (!mine) {
+          // Someone who just wrote is online by definition; reflect that at once
+          // instead of waiting for the next heartbeat.
+          set((s) =>
+            s.presence[e.message.senderUid]
+              ? { presence: { ...s.presence, [e.message.senderUid]: { online: true, lastSeen: e.message.ts } } }
+              : {},
+          )
           const muted = state.chats.find((c) => c.id === chatId)?.muted
           if (state.account?.settings.notifySound && !muted) beep()
           if (isActive) get().backend?.markRead(chatId)
