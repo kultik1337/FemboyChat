@@ -46,14 +46,21 @@ export class SupabaseBackend implements Backend {
     // Global realtime: any new message row fans out to subscribers.
     // RLS applies to the replication stream too, so this only delivers rows
     // from chats the signed-in user is actually a member of.
+    //
+    // Comments on channel posts are stored in this very table, distinguished
+    // only by comment_of. They must never reach the feed subscribers: a comment
+    // is not a chat message, and letting one through would both render it as a
+    // standalone post and pop a notification for it.
     this.client
       .channel('fc-messages')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, (p: any) =>
-        this.subs.forEach((cb) => cb({ type: 'message', message: rowToMessage(p.new) })),
-      )
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'messages' }, (p: any) =>
-        this.subs.forEach((cb) => cb({ type: 'message:update', message: rowToMessage(p.new) })),
-      )
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, (p: any) => {
+        if (p.new?.comment_of) return
+        this.subs.forEach((cb) => cb({ type: 'message', message: rowToMessage(p.new) }))
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'messages' }, (p: any) => {
+        if (p.new?.comment_of) return
+        this.subs.forEach((cb) => cb({ type: 'message:update', message: rowToMessage(p.new) }))
+      })
       .subscribe()
   }
 
@@ -206,6 +213,9 @@ export class SupabaseBackend implements Backend {
    * One RPC returns the last message of every chat. This replaces the old
    * "call listMessages() for each chat" loop, which downloaded the entire
    * history of the whole account every time a single message arrived.
+   *
+   * The RPC itself ignores comment rows, so a comment can never show up as a
+   * chat's last message in the sidebar.
    */
   async listChatPreviews(): Promise<ChatPreview[]> {
     const { data, error } = await this.client.rpc('chat_previews')
@@ -286,12 +296,16 @@ export class SupabaseBackend implements Backend {
   /**
    * Newest page first by default. Pass { before } to walk further back.
    * The result is always returned oldest-first so the UI can append directly.
+   *
+   * Only top-level messages are returned. Comments on channel posts live in the
+   * same table and are fetched separately by the comment view.
    */
   async listMessages(chatId: string, page?: MessagePage): Promise<Message[]> {
     let q = this.client
       .from('messages')
       .select('*')
       .eq('chat_id', chatId)
+      .is('comment_of', null)
       .order('ts', { ascending: false })
       .limit(page?.limit ?? PAGE_SIZE)
     if (page?.before) q = q.lt('ts', new Date(page.before).toISOString())
@@ -310,6 +324,7 @@ export class SupabaseBackend implements Backend {
         poll: input.poll,
         ttl: input.ttl,
         attachment: input.attachment,
+        comment_of: input.commentOf ?? null,
       })
       .select('*')
       .single()
@@ -367,6 +382,16 @@ export class SupabaseBackend implements Backend {
     if (fresh.length === 0) return
     fresh.forEach((id) => this.viewed.add(id))
     await this.rpc('mark_viewed', { msg_ids: fresh })
+  }
+
+  /** Comments under a single channel post, oldest first. */
+  async listComments(postId: string): Promise<Message[]> {
+    const { data } = await this.client
+      .from('messages')
+      .select('*')
+      .eq('comment_of', postId)
+      .order('ts', { ascending: true })
+    return (data ?? []).map(rowToMessage)
   }
 
   async uploadFile(kind: 'avatar' | 'attachment', file: Blob, name?: string): Promise<{ url: string }> {
