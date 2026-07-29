@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowDown, ArrowLeft, ChevronDown, ChevronUp, Info, Paperclip, Pin, Search, X } from 'lucide-react'
+import { ArrowDown, ArrowLeft, ChevronDown, ChevronUp, Eye, Info, MessageCircle, Paperclip, Pin, Search, Send, X } from 'lucide-react'
 import { useStore } from '../../store/useStore'
 import { Avatar } from '../ui/Avatar'
 import { Logo } from '../ui/Logo'
@@ -9,7 +9,8 @@ import { chatCounterpart, usePeople } from './people'
 import { useActions } from './useActions'
 import { openContextMenu } from '../ui/ContextMenu'
 import { attachmentLabel } from '../../lib/media'
-import { classNames, dayLabel, lastSeenLabel, plainText } from '../../lib/util'
+import { classNames, dayLabel, lastSeenLabel, plainText, renderRich, timeShort } from '../../lib/util'
+import type { Chat, Message } from '../../types'
 
 export function ChatView() {
   const account = useStore((s) => s.account)!
@@ -19,6 +20,7 @@ export function ChatView() {
   const typing = useStore((s) => s.typing)
   const presence = useStore((s) => s.presence)
   const now = useStore((s) => s.now)
+  const backend = useStore((s) => s.backend)
   const loadingChat = useStore((s) => s.loadingChat)
   const loadingMore = useStore((s) => s.loadingMore)
   const hasMore = useStore((s) => s.hasMore)
@@ -45,6 +47,11 @@ export function ChatView() {
   const [dragOver, setDragOver] = useState(false)
   const dragDepth = useRef(0)
   const addPendingFiles = useStore((s) => s.addPendingFiles)
+  /** Posts already reported as seen, so scrolling doesn't re-send them. */
+  const viewedRef = useRef<Set<string>>(new Set())
+  const [commentsForId, setCommentsForId] = useState<string | null>(null)
+  /** Comment counts corrected by an opened thread (the row's is a snapshot). */
+  const [commentCounts, setCommentCounts] = useState<Record<string, number>>({})
   // «Новые сообщения» divider: freeze the first-unread timestamp per chat visit.
   const unreadMark = useRef<{ chatId: string; ts: number | null }>({ chatId: '', ts: null })
   const wallpaper = account.settings.wallpaper
@@ -54,6 +61,9 @@ export function ChatView() {
     setSearchOpen(false)
     setQuery('')
     prependAnchor.current = null
+    viewedRef.current = new Set()
+    setCommentsForId(null)
+    setCommentCounts({})
     const el = scroller.current
     if (el) el.scrollTop = el.scrollHeight
     atBottomRef.current = true
@@ -72,12 +82,44 @@ export function ChatView() {
     if (atBottomRef.current) el.scrollTop = el.scrollHeight
   }, [msgs.length])
 
+  // Count a post as seen once it is actually on screen. Runs after layout, so
+  // the freshly rendered bubbles already have their geometry.
+  useEffect(() => {
+    if (!chat || chat.type !== 'channel') return
+    const raf = requestAnimationFrame(reportViews)
+    return () => cancelAnimationFrame(raf)
+  }, [msgs.length, chat?.id])
+
+  /**
+   * Report the channel posts currently inside the viewport. The backend keeps
+   * its own per-session set, so a repeat id costs nothing; view counters are
+   * decoration, so a failure is swallowed rather than shown.
+   */
+  function reportViews() {
+    const el = scroller.current
+    if (!el || !chat || chat.type !== 'channel' || !backend?.markViewed) return
+    const box = el.getBoundingClientRect()
+    const fresh: string[] = []
+    for (const m of msgs) {
+      if (m.pending || m.system || m.deleted || viewedRef.current.has(m.id)) continue
+      const node = document.getElementById(`msg-${m.id}`)
+      if (!node) continue
+      const r = node.getBoundingClientRect()
+      if (r.bottom > box.top && r.top < box.bottom) {
+        viewedRef.current.add(m.id)
+        fresh.push(m.id)
+      }
+    }
+    if (fresh.length) void backend.markViewed(fresh).catch(() => {})
+  }
+
   function onScroll() {
     const el = scroller.current
     if (!el) return
     const bottom = el.scrollHeight - el.scrollTop - el.clientHeight < 90
     atBottomRef.current = bottom
     setAtBottom(bottom)
+    reportViews()
     // Infinite scroll upwards.
     if (el.scrollTop < 140 && activeChatId && !loading && !paging && hasMore[activeChatId] !== false && msgs.length) {
       prependAnchor.current = el.scrollHeight
@@ -143,6 +185,7 @@ export function ChatView() {
   const isChannel = chat.type === 'channel'
   const isAdmin = chat.adminUids.includes(account.uid)
   const canPost = !isChannel || isAdmin
+  const commentsPost = commentsForId ? msgs.find((m) => m.id === commentsForId) ?? null : null
 
   const typers = Object.entries(typing[chat.id] ?? {}).filter(([uid, t]) => uid !== account.uid && now - t.at < 4000)
 
@@ -328,6 +371,8 @@ export function ChatView() {
                   otherUid={counterpartUid}
                   fresh={account.settings.animations && m.ts > openedAt.current}
                   onJump={jumpTo}
+                  onOpenComments={isChannel && backend?.listComments ? (msg) => setCommentsForId(msg.id) : undefined}
+                  commentCount={commentCounts[m.id]}
                 />
                 {m.failed && (
                   <div className="px-4 pb-1 text-right text-[11px] font-semibold text-[#ff6b6b]">Не отправлено · проверь связь</div>
@@ -362,9 +407,182 @@ export function ChatView() {
         <Composer />
       ) : (
         <div className="border-t border-[var(--border)] bg-[var(--panel)] px-4 py-4 text-center text-sm text-[var(--muted)]">
-          🔒 В этом канале публиковать могут только администраторы
+          🔒 В этом канале публиковать могут только администраторы — но комментарии открыты всем ✨
         </div>
       )}
+
+      {commentsPost && (
+        <CommentsPanel
+          chat={chat}
+          post={commentsPost}
+          onClose={() => setCommentsForId(null)}
+          onCount={(n) => setCommentCounts((c) => ({ ...c, [commentsPost.id]: n }))}
+        />
+      )}
+    </div>
+  )
+}
+
+/**
+ * Comment thread for a single channel post, as a right-hand drawer.
+ *
+ * Comments live in the same table as messages but are filtered out of every
+ * feed, and realtime drops them on purpose — otherwise each one would show up
+ * as a standalone post and fire a notification. That is why a sent comment is
+ * appended to local state here instead of arriving through the socket.
+ */
+function CommentsPanel({
+  chat,
+  post,
+  onClose,
+  onCount,
+}: {
+  chat: Chat
+  post: Message
+  onClose: () => void
+  onCount: (n: number) => void
+}) {
+  const backend = useStore((s) => s.backend)!
+  const account = useStore((s) => s.account)!
+  const toast = useStore((s) => s.toast)
+  const { resolve } = usePeople()
+  const [items, setItems] = useState<Message[] | null>(null)
+  const [text, setText] = useState('')
+  const [sending, setSending] = useState(false)
+  const listRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    let alive = true
+    setItems(null)
+    void (async () => {
+      try {
+        const rows = await backend.listComments?.(post.id)
+        if (!alive) return
+        setItems(rows ?? [])
+        onCount((rows ?? []).length)
+      } catch {
+        if (alive) setItems([])
+      }
+    })()
+    return () => {
+      alive = false
+    }
+  }, [post.id])
+
+  useEffect(() => {
+    const el = listRef.current
+    if (el) el.scrollTop = el.scrollHeight
+  }, [items?.length])
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  async function submit() {
+    const body = text.trim()
+    if (!body || sending) return
+    setSending(true)
+    try {
+      const saved = await backend.send({ chatId: chat.id, senderUid: account.uid, text: body, commentOf: post.id })
+      const next = [...(items ?? []), saved]
+      setItems(next)
+      onCount(next.length)
+      setText('')
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Не удалось отправить комментарий', '⚠️')
+    } finally {
+      setSending(false)
+    }
+  }
+
+  return (
+    <div className="absolute inset-0 z-40 flex">
+      <button onClick={onClose} className="absolute inset-0 bg-black/35 backdrop-blur-[2px]" title="Закрыть" />
+      <div className="relative ml-auto flex h-full w-full min-w-0 flex-col border-l border-[var(--border)] bg-[var(--panel)] shadow-2xl animate-fade-in sm:w-[400px]">
+        <div className="flex min-w-0 items-center gap-2 border-b border-[var(--border)] px-4 py-3">
+          <MessageCircle size={17} className="shrink-0 text-[var(--accent)]" />
+          <div className="min-w-0 flex-1">
+            <div className="truncate font-bold">Комментарии</div>
+            <div className="flex items-center gap-2 text-[11px] text-[var(--muted)]">
+              <span>{items ? `${items.length}` : '…'}</span>
+              <span className="flex items-center gap-1"><Eye size={12} /> {(post.viewCount ?? 0).toLocaleString('ru-RU')}</span>
+            </div>
+          </div>
+          <button onClick={onClose} className="grid h-8 w-8 shrink-0 place-items-center rounded-full text-[var(--muted)] hover:bg-[var(--panel-hover)]">
+            <X size={17} />
+          </button>
+        </div>
+
+        {/* the post being discussed, trimmed to a couple of lines */}
+        <div className="border-b border-[var(--border)] bg-[var(--panel-2)] px-4 py-2.5">
+          <div className="line-clamp-3 text-xs text-[var(--muted)]">{plainText(post.text) || 'Пост без текста'}</div>
+        </div>
+
+        <div ref={listRef} className="fancy-scroll min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-3">
+          {items === null && (
+            <div className="space-y-3" aria-hidden="true">
+              {[0, 1, 2].map((i) => (
+                <div key={i} className="flex gap-2">
+                  <div className="h-8 w-8 shrink-0 animate-pulse rounded-full bg-[var(--panel-2)]" />
+                  <div className="flex-1 space-y-1.5">
+                    <div className="h-3 w-24 animate-pulse rounded bg-[var(--panel-2)]" />
+                    <div className="h-3 w-full animate-pulse rounded bg-[var(--panel-2)]" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {items?.length === 0 && (
+            <div className="mt-10 flex flex-col items-center gap-1.5 text-center text-[var(--muted)]">
+              <div className="text-4xl">💬</div>
+              <p className="text-sm font-semibold">Пока тишина</p>
+              <p className="text-xs">Будь первым, кто ответит на этот пост 🎀</p>
+            </div>
+          )}
+          {items?.map((c) => {
+            const who = resolve(c.senderUid)
+            return (
+              <div key={c.id} className="flex gap-2">
+                <Avatar emoji={who.emoji} color={who.color} src={who.avatarUrl} size={32} />
+                <div className="min-w-0 flex-1 rounded-2xl bg-[var(--bubble-in)] px-3 py-2" style={{ color: 'var(--bubble-in-text)' }}>
+                  <div className="flex items-baseline gap-2">
+                    <span className="truncate text-xs font-bold" style={{ color: who.color }}>{who.name}</span>
+                    <span className="ml-auto shrink-0 text-[10px] text-[var(--muted)]">{timeShort(c.ts)}</span>
+                  </div>
+                  <div className="whitespace-pre-wrap break-words text-sm" dangerouslySetInnerHTML={renderRich(c.text)} />
+                </div>
+              </div>
+            )
+          })}
+        </div>
+
+        <div className="flex items-end gap-2 border-t border-[var(--border)] px-3 py-2.5">
+          <input
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault()
+                void submit()
+              }
+            }}
+            placeholder="Написать комментарий…"
+            className="input !py-2.5 text-sm"
+          />
+          <button
+            onClick={submit}
+            disabled={!text.trim() || sending}
+            className="grid h-10 w-10 shrink-0 place-items-center rounded-full accent-gradient text-white transition disabled:opacity-40"
+            title="Отправить"
+          >
+            <Send size={17} />
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
