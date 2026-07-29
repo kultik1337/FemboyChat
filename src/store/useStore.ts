@@ -40,6 +40,8 @@ interface StoreState {
   /** Chats that still have older messages on the server. */
   hasMore: Record<string, boolean>
   loadingMore: Record<string, boolean>
+  /** First page of history is in flight — the view shows a skeleton. */
+  loadingChat: Record<string, boolean>
 
   // ui
   settingsOpen: boolean
@@ -140,6 +142,7 @@ export const useStore = create<StoreState>((set, get) => ({
   pendingFiles: [],
   hasMore: {},
   loadingMore: {},
+  loadingChat: {},
 
   settingsOpen: false,
   rightPanelOpen: false,
@@ -151,8 +154,8 @@ export const useStore = create<StoreState>((set, get) => ({
   lightbox: null,
 
   async boot() {
-    // Invite links look like https://femboychat.fun/#join=CODE — stash the code
-    // so it survives the login/register flow for logged-out visitors.
+    // Invite links look like /#join=CODE — stash the code so it survives the
+    // login/register flow for logged-out visitors.
     const joinMatch = /#join=([A-Za-z0-9_-]+)/.exec(location.hash)
     if (joinMatch) {
       localStorage.setItem('fc:pendingInvite', joinMatch[1])
@@ -268,17 +271,21 @@ export const useStore = create<StoreState>((set, get) => ({
     set({ chats, previews })
   },
 
+  /**
+   * Switch chats. The active chat changes on the same frame and history is
+   * fetched afterwards: awaiting the request first meant the old chat stayed
+   * on screen for the whole round trip, which is what made switching feel slow.
+   */
   async openChat(id) {
     if (!id) {
       set({ activeChatId: null, rightPanelOpen: false })
       return
     }
     const backend = get().backend!
-    const msgs = await backend.listMessages(id, { limit: PAGE_SIZE })
+    const cached = get().messages[id] ?? []
+
     set((s) => ({
       activeChatId: id,
-      messages: { ...s.messages, [id]: msgs },
-      hasMore: { ...s.hasMore, [id]: msgs.length >= PAGE_SIZE },
       unread: { ...s.unread, [id]: 0 },
       rightPanelOpen: false,
       searchQuery: '',
@@ -286,7 +293,23 @@ export const useStore = create<StoreState>((set, get) => ({
       composeReply: null,
       composeEdit: null,
       pendingFiles: [],
+      // Only show a skeleton when there is nothing to show yet; a revisit keeps
+      // the cached history visible and refreshes it underneath.
+      loadingChat: { ...s.loadingChat, [id]: cached.length === 0 },
     }))
+
+    try {
+      const msgs = await backend.listMessages(id, { limit: PAGE_SIZE })
+      set((s) => ({
+        messages: { ...s.messages, [id]: msgs },
+        hasMore: { ...s.hasMore, [id]: msgs.length >= PAGE_SIZE },
+      }))
+    } catch {
+      get().toast('Не удалось загрузить историю', '⚠️')
+    } finally {
+      set((s) => ({ loadingChat: { ...s.loadingChat, [id]: false } }))
+    }
+
     await backend.markRead(id)
   },
 
@@ -325,22 +348,79 @@ export const useStore = create<StoreState>((set, get) => ({
     get().toast(input.type === 'channel' ? 'Канал создан ✨' : 'Группа создана ✨')
   },
 
+  /**
+   * Optimistic send: the bubble appears immediately (dimmed) and is swapped for
+   * the server copy once the write lands. Waiting for the round trip before
+   * showing anything made every message feel laggy on a slow connection.
+   */
   async send(input) {
     const { account, activeChatId, backend } = get()
     if (!account || !activeChatId || !backend) return
     const text = input.text.trim()
     if (!text && !input.sticker && !input.poll && !input.attachment) return
-    await backend.send({
-      chatId: activeChatId,
+
+    const chatId = activeChatId
+    const tempId = `tmp-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    const optimistic: Message = {
+      id: tempId,
+      chatId,
       senderUid: account.uid,
       text,
+      ts: Date.now(),
+      reactions: [],
+      readByUids: [],
       replyToId: input.replyToId,
       sticker: input.sticker,
       poll: input.poll,
       ttl: input.ttl,
       forwardedFrom: input.forwardedFrom,
       attachment: input.attachment,
-    })
+      pending: true,
+    }
+
+    set((s) => ({
+      messages: { ...s.messages, [chatId]: [...(s.messages[chatId] ?? []), optimistic] },
+      previews: {
+        ...s.previews,
+        [chatId]: { text, ts: optimistic.ts, senderUid: account.uid, sticker: input.sticker, attachment: input.attachment },
+      },
+      chats: bumpChat(s.chats, chatId),
+    }))
+
+    try {
+      const saved = await backend.send({
+        chatId,
+        senderUid: account.uid,
+        text,
+        replyToId: input.replyToId,
+        sticker: input.sticker,
+        poll: input.poll,
+        ttl: input.ttl,
+        forwardedFrom: input.forwardedFrom,
+        attachment: input.attachment,
+      })
+      set((s) => {
+        const arr = s.messages[chatId]
+        if (!arr) return {}
+        // Realtime can deliver our own message before this resolves; in that
+        // case just drop the placeholder instead of showing it twice.
+        const alreadyThere = arr.some((m) => m.id === saved.id)
+        return {
+          messages: {
+            ...s.messages,
+            [chatId]: alreadyThere ? arr.filter((m) => m.id !== tempId) : arr.map((m) => (m.id === tempId ? saved : m)),
+          },
+        }
+      })
+    } catch (e) {
+      // Keep the bubble so the text is not lost; the view marks it as unsent.
+      set((s) => ({
+        messages: s.messages[chatId]
+          ? { ...s.messages, [chatId]: s.messages[chatId].map((m) => (m.id === tempId ? { ...m, pending: false, failed: true } : m)) }
+          : s.messages,
+      }))
+      get().toast(e instanceof Error ? e.message : 'Сообщение не отправилось', '⚠️')
+    }
   },
 
   async edit(id, text) {
@@ -434,8 +514,14 @@ export const useStore = create<StoreState>((set, get) => ({
         const isActive = state.activeChatId === chatId
         const mine = e.message.senderUid === state.account?.uid
         const known = state.chats.some((c) => c.id === chatId)
+        // Our own message coming back over realtime should replace the optimistic
+        // placeholder rather than appear next to it.
+        const tempIdx = mine
+          ? arr.findIndex((m) => m.pending && m.text === e.message.text && m.sticker === e.message.sticker)
+          : -1
+        const nextArr = tempIdx >= 0 ? arr.map((m, i) => (i === tempIdx ? e.message : m)) : [...arr, e.message]
         set((s) => ({
-          messages: s.messages[chatId] ? { ...s.messages, [chatId]: [...arr, e.message] } : s.messages,
+          messages: s.messages[chatId] ? { ...s.messages, [chatId]: nextArr } : s.messages,
           unread: !isActive && !mine ? { ...s.unread, [chatId]: (s.unread[chatId] ?? 0) + 1 } : s.unread,
           typing: clearTyping(s.typing, chatId, e.message.senderUid),
           // Patch the sidebar preview locally. Previously this called

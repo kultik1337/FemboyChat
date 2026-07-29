@@ -19,6 +19,10 @@ export function ChatView() {
   const typing = useStore((s) => s.typing)
   const presence = useStore((s) => s.presence)
   const now = useStore((s) => s.now)
+  const loadingChat = useStore((s) => s.loadingChat)
+  const loadingMore = useStore((s) => s.loadingMore)
+  const hasMore = useStore((s) => s.hasMore)
+  const loadOlder = useStore((s) => s.loadOlder)
   const setRightPanel = useStore((s) => s.setRightPanel)
   const setProfileUid = useStore((s) => s.setProfileUid)
   const openChat = useStore((s) => s.openChat)
@@ -27,9 +31,13 @@ export function ChatView() {
 
   const chat = chats.find((c) => c.id === activeChatId) ?? null
   const msgs = activeChatId ? messages[activeChatId] ?? [] : []
+  const loading = activeChatId ? !!loadingChat[activeChatId] : false
+  const paging = activeChatId ? !!loadingMore[activeChatId] : false
   const scroller = useRef<HTMLDivElement>(null)
   const atBottomRef = useRef(true)
   const openedAt = useRef(Date.now())
+  /** scrollHeight captured right before an upward page load, to avoid a jump. */
+  const prependAnchor = useRef<number | null>(null)
   const [atBottom, setAtBottom] = useState(true)
   const [searchOpen, setSearchOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -45,6 +53,7 @@ export function ChatView() {
     openedAt.current = Date.now()
     setSearchOpen(false)
     setQuery('')
+    prependAnchor.current = null
     const el = scroller.current
     if (el) el.scrollTop = el.scrollHeight
     atBottomRef.current = true
@@ -53,7 +62,14 @@ export function ChatView() {
 
   useEffect(() => {
     const el = scroller.current
-    if (el && atBottomRef.current) el.scrollTop = el.scrollHeight
+    if (!el) return
+    // Older messages were just prepended: keep the reading position steady.
+    if (prependAnchor.current !== null) {
+      el.scrollTop += el.scrollHeight - prependAnchor.current
+      prependAnchor.current = null
+      return
+    }
+    if (atBottomRef.current) el.scrollTop = el.scrollHeight
   }, [msgs.length])
 
   function onScroll() {
@@ -62,6 +78,11 @@ export function ChatView() {
     const bottom = el.scrollHeight - el.scrollTop - el.clientHeight < 90
     atBottomRef.current = bottom
     setAtBottom(bottom)
+    // Infinite scroll upwards.
+    if (el.scrollTop < 140 && activeChatId && !loading && !paging && hasMore[activeChatId] !== false && msgs.length) {
+      prependAnchor.current = el.scrollHeight
+      void loadOlder(activeChatId)
+    }
   }
 
   function scrollToBottom() {
@@ -254,7 +275,13 @@ export function ChatView() {
       {/* messages */}
       <div className="relative min-h-0 min-w-0 flex-1">
         <div ref={scroller} onScroll={onScroll} onClick={onScrollerClick} className={classNames('relative z-[2] h-full overflow-y-auto overflow-x-hidden py-3 fancy-scroll', `wallpaper-${wallpaper}`)}>
-          {visibleMsgs.length === 0 && (
+          {paging && (
+            <div className="flex justify-center py-2">
+              <span className="rounded-full bg-[var(--panel)] px-3 py-1 text-xs font-semibold text-[var(--muted)] shadow-sm">Загружаем историю…</span>
+            </div>
+          )}
+          {loading && visibleMsgs.length === 0 && <HistorySkeleton />}
+          {!loading && visibleMsgs.length === 0 && (
             <div className="mt-16 flex flex-col items-center gap-2 text-center text-[var(--muted)]">
               <div className="text-5xl">{headerVisual.emoji}</div>
               <p className="font-semibold">Пока нет сообщений</p>
@@ -272,7 +299,7 @@ export function ChatView() {
             const sender = resolve(m.senderUid)
             const replied = m.replyToId ? msgs.find((x) => x.id === m.replyToId) : undefined
             return (
-              <div key={m.id}>
+              <div key={m.id} className={classNames(m.pending && 'opacity-60 transition-opacity', m.failed && 'opacity-80')}>
                 {newDay && (
                   <div className="my-3 flex justify-center">
                     <span className="rounded-full bg-[var(--panel)] px-3 py-1 text-xs font-semibold text-[var(--muted)] shadow-sm">{dayLabel(m.ts)}</span>
@@ -302,6 +329,9 @@ export function ChatView() {
                   fresh={account.settings.animations && m.ts > openedAt.current}
                   onJump={jumpTo}
                 />
+                {m.failed && (
+                  <div className="px-4 pb-1 text-right text-[11px] font-semibold text-[#ff6b6b]">Не отправлено · проверь связь</div>
+                )}
               </div>
             )
           })}
@@ -335,6 +365,34 @@ export function ChatView() {
           🔒 В этом канале публиковать могут только администраторы
         </div>
       )}
+    </div>
+  )
+}
+
+/**
+ * Placeholder shown while the first page of history is in flight. The shapes
+ * follow the real bubble rhythm (alternating sides, uneven widths) so the swap
+ * to real content is not a visual jolt.
+ */
+function HistorySkeleton() {
+  const rows: Array<{ mine: boolean; w: string; h: string }> = [
+    { mine: false, w: 'w-52', h: 'h-12' },
+    { mine: true, w: 'w-36', h: 'h-10' },
+    { mine: false, w: 'w-64', h: 'h-16' },
+    { mine: true, w: 'w-44', h: 'h-10' },
+    { mine: false, w: 'w-40', h: 'h-10' },
+    { mine: true, w: 'w-56', h: 'h-14' },
+  ]
+  return (
+    <div className="space-y-3 px-4 pt-2" aria-hidden="true">
+      {rows.map((r, i) => (
+        <div key={i} className={classNames('flex', r.mine ? 'justify-end' : 'justify-start')}>
+          <div
+            className={classNames('max-w-[70%] animate-pulse rounded-2xl', r.w, r.h, r.mine ? 'bg-[var(--accent)]/20' : 'bg-[var(--bubble-in)]')}
+            style={{ animationDelay: `${i * 90}ms` }}
+          />
+        </div>
+      ))}
     </div>
   )
 }

@@ -130,6 +130,13 @@ export interface Message {
   poll?: Poll
   sticker?: string
   attachment?: Attachment
+  /**
+   * Local-only: this bubble was inserted optimistically and the server has not
+   * confirmed the write yet. Never sent to or returned by a backend.
+   */
+  pending?: boolean
+  /** Local-only: the write failed, so the bubble stays and is marked unsent. */
+  failed?: boolean
 }
 
 /** Open Graph preview of a link inside a message. */
