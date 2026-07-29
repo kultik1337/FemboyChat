@@ -1,7 +1,10 @@
 import type { Account, Chat, Directory, LinkPreview, Message, RealtimeEvent } from '../../types'
 import { defaultSettings } from '../defaults'
 import { normalizeUsername, uid as rid } from '../util'
-import type { Backend, AuthResult } from './types'
+import type { Backend, AuthResult, ChatPreview, MessagePage } from './types'
+
+/** Default number of messages loaded per chat page. */
+const PAGE_SIZE = 50
 
 /**
  * Optional production backend backed by Supabase.
@@ -21,6 +24,7 @@ export class SupabaseBackend implements Backend {
   private subs = new Set<(e: RealtimeEvent) => void>()
   private account: Account | null = null
   private directoryCache: Directory[] = []
+  private lastPresenceAt = 0
 
   constructor(private url: string, private key: string) {}
 
@@ -38,6 +42,8 @@ export class SupabaseBackend implements Backend {
       /* best effort */
     }
     // Global realtime: any new message row fans out to subscribers.
+    // RLS applies to the replication stream too, so this only delivers rows
+    // from chats the signed-in user is actually a member of.
     this.client
       .channel('fc-messages')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, (p: any) =>
@@ -193,6 +199,26 @@ export class SupabaseBackend implements Backend {
     const { data } = await this.client.rpc('list_my_chats')
     return (data ?? []).map(rowToChat)
   }
+
+  /**
+   * One RPC returns the last message of every chat. This replaces the old
+   * "call listMessages() for each chat" loop, which downloaded the entire
+   * history of the whole account every time a single message arrived.
+   */
+  async listChatPreviews(): Promise<ChatPreview[]> {
+    const { data, error } = await this.client.rpc('chat_previews')
+    if (error) return []
+    return (data ?? []).map((r: any) => ({
+      chatId: r.chat_id,
+      text: r.text ?? '',
+      ts: typeof r.ts === 'number' ? r.ts : Date.parse(r.ts),
+      senderUid: r.sender_uid,
+      sticker: r.sticker ?? undefined,
+      attachment: r.attachment ?? undefined,
+      deleted: r.deleted ?? undefined,
+    }))
+  }
+
   getChat(): Chat | undefined {
     return undefined
   }
@@ -223,8 +249,8 @@ export class SupabaseBackend implements Backend {
     return rowToChat(data)
   }
   async updateChat(id: string, patch: Partial<Chat>): Promise<Chat> {
-    // pin/mute is allowed for every member — route through a security-definer
-    // RPC because the chats UPDATE policy only covers owners/admins.
+    // pin/mute is per-user and lives in chat_prefs — route it through the
+    // security-definer RPC so one member's pin no longer pins for everyone.
     const keys = Object.keys(patch)
     if (keys.length > 0 && keys.every((k) => k === 'pinned' || k === 'muted')) {
       const { data, error } = await this.client.rpc('set_chat_flags', {
@@ -245,8 +271,6 @@ export class SupabaseBackend implements Backend {
     if (patch.avatarUrl !== undefined) row.avatar_url = patch.avatarUrl ?? null
     if (patch.isPrivate !== undefined) row.is_private = patch.isPrivate
     if (patch.inviteCode !== undefined) row.invite_code = patch.inviteCode ?? null
-    if (patch.pinned !== undefined) row.pinned = patch.pinned
-    if (patch.muted !== undefined) row.muted = patch.muted
     if (patch.memberUids !== undefined) { row.member_uids = patch.memberUids; row.member_count = patch.memberUids.length }
     if (patch.adminUids !== undefined) row.admin_uids = patch.adminUids
     const { data, error } = await this.client.from('chats').update(row).eq('id', id).select('*').single()
@@ -257,9 +281,20 @@ export class SupabaseBackend implements Backend {
     await this.client.rpc('leave_chat', { chat: id })
   }
 
-  async listMessages(chatId: string): Promise<Message[]> {
-    const { data } = await this.client.from('messages').select('*').eq('chat_id', chatId).order('ts', { ascending: true })
-    return (data ?? []).map(rowToMessage)
+  /**
+   * Newest page first by default. Pass { before } to walk further back.
+   * The result is always returned oldest-first so the UI can append directly.
+   */
+  async listMessages(chatId: string, page?: MessagePage): Promise<Message[]> {
+    let q = this.client
+      .from('messages')
+      .select('*')
+      .eq('chat_id', chatId)
+      .order('ts', { ascending: false })
+      .limit(page?.limit ?? PAGE_SIZE)
+    if (page?.before) q = q.lt('ts', new Date(page.before).toISOString())
+    const { data } = await q
+    return (data ?? []).map(rowToMessage).reverse()
   }
   async send(input: Omit<Message, 'id' | 'ts' | 'reactions' | 'readByUids'>): Promise<Message> {
     const { data } = await this.client
@@ -332,8 +367,22 @@ export class SupabaseBackend implements Backend {
       payload: { uid: this.account?.uid, name: this.account?.name, chatId },
     })
   }
-  setPresence() {
-    /* handled by Supabase presence channels in a fuller build */
+
+  /**
+   * Heartbeat: refresh last_seen so the directory's `online` flag
+   * (last_seen > now() - 5 min) stops reporting everyone as offline forever.
+   * Throttled to at most one write per 30s.
+   */
+  setPresence(online: boolean) {
+    if (!online || !this.account || !this.client) return
+    const now = Date.now()
+    if (now - this.lastPresenceAt < 30_000) return
+    this.lastPresenceAt = now
+    this.client
+      .from('profiles')
+      .update({ last_seen: new Date(now).toISOString() })
+      .eq('uid', this.account.uid)
+      .then(() => {}, () => {})
   }
 
   subscribe(cb: (e: RealtimeEvent) => void) {

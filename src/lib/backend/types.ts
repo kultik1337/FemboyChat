@@ -1,10 +1,29 @@
-import type { Account, Chat, Directory, LinkPreview, Message, RealtimeEvent } from '../../types'
+import type { Account, Attachment, Chat, Directory, LinkPreview, Message, RealtimeEvent } from '../../types'
 
 export interface AuthResult {
   ok: boolean
   account?: Account
   error?: string
   pendingConfirm?: boolean // sign-up succeeded but the e-mail must be confirmed first
+}
+
+/** Last message of a chat, used to render the sidebar without loading history. */
+export interface ChatPreview {
+  chatId: string
+  text: string
+  ts: number
+  senderUid: string
+  sticker?: string
+  attachment?: Attachment
+  deleted?: boolean
+}
+
+/** Paging window for listMessages(). Omitted = newest page. */
+export interface MessagePage {
+  /** Only return messages older than this timestamp (ms). */
+  before?: number
+  /** How many messages to fetch. Defaults to 50. */
+  limit?: number
 }
 
 export interface Backend {
@@ -39,8 +58,15 @@ export interface Backend {
   updateChat(id: string, patch: Partial<Chat>): Promise<Chat>
   leaveChat(id: string): Promise<void>
 
+  /**
+   * Optional fast path: the last message of every chat in a single round-trip.
+   * Backends that can't do this (LocalBackend) simply omit it and the store
+   * falls back to per-chat loading.
+   */
+  listChatPreviews?(): Promise<ChatPreview[]>
+
   // messages
-  listMessages(chatId: string): Promise<Message[]>
+  listMessages(chatId: string, page?: MessagePage): Promise<Message[]>
   send(input: Omit<Message, 'id' | 'ts' | 'reactions' | 'readByUids'>): Promise<Message>
   edit(chatId: string, id: string, text: string): Promise<void>
   remove(chatId: string, id: string): Promise<void>

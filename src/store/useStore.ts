@@ -37,6 +37,9 @@ interface StoreState {
   composeEdit: Message | null
   /** Files dropped/pasted into the chat, waiting in the composer. */
   pendingFiles: File[]
+  /** Chats that still have older messages on the server. */
+  hasMore: Record<string, boolean>
+  loadingMore: Record<string, boolean>
 
   // ui
   settingsOpen: boolean
@@ -59,6 +62,7 @@ interface StoreState {
 
   refreshChats: () => Promise<void>
   openChat: (id: string) => Promise<void>
+  loadOlder: (id: string) => Promise<void>
   startWith: (entry: Directory) => Promise<void>
   joinInvite: (code: string) => Promise<void>
   consumePendingInvite: () => Promise<void>
@@ -96,6 +100,24 @@ interface StoreState {
 }
 
 let typingThrottle = 0
+/** How many messages one page of history holds. Must match the backend. */
+const PAGE_SIZE = 50
+
+/**
+ * Presence heartbeat. Without this `last_seen` was only ever written at
+ * registration, so every user was permanently shown as "не в сети".
+ */
+let presenceStarted = false
+function startPresence(backend: Backend) {
+  if (presenceStarted) return
+  presenceStarted = true
+  const beat = () => backend.setPresence(document.visibilityState === 'visible')
+  beat()
+  setInterval(beat, 60_000)
+  document.addEventListener('visibilitychange', beat)
+  window.addEventListener('focus', beat)
+  window.addEventListener('beforeunload', () => backend.setPresence(false))
+}
 
 export const useStore = create<StoreState>((set, get) => ({
   backend: null,
@@ -116,6 +138,8 @@ export const useStore = create<StoreState>((set, get) => ({
   composeReply: null,
   composeEdit: null,
   pendingFiles: [],
+  hasMore: {},
+  loadingMore: {},
 
   settingsOpen: false,
   rightPanelOpen: false,
@@ -148,6 +172,7 @@ export const useStore = create<StoreState>((set, get) => ({
     // 1s heartbeat drives relative times, typing expiry, self-destruct.
     setInterval(() => set({ now: Date.now() }), 1000)
     if (account) {
+      startPresence(backend)
       await get().refreshChats()
       await get().consumePendingInvite()
     }
@@ -179,6 +204,7 @@ export const useStore = create<StoreState>((set, get) => ({
     const res = await get().backend!.register(email, username, name, password)
     if (res.ok && res.account) {
       set({ account: res.account, route: 'app', directory: get().backend!.getDirectoryList() })
+      startPresence(get().backend!)
       await get().refreshChats()
       await get().consumePendingInvite()
       return { ok: true }
@@ -192,6 +218,7 @@ export const useStore = create<StoreState>((set, get) => ({
     const res = await get().backend!.login(email, password)
     if (res.ok && res.account) {
       set({ account: res.account, route: 'app', directory: get().backend!.getDirectoryList() })
+      startPresence(get().backend!)
       await get().refreshChats()
       await get().consumePendingInvite()
       return true
@@ -201,6 +228,7 @@ export const useStore = create<StoreState>((set, get) => ({
   },
 
   async logout() {
+    get().backend?.setPresence(false)
     await get().backend!.logout()
     set({ account: null, route: 'landing', chats: [], activeChatId: null, messages: {}, settingsOpen: false })
   },
@@ -221,13 +249,22 @@ export const useStore = create<StoreState>((set, get) => ({
     const backend = get().backend!
     const chats = await backend.listChats()
     const previews: StoreState['previews'] = { ...get().previews }
-    await Promise.all(
-      chats.map(async (c) => {
-        const msgs = await backend.listMessages(c.id)
-        const last = msgs[msgs.length - 1]
-        if (last) previews[c.id] = { text: last.text, ts: last.ts, senderUid: last.senderUid, sticker: last.sticker, attachment: last.attachment, deleted: last.deleted }
-      }),
-    )
+    if (backend.listChatPreviews) {
+      // Supabase: one RPC returns the last message of every chat instead of
+      // downloading the full history of all of them.
+      for (const p of await backend.listChatPreviews()) {
+        previews[p.chatId] = { text: p.text, ts: p.ts, senderUid: p.senderUid, sticker: p.sticker, attachment: p.attachment, deleted: p.deleted }
+      }
+    } else {
+      // LocalBackend reads from memory, so the per-chat loop is free there.
+      await Promise.all(
+        chats.map(async (c) => {
+          const msgs = await backend.listMessages(c.id)
+          const last = msgs[msgs.length - 1]
+          if (last) previews[c.id] = { text: last.text, ts: last.ts, senderUid: last.senderUid, sticker: last.sticker, attachment: last.attachment, deleted: last.deleted }
+        }),
+      )
+    }
     set({ chats, previews })
   },
 
@@ -237,10 +274,11 @@ export const useStore = create<StoreState>((set, get) => ({
       return
     }
     const backend = get().backend!
-    const msgs = await backend.listMessages(id)
+    const msgs = await backend.listMessages(id, { limit: PAGE_SIZE })
     set((s) => ({
       activeChatId: id,
       messages: { ...s.messages, [id]: msgs },
+      hasMore: { ...s.hasMore, [id]: msgs.length >= PAGE_SIZE },
       unread: { ...s.unread, [id]: 0 },
       rightPanelOpen: false,
       searchQuery: '',
@@ -250,6 +288,25 @@ export const useStore = create<StoreState>((set, get) => ({
       pendingFiles: [],
     }))
     await backend.markRead(id)
+  },
+
+  /** Prepend one older page of history (infinite scroll upwards). */
+  async loadOlder(id) {
+    const { backend, messages, hasMore, loadingMore } = get()
+    if (!backend || loadingMore[id] || hasMore[id] === false) return
+    const current = messages[id] ?? []
+    const oldest = current[0]
+    if (!oldest) return
+    set((s) => ({ loadingMore: { ...s.loadingMore, [id]: true } }))
+    try {
+      const older = await backend.listMessages(id, { before: oldest.ts, limit: PAGE_SIZE })
+      set((s) => ({
+        messages: { ...s.messages, [id]: [...older, ...(s.messages[id] ?? [])] },
+        hasMore: { ...s.hasMore, [id]: older.length >= PAGE_SIZE },
+      }))
+    } finally {
+      set((s) => ({ loadingMore: { ...s.loadingMore, [id]: false } }))
+    }
   },
 
   async startWith(entry) {
@@ -376,16 +433,34 @@ export const useStore = create<StoreState>((set, get) => ({
         if (arr.some((m) => m.id === e.message.id)) return
         const isActive = state.activeChatId === chatId
         const mine = e.message.senderUid === state.account?.uid
+        const known = state.chats.some((c) => c.id === chatId)
         set((s) => ({
           messages: s.messages[chatId] ? { ...s.messages, [chatId]: [...arr, e.message] } : s.messages,
           unread: !isActive && !mine ? { ...s.unread, [chatId]: (s.unread[chatId] ?? 0) + 1 } : s.unread,
           typing: clearTyping(s.typing, chatId, e.message.senderUid),
+          // Patch the sidebar preview locally. Previously this called
+          // refreshChats(), which re-downloaded every chat's whole history
+          // for each incoming message.
+          previews: {
+            ...s.previews,
+            [chatId]: {
+              text: e.message.text,
+              ts: e.message.ts,
+              senderUid: e.message.senderUid,
+              sticker: e.message.sticker,
+              attachment: e.message.attachment,
+              deleted: e.message.deleted,
+            },
+          },
+          chats: known ? bumpChat(s.chats, chatId) : s.chats,
         }))
-        get().refreshChats()
+        // Only hit the network when the message belongs to a chat we don't know yet.
+        if (!known) get().refreshChats()
         if (!mine) {
-          if (state.account?.settings.notifySound) beep()
+          const muted = state.chats.find((c) => c.id === chatId)?.muted
+          if (state.account?.settings.notifySound && !muted) beep()
           if (isActive) get().backend?.markRead(chatId)
-          maybeNotify(state, e.message)
+          if (!muted) maybeNotify(state, e.message)
         }
         break
       }
@@ -455,6 +530,18 @@ function clearTyping(typing: StoreState['typing'], chatId: string, uid: string) 
   const next = { ...chat }
   delete next[uid]
   return { ...typing, [chatId]: next }
+}
+
+/** Move a chat to the top of the list, keeping pinned chats above. */
+function bumpChat(chats: Chat[], chatId: string): Chat[] {
+  const idx = chats.findIndex((c) => c.id === chatId)
+  if (idx < 0) return chats
+  const chat = chats[idx]
+  const rest = chats.filter((_, i) => i !== idx)
+  if (chat.pinned) return [chat, ...rest]
+  const firstUnpinned = rest.findIndex((c) => !c.pinned)
+  if (firstUnpinned < 0) return [...rest, chat]
+  return [...rest.slice(0, firstUnpinned), chat, ...rest.slice(firstUnpinned)]
 }
 
 function maybeNotify(state: StoreState, m: Message) {
