@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import {
   Bell,
   Camera,
@@ -7,6 +7,7 @@ import {
   Globe,
   LogOut,
   MessageSquare,
+  Monitor,
   Palette,
   ShieldCheck,
   Smile,
@@ -22,7 +23,7 @@ import { EmojiGrid } from '../ui/EmojiPicker'
 import { ACCENT_PRESETS } from '../../lib/defaults'
 import { downscaleImage } from '../../lib/media'
 import { classNames, normalizeUsername } from '../../lib/util'
-import type { UserSettings } from '../../types'
+import type { Audience, Message, UserSettings } from '../../types'
 
 type Tab = 'profile' | 'appearance' | 'privacy' | 'notifications' | 'chats' | 'language' | 'data' | 'about'
 
@@ -260,14 +261,83 @@ function AppearanceTab() {
 }
 
 // ── Privacy ──
+const LAST_SEEN_OPTIONS: { id: Audience; label: string; hint: string }[] = [
+  { id: 'everyone', label: 'Все', hint: 'Видно и онлайн, и точное время последнего визита.' },
+  { id: 'contacts', label: 'Собеседники', hint: 'Точное время скрыто, остаётся только отметка «в сети».' },
+  { id: 'nobody', label: 'Никто', hint: 'Для остальных ты всегда оффлайн — ни точки, ни времени.' },
+]
+
 function PrivacyTab() {
   const s = useStore((st) => st.account!.settings)
   const patch = useStore((st) => st.patchSettings)
+  const logout = useStore((st) => st.logout)
+
+  // The server reads settings.privacy.lastSeen directly. Accounts created
+  // before this control existed only have the booleans, so derive from them.
+  const lastSeen: Audience = s.privacy?.lastSeen ?? (s.ghostMode ? 'nobody' : s.showLastSeen ? 'everyone' : 'contacts')
+
+  function setLastSeen(v: Audience) {
+    patch({
+      privacy: { ...(s.privacy ?? { lastSeen: 'everyone' }), lastSeen: v },
+      showLastSeen: v === 'everyone',
+      ghostMode: v === 'nobody',
+    })
+  }
+
+  const device = useMemo(() => {
+    const ua = typeof navigator === 'undefined' ? '' : navigator.userAgent
+    const browser = ua.includes('YaBrowser') ? 'Yandex Browser'
+      : ua.includes('Edg/') ? 'Edge'
+      : ua.includes('OPR/') ? 'Opera'
+      : ua.includes('Firefox') ? 'Firefox'
+      : ua.includes('Chrome') ? 'Chrome'
+      : ua.includes('Safari') ? 'Safari'
+      : 'Браузер'
+    const os = ua.includes('Windows') ? 'Windows'
+      : ua.includes('Android') ? 'Android'
+      : ua.includes('iPhone') || ua.includes('iPad') ? 'iOS'
+      : ua.includes('Mac OS X') ? 'macOS'
+      : ua.includes('Linux') ? 'Linux'
+      : 'Неизвестная система'
+    let since = Number(localStorage.getItem('fc:device:since'))
+    if (!since) {
+      since = Date.now()
+      localStorage.setItem('fc:device:since', String(since))
+    }
+    const standalone = typeof window !== 'undefined' && window.matchMedia('(display-mode: standalone)').matches
+    return { browser, os, since, standalone }
+  }, [])
+
   return (
     <div className="space-y-4">
-      <ToggleRow icon={<Ghost size={16} />} label="Режим-призрак" desc="Скрывает твой онлайн-статус от других" value={s.ghostMode} onChange={(v) => patch({ ghostMode: v })} />
-      <ToggleRow label="Показывать «был(а) в сети»" value={s.showLastSeen} onChange={(v) => patch({ showLastSeen: v })} />
+      <div>
+        <div className="mb-1.5 text-sm font-semibold">Кто видит, когда я был(а) в сети</div>
+        <div className="flex gap-2">
+          {LAST_SEEN_OPTIONS.map((o) => (
+            <button
+              key={o.id}
+              onClick={() => setLastSeen(o.id)}
+              className={classNames(
+                'flex-1 rounded-xl border px-2 py-2 text-sm font-semibold transition',
+                lastSeen === o.id ? 'border-[var(--accent)] accent-text' : 'border-[var(--border)] text-[var(--muted)]',
+              )}
+            >
+              {o.label}
+            </button>
+          ))}
+        </div>
+        <p className="mt-1.5 text-xs text-[var(--muted)]">{LAST_SEEN_OPTIONS.find((o) => o.id === lastSeen)?.hint}</p>
+      </div>
+
+      <ToggleRow
+        icon={<Ghost size={16} />}
+        label="Режим-призрак"
+        desc="Быстрый переключатель — то же самое, что «Никто» выше"
+        value={lastSeen === 'nobody'}
+        onChange={(v) => setLastSeen(v ? 'nobody' : 'everyone')}
+      />
       <ToggleRow label="Отметки о прочтении" desc="Другие видят, что ты прочитал(а) сообщение" value={s.showReadReceipts} onChange={(v) => patch({ showReadReceipts: v })} />
+
       <div>
         <div className="mb-1.5 text-sm font-semibold">Кто может мне писать</div>
         <div className="flex gap-2">
@@ -278,18 +348,27 @@ function PrivacyTab() {
           ))}
         </div>
       </div>
+
       <div className="rounded-2xl border border-[var(--border)] p-4">
-        <div className="text-sm font-bold">Активные сессии</div>
-        <div className="mt-2 flex items-center justify-between text-sm">
-          <div>
-            <div className="font-semibold">Этот браузер · текущая</div>
-            <div className="text-xs text-[var(--muted)]">Веб · только что</div>
+        <div className="text-sm font-bold">Устройство</div>
+        <div className="mt-2 flex items-center justify-between gap-3 text-sm">
+          <div className="flex min-w-0 items-center gap-2.5">
+            <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-[var(--panel-2)] text-[var(--accent)]">
+              <Monitor size={17} />
+            </span>
+            <div className="min-w-0">
+              <div className="truncate font-semibold">
+                {device.browser} · {device.os}{device.standalone ? ' · приложение' : ''}
+              </div>
+              <div className="text-xs text-[var(--muted)]">Вход с {new Date(device.since).toLocaleDateString('ru-RU')}</div>
+            </div>
           </div>
-          <span className="chip">активна</span>
+          <span className="chip shrink-0">текущее</span>
         </div>
-      </div>
-      <div className="rounded-2xl border border-[var(--border)] p-4 text-sm text-[var(--muted)]">
-        🔐 Двухэтапная проверка и чёрный список — в разработке.
+        <button onClick={logout} className="btn-ghost mt-3 w-full !py-2 text-sm text-rose-500">
+          <LogOut size={15} /> Завершить сеанс на этом устройстве
+        </button>
+        <p className="mt-2 text-xs text-[var(--muted)]">Список чужих устройств и удалённый выход требуют хранения сессий на сервере — это следующий шаг. Здесь показано только то, что браузер знает точно.</p>
       </div>
     </div>
   )
@@ -326,6 +405,7 @@ function ChatsTab() {
       <div className="rounded-2xl border border-[var(--border)] p-4 text-sm">
         <div className="font-bold">Форматирование</div>
         <div className="mt-1 text-[var(--muted)]">В сообщениях работают <b>**жирный**</b>, <i>*курсив*</i>, <code className="rich-code">`код`</code>, ~~зачёркнутый~~, <span className="spoiler revealed">||спойлер||</span>, @упоминания и ссылки.</div>
+        <div className="mt-2 text-[var(--muted)]">В каналах дополнительно: заголовки <code className="rich-code">#</code>, цитаты <code className="rich-code">&gt;</code>, списки и разделители <code className="rich-code">---</code>.</div>
       </div>
       <div className="rounded-2xl border border-[var(--border)] p-4 text-sm">
         <div className="font-bold">Команды</div>
@@ -354,34 +434,104 @@ function LanguageTab() {
 
 // ── Data ──
 function DataTab() {
+  const account = useStore((st) => st.account)!
+  const chats = useStore((st) => st.chats)
+  const backend = useStore((st) => st.backend)!
   const logout = useStore((st) => st.logout)
   const toast = useStore((st) => st.toast)
-  function exportData() {
-    const dump: Record<string, unknown> = {}
-    for (let i = 0; i < localStorage.length; i++) {
-      const k = localStorage.key(i)!
-      if (k.startsWith('fc:')) dump[k] = localStorage.getItem(k)
+  const [busy, setBusy] = useState('')
+
+  /** Real export: profile + every chat this account can read + local prefs. */
+  async function exportData() {
+    if (busy) return
+    try {
+      const conversations: unknown[] = []
+      for (let i = 0; i < chats.length; i++) {
+        const c = chats[i]
+        setBusy(`Собираем чат ${i + 1} из ${chats.length}…`)
+        let history: Message[] = []
+        try {
+          history = await backend.listMessages(c.id, { limit: 1000 })
+        } catch {
+          history = []
+        }
+        conversations.push({
+          id: c.id,
+          type: c.type,
+          title: c.title,
+          memberUids: c.memberUids,
+          messageCount: history.length,
+          messages: history.map((m) => ({
+            id: m.id,
+            senderUid: m.senderUid,
+            text: m.text,
+            sentAt: new Date(m.ts).toISOString(),
+            editedAt: m.editedTs ? new Date(m.editedTs).toISOString() : undefined,
+            replyToId: m.replyToId,
+            sticker: m.sticker,
+            attachment: m.attachment,
+            reactions: m.reactions,
+            deleted: m.deleted || undefined,
+          })),
+        })
+      }
+
+      setBusy('Формируем файл…')
+      const localPreferences: Record<string, unknown> = {}
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i)!
+        if (k.startsWith('fc:')) localPreferences[k] = localStorage.getItem(k)
+      }
+
+      const dump = {
+        format: 'femboychat-export/2',
+        exportedAt: new Date().toISOString(),
+        account: {
+          uid: account.uid,
+          numId: account.numId,
+          username: account.username,
+          name: account.name,
+          email: account.email,
+          bio: account.bio,
+          status: account.status,
+          createdAt: new Date(account.createdAt).toISOString(),
+          settings: account.settings,
+        },
+        chatCount: conversations.length,
+        conversations,
+        localPreferences,
+      }
+
+      const blob = new Blob([JSON.stringify(dump, null, 2)], { type: 'application/json' })
+      const href = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = href
+      a.download = `femboychat-${account.username}-${new Date().toISOString().slice(0, 10)}.json`
+      a.click()
+      URL.revokeObjectURL(href)
+      toast('Данные выгружены', '📦')
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Не удалось собрать экспорт', '⚠️')
+    } finally {
+      setBusy('')
     }
-    const blob = new Blob([JSON.stringify(dump, null, 2)], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = 'femboychat-data.json'
-    a.click()
-    URL.revokeObjectURL(url)
-    toast('Данные выгружены', '📦')
   }
-  function clearAll() {
-    if (!confirm('Удалить все локальные данные FemboyChat? Это выйдет из аккаунта.')) return
+
+  function clearLocal() {
+    if (!confirm('Очистить локальные данные на этом устройстве? Аккаунт и переписка на сервере останутся на месте.')) return
     Object.keys(localStorage).filter((k) => k.startsWith('fc:')).forEach((k) => localStorage.removeItem(k))
     logout()
     location.reload()
   }
+
   return (
     <div className="space-y-3">
-      <button onClick={exportData} className="btn-ghost w-full">📦 Экспортировать мои данные (JSON)</button>
-      <button onClick={clearAll} className="flex w-full items-center justify-center gap-2 rounded-xl border border-rose-300/40 py-2.5 font-semibold text-rose-500 hover:bg-rose-500/10">🗑️ Очистить локальные данные</button>
-      <p className="text-xs text-[var(--muted)]">В демо-режиме все данные хранятся только в этом браузере и никуда не отправляются.</p>
+      <button onClick={exportData} disabled={!!busy} className="btn-ghost w-full">
+        📦 {busy || 'Экспортировать мои данные (JSON)'}
+      </button>
+      <p className="text-xs text-[var(--muted)]">В файл попадают профиль, настройки и история всех чатов, к которым у тебя есть доступ — до 1000 сообщений на чат.</p>
+      <button onClick={clearLocal} className="flex w-full items-center justify-center gap-2 rounded-xl border border-rose-300/40 py-2.5 font-semibold text-rose-500 hover:bg-rose-500/10">🗑️ Очистить данные на этом устройстве</button>
+      <p className="text-xs text-[var(--muted)]">Полное удаление аккаунта вместе с сообщениями на сервере готовится — сначала сделай экспорт, отменить его будет нельзя.</p>
     </div>
   )
 }
@@ -395,7 +545,7 @@ function AboutTab() {
       <div className="flex flex-col items-center gap-2 py-4 text-center">
         <div className="grid h-16 w-16 place-items-center rounded-2xl accent-gradient text-3xl text-white">💬</div>
         <div className="text-lg font-black">Femboy<span className="accent-text">Chat</span></div>
-        <div className="text-xs text-[var(--muted)]">Версия 0.1.0 · режим: {mode === 'local' ? 'демо (локальный)' : 'Supabase'}</div>
+        <div className="text-xs text-[var(--muted)]">Версия 0.5.2 · режим: {mode === 'local' ? 'демо (локальный)' : 'Supabase'}</div>
         <p className="max-w-xs text-sm text-[var(--muted)]">Тёплый real-time мессенджер для РУ-сообщества. Сделано с 💖</p>
       </div>
       <button onClick={logout} className="flex w-full items-center justify-center gap-2 rounded-xl border border-rose-300/40 py-2.5 font-semibold text-rose-500 hover:bg-rose-500/10">
