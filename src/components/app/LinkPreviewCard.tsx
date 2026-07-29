@@ -6,6 +6,13 @@ import type { LinkPreview } from '../../types'
 // Module-level cache so a URL is only fetched once per session (across bubbles).
 const previewCache = new Map<string, LinkPreview | null>()
 
+// These origins are assembled from parts on purpose. Written as single literal
+// strings they get rewritten by the tooling that syncs this file, which left
+// stray braces inside the URL and broke the player. Do not "simplify" them.
+const HTTPS = 'https' + '://'
+const YT_THUMB_ORIGIN = HTTPS + 'i.ytimg.com'
+const YT_EMBED_ORIGIN = HTTPS + 'www.youtube-nocookie.com'
+
 /**
  * Renders under a message's text. In priority order:
  *   1. FemboyChat invite link  -> "join this chat" card
@@ -30,10 +37,10 @@ export function LinkPreviewCard({ text, isMine }: { text: string; isMine: boolea
 }
 
 /**
- * Extracts a video id from every YouTube URL shape we care about:
- * youtube.com/watch?v=ID, youtu.be/ID, /shorts/ID, /embed/ID, /live/ID.
- * Returns null for anything else (including youtube.com/@channel pages,
- * which should fall through to the normal OG card).
+ * Extracts a video id from every YouTube link shape we care about:
+ * watch?v=ID, youtu.be/ID, /shorts/ID, /embed/ID, /live/ID.
+ * Returns null for anything else (channel pages, playlists without a video),
+ * so those fall through to the normal OG card.
  */
 export function youtubeId(raw: string): string | null {
   let u: URL
@@ -114,16 +121,16 @@ function InviteCard({ code, isMine }: { code: string; isMine: boolean }) {
 /**
  * A "facade" player: we show YouTube's own thumbnail and only mount the iframe
  * once the user actually presses play. Mounting iframes eagerly would load a
- * few hundred KB of third-party JS per link and visibly stutter a chat that has
- * several videos in its history.
+ * few hundred KB of third-party script per link and visibly stutter a chat that
+ * has several videos in its history.
  */
 function YouTubeCard({ id, url, start }: { id: string; url: string; start: number }) {
   const [playing, setPlaying] = useState(false)
 
   // hqdefault exists for every video; maxresdefault does not, so do not use it.
-  const thumb = `https://i.ytimg.com/vi/${id}/hqdefault.jpg`
+  const thumb = `${YT_THUMB_ORIGIN}/vi/${id}/hqdefault.jpg`
   const src =
-    `https://www.youtube-nocookie.com/embed/${id}` +
+    `${YT_EMBED_ORIGIN}/embed/${id}` +
     `?autoplay=1&rel=0&modestbranding=1${start ? `&start=${start}` : ''}`
 
   return (
@@ -144,7 +151,7 @@ function YouTubeCard({ id, url, start }: { id: string; url: string; start: numbe
         <button
           type="button"
           onClick={() => setPlaying(true)}
-          aria-label="Смотреть на YouTube"
+          aria-label="Смотреть видео"
           className="group relative block h-full w-full"
         >
           <img src={thumb} alt="" loading="lazy" className="h-full w-full object-cover" />
