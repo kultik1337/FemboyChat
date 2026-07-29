@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { create } from 'zustand'
 import { Plus } from 'lucide-react'
 import { REACTIONS } from '../../lib/stickers'
@@ -98,30 +98,17 @@ export function ContextMenu() {
     <div className="fixed inset-0 z-[70]" onMouseDown={close} onContextMenu={(e) => { e.preventDefault(); close() }}>
       <div
         ref={ref}
-        className="absolute min-w-[200px] max-w-[260px] overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-1 shadow-2xl animate-pop-in"
+        className="absolute min-w-[200px] max-w-[280px] overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-1 shadow-2xl animate-pop-in"
         style={{ left: pos.x, top: pos.y, visibility: pos.ready ? 'visible' : 'hidden', boxShadow: 'var(--shadow)', transformOrigin: 'top left' }}
         onMouseDown={(e) => e.stopPropagation()}
       >
         {data.reactions && (
           <>
-            <div className="no-scrollbar mb-1 flex items-center gap-0.5 overflow-x-auto rounded-xl bg-[var(--panel-2)] px-1.5 py-1">
-              {REACTIONS.map((emoji) => (
-                <button
-                  key={emoji}
-                  onClick={() => { data.reactions!.onPick(emoji); close() }}
-                  className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-xl transition hover:scale-125 hover:bg-[var(--panel-hover)]"
-                >
-                  {emoji}
-                </button>
-              ))}
-              <button
-                onClick={() => setAllEmoji((v) => !v)}
-                className={classNames('grid h-8 w-8 shrink-0 place-items-center rounded-full border border-dashed border-[var(--border)] text-[var(--muted)] transition hover:scale-110 hover:bg-[var(--panel-hover)]', allEmoji && 'rotate-45')}
-                title="Все эмодзи"
-              >
-                <Plus size={16} />
-              </button>
-            </div>
+            <ReactionStrip
+              onPick={(emoji) => { data.reactions!.onPick(emoji); close() }}
+              allEmoji={allEmoji}
+              onToggleAll={() => setAllEmoji((v) => !v)}
+            />
             {allEmoji && (
               <div className="mb-1 rounded-xl bg-[var(--panel-2)] p-1.5">
                 <EmojiGrid compact onPick={(e) => { data.reactions!.onPick(e); close() }} />
@@ -149,6 +136,100 @@ export function ContextMenu() {
           ),
         )}
       </div>
+    </div>
+  )
+}
+
+/**
+ * Horizontal reaction picker.
+ *
+ * The strip has always been scrollable, but only in ways a mouse cannot do: a
+ * plain wheel produces vertical deltas, which a horizontal scroller ignores, so
+ * every reaction past the visible ones was unreachable. The wheel listener is
+ * registered by hand because React routes onWheel through a passive listener,
+ * where preventDefault() is a no-op.
+ */
+function ReactionStrip({
+  onPick,
+  allEmoji,
+  onToggleAll,
+}: {
+  onPick: (emoji: string) => void
+  allEmoji: boolean
+  onToggleAll: () => void
+}) {
+  const strip = useRef<HTMLDivElement>(null)
+  const [edges, setEdges] = useState({ left: false, right: false })
+
+  const syncEdges = useCallback(() => {
+    const el = strip.current
+    if (!el) return
+    const max = el.scrollWidth - el.clientWidth
+    setEdges({ left: el.scrollLeft > 2, right: max > 2 && el.scrollLeft < max - 2 })
+  }, [])
+
+  useEffect(() => {
+    const el = strip.current
+    if (!el) return
+
+    function onWheel(e: WheelEvent) {
+      const box = strip.current
+      if (!box) return
+      const max = box.scrollWidth - box.clientWidth
+      if (max <= 0) return
+      // Line/page deltas come in different units; only the sign matters here.
+      const step = (Math.abs(e.deltaY) > Math.abs(e.deltaX) ? e.deltaY : e.deltaX) || 0
+      if (!step) return
+      const next = Math.min(max, Math.max(0, box.scrollLeft + Math.sign(step) * 60))
+      if (next === box.scrollLeft) return
+      // Keeps the page (and the message list) from scrolling underneath.
+      e.preventDefault()
+      box.scrollLeft = next
+    }
+
+    el.addEventListener('wheel', onWheel, { passive: false })
+    syncEdges()
+    const ro = new ResizeObserver(syncEdges)
+    ro.observe(el)
+    return () => {
+      el.removeEventListener('wheel', onWheel)
+      ro.disconnect()
+    }
+  }, [syncEdges])
+
+  return (
+    <div className="relative mb-1 rounded-xl bg-[var(--panel-2)]">
+      <div
+        ref={strip}
+        onScroll={syncEdges}
+        className="no-scrollbar flex touch-pan-x items-center gap-0.5 overflow-x-auto overscroll-x-contain px-1.5 py-1"
+      >
+        {REACTIONS.map((emoji) => (
+          <button
+            key={emoji}
+            onClick={() => onPick(emoji)}
+            className="emoji grid h-9 w-9 shrink-0 place-items-center rounded-full text-xl leading-none transition hover:scale-125 hover:bg-[var(--panel-hover)]"
+          >
+            {emoji}
+          </button>
+        ))}
+        <button
+          onClick={onToggleAll}
+          className={classNames('grid h-8 w-8 shrink-0 place-items-center rounded-full border border-dashed border-[var(--border)] text-[var(--muted)] transition hover:scale-110 hover:bg-[var(--panel-hover)]', allEmoji && 'rotate-45')}
+          title="Все эмодзи"
+        >
+          <Plus size={16} />
+        </button>
+      </div>
+
+      {/* Fading edges: the only hint that the strip continues, since the
+          scrollbar is hidden here on purpose. */}
+      {edges.left && (
+        <span className="pointer-events-none absolute inset-y-0 left-0 w-6 rounded-l-xl" style={{ background: 'linear-gradient(90deg, var(--panel-2), transparent)' }} />
+      )}
+      {edges.right && (
+        <span className="pointer-events-none absolute inset-y-0 right-0 w-6 rounded-r-xl" style={{ background: 'linear-gradient(270deg, var(--panel-2), transparent)' }} />
+      )}
     </div>
   )
 }
