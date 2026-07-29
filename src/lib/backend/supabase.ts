@@ -66,8 +66,10 @@ export class SupabaseBackend implements Backend {
     if (!mail || !mail.includes('@')) return { ok: false, error: 'Введите корректный e-mail' }
     if (!uname || uname.length < 3) return { ok: false, error: 'Ник — минимум 3 символа (a-z, 0-9, _)' }
     if (!password || password.length < 6) return { ok: false, error: 'Пароль — минимум 6 символов' }
-    const { data: taken } = await this.client.from('profiles').select('uid').eq('username', uname).maybeSingle()
-    if (taken) return { ok: false, error: 'Этот ник уже занят, выбери другой 🥺' }
+    // The profiles table is not readable by anonymous clients any more, so the
+    // nick check goes through a security-definer RPC that only answers yes/no.
+    const { data: available, error: unameError } = await this.client.rpc('username_available', { uname })
+    if (!unameError && available === false) return { ok: false, error: 'Этот ник уже занят, выбери другой 🥺' }
 
     const { data, error } = await this.client.auth.signUp({
       email: mail,
