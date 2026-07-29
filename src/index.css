@@ -62,7 +62,10 @@
 
   /* Scrollbar geometry: the track is `--sb-size` wide, but the visible capsule
      is narrower because the thumb is inset by a transparent border. That keeps
-     the grab area comfortable while the bar itself stays slim. */
+     the grab area comfortable while the bar itself stays slim.
+     Colours are flat hex per theme (see below) on purpose: the standard
+     `scrollbar-color` property is picky, and a value it cannot parse is
+     dropped without warning. */
   --sb-size: 12px;
   --sb-inset: 4px;
 }
@@ -84,6 +87,9 @@
   --bubble-out-text: #ffffff;
   --shadow: 0 10px 30px -12px rgba(214, 120, 178, 0.35);
   --ring: rgba(255, 122, 184, 0.35);
+  --sb-thumb: #e3d3e0;
+  --sb-thumb-hover: #c9b2c6;
+  --sb-thumb-active: #ab90a8;
   color-scheme: light;
 }
 
@@ -104,6 +110,9 @@
   --bubble-out-text: #ffffff;
   --shadow: 0 14px 40px -16px rgba(0, 0, 0, 0.6);
   --ring: rgba(255, 122, 184, 0.4);
+  --sb-thumb: #382e47;
+  --sb-thumb-hover: #4d4060;
+  --sb-thumb-active: #6b5a83;
   color-scheme: dark;
 }
 
@@ -124,6 +133,9 @@
   --bubble-out-text: #ffffff;
   --shadow: 0 14px 40px -16px rgba(0, 0, 0, 0.7);
   --ring: rgba(124, 196, 255, 0.4);
+  --sb-thumb: #26324f;
+  --sb-thumb-hover: #38496f;
+  --sb-thumb-active: #4f6699;
   color-scheme: dark;
 }
 
@@ -148,10 +160,23 @@ body {
 }
 
 /* ───────────────────────── Scrollbars ─────────────────────────
-   The thumb stays visible — a hover-only bar reads as a missing feature — but
-   it is quiet: a slim capsule tinted from the panel, never the accent colour,
-   until you actually interact with it. WebKit also draws stepper arrows at both
-   ends unless they are explicitly removed. */
+   Two engines, one look:
+
+   • Firefox only understands `scrollbar-width` / `scrollbar-color`.
+   • Chrome understands the ::-webkit-scrollbar pseudo-elements — but it
+     *ignores all of them* as soon as the standard properties are set on the
+     same element. So the standard properties are declared once, on `html`
+     alone, and every scrollable panel is styled through the pseudo-elements.
+
+   Colours come from flat per-theme hex tokens. `color-mix()` here was a
+   mistake: when the standard property cannot parse a value it silently drops
+   the whole declaration, which is exactly how a restyle can look like it
+   never shipped. */
+html {
+  scrollbar-width: thin;
+  scrollbar-color: var(--sb-thumb) transparent;
+}
+
 ::-webkit-scrollbar {
   width: var(--sb-size);
   height: var(--sb-size);
@@ -161,6 +186,7 @@ body {
   background: transparent;
   border: 0;
 }
+/* WebKit draws stepper arrows at both ends unless they are explicitly removed. */
 ::-webkit-scrollbar-button,
 ::-webkit-scrollbar-button:start:decrement,
 ::-webkit-scrollbar-button:end:increment,
@@ -177,23 +203,15 @@ body {
   min-height: 44px;
   border-radius: 999px;
   border: var(--sb-inset) solid transparent;
-  background: color-mix(in srgb, var(--muted) 30%, transparent);
+  background-color: var(--sb-thumb);
   background-clip: content-box;
   transition: background-color 0.18s ease;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: color-mix(in srgb, var(--muted) 50%, transparent);
-  background-clip: content-box;
+  background-color: var(--sb-thumb-hover);
 }
 ::-webkit-scrollbar-thumb:active {
-  background: color-mix(in srgb, var(--accent) 60%, var(--muted));
-  background-clip: content-box;
-}
-
-/* Firefox exposes no pseudo-elements and never draws arrows. */
-html {
-  scrollbar-width: thin;
-  scrollbar-color: color-mix(in srgb, var(--muted) 34%, transparent) transparent;
+  background-color: var(--sb-thumb-active);
 }
 
 /* Chat wallpapers */
@@ -252,50 +270,20 @@ html {
   scrollbar-width: none;
 }
 
-/* Scrollable panels: same capsule as the global one, slightly brighter while
-   the pointer is inside the panel so the active area is obvious. */
-.fancy-scroll {
-  scrollbar-width: thin;
-  scrollbar-color: color-mix(in srgb, var(--muted) 32%, transparent) transparent;
-  transition: scrollbar-color 0.25s ease;
-}
-.fancy-scroll:hover,
-.fancy-scroll:focus-within {
-  scrollbar-color: color-mix(in srgb, var(--muted) 48%, transparent) transparent;
-}
-.fancy-scroll::-webkit-scrollbar {
-  width: var(--sb-size);
-  height: var(--sb-size);
-}
-.fancy-scroll::-webkit-scrollbar-track,
-.fancy-scroll::-webkit-scrollbar-corner {
-  background: transparent;
-}
-.fancy-scroll::-webkit-scrollbar-button {
-  display: none;
-  width: 0;
-  height: 0;
-}
+/* Scrollable panels inherit the global capsule and only brighten it slightly
+   while the pointer is inside, so the panel you are working in is obvious.
+   Deliberately no `scrollbar-width` / `scrollbar-color` here — declaring them
+   would switch Chrome back to its plain built-in bar. */
 .fancy-scroll::-webkit-scrollbar-thumb {
-  min-height: 44px;
-  border-radius: 999px;
-  border: var(--sb-inset) solid transparent;
-  background: color-mix(in srgb, var(--muted) 32%, transparent);
-  background-clip: content-box;
-  transition: background-color 0.22s ease;
+  background-color: var(--sb-thumb);
 }
 .fancy-scroll:hover::-webkit-scrollbar-thumb,
 .fancy-scroll:focus-within::-webkit-scrollbar-thumb {
-  background: color-mix(in srgb, var(--muted) 48%, transparent);
-  background-clip: content-box;
+  background-color: var(--sb-thumb-hover);
 }
-.fancy-scroll::-webkit-scrollbar-thumb:hover {
-  background: color-mix(in srgb, var(--muted) 66%, transparent);
-  background-clip: content-box;
-}
+.fancy-scroll::-webkit-scrollbar-thumb:hover,
 .fancy-scroll::-webkit-scrollbar-thumb:active {
-  background: color-mix(in srgb, var(--accent) 60%, var(--muted));
-  background-clip: content-box;
+  background-color: var(--sb-thumb-active);
 }
 
 /* ───────────────────────── Rich text extras ───────────────────────── */
