@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Check, CheckCheck, Clock, CornerUpLeft, Download, FileText, MoreHorizontal, Smile } from 'lucide-react'
 import type { Attachment, Chat, Message } from '../../types'
-import { classNames, renderRich, timeShort } from '../../lib/util'
+import { classNames, renderPost, renderRich, timeShort } from '../../lib/util'
 import { attachmentLabel, prettySize } from '../../lib/media'
 import { useStore } from '../../store/useStore'
 import { Avatar } from '../ui/Avatar'
@@ -77,6 +77,8 @@ export function MessageBubble({
   const big = bigEmoji && !message.sticker && !message.attachment && emojiOnly(message.text)
   const showName = firstOfGroup && !isMine && chat.type === 'group'
   const showChecks = isMine && chat.type !== 'channel'
+  /** Headings, dividers, quotes and lists are a channel-only privilege. */
+  const isPost = chat.type === 'channel'
 
   // Telegram-style stacked corners: tighten the corner on the sender's side
   // between consecutive messages, keep the outer "tail" corners round.
@@ -126,9 +128,10 @@ export function MessageBubble({
       )}
     >
       {ttlLeft > 0 && <span className="flex items-center gap-0.5"><Clock size={11} /> {ttlLeft}s</span>}
+      {message.pending && <span className="flex items-center gap-0.5"><Clock size={11} /></span>}
       {message.editedTs && <span>изменено</span>}
       <span>{timeShort(message.ts)}</span>
-      {showChecks && (read ? <CheckCheck size={13} /> : <Check size={13} />)}
+      {showChecks && !message.pending && (read ? <CheckCheck size={13} /> : <Check size={13} />)}
     </span>
   )
 
@@ -203,6 +206,7 @@ export function MessageBubble({
             reactionPills={reactionPills}
             footer={footer}
             isMine={isMine}
+            isPost={isPost}
             radius={radius}
           />
         ) : (
@@ -220,7 +224,7 @@ export function MessageBubble({
               <PollView message={message} onVote={(i) => vote(message.id, i)} />
             ) : message.text ? (
               <>
-                <LongText text={message.text} isMine={isMine} />
+                <LongText text={message.text} isMine={isMine} isPost={isPost} />
                 <LinkPreviewCard text={message.text} isMine={isMine} />
               </>
             ) : null}
@@ -258,6 +262,7 @@ function MediaMessage({
   reactionPills,
   footer,
   isMine,
+  isPost,
   radius,
 }: {
   a: Attachment
@@ -267,6 +272,7 @@ function MediaMessage({
   reactionPills: (overlay: boolean) => React.ReactNode
   footer: React.ReactNode
   isMine: boolean
+  isPost?: boolean
   radius: string
 }) {
   const isVisual = a.kind === 'image' || a.kind === 'gif' || a.kind === 'video'
@@ -306,7 +312,7 @@ function MediaMessage({
 
       {/* slim caption strip under the media, как в Telegram */}
       <div className={classNames('px-3 pb-1.5', caption ? 'pt-1.5' : 'pt-0')}>
-        {caption && <LongText text={caption} isMine={isMine} />}
+        {caption && <LongText text={caption} isMine={isMine} isPost={isPost} />}
         {caption && <LinkPreviewCard text={caption} isMine={isMine} />}
         {footer}
       </div>
@@ -360,15 +366,23 @@ function VisualMedia({ a, fill }: { a: Attachment; fill?: boolean }) {
   )
 }
 
-/** Long messages collapse behind a «Показать полностью» toggle. */
-function LongText({ text, isMine }: { text: string; isMine: boolean }) {
+/**
+ * Long messages collapse behind a «Показать полностью» toggle.
+ * Channel posts render through the block formatter, which produces its own
+ * paragraphs — so pre-wrap must be off there or every block would gain a blank
+ * line.
+ */
+function LongText({ text, isMine, isPost }: { text: string; isMine: boolean; isPost?: boolean }) {
   const LIMIT = 700
   const [expanded, setExpanded] = useState(false)
   const isLong = text.length > LIMIT
   const shown = isLong && !expanded ? text.slice(0, 550).trimEnd() + '…' : text
   return (
     <>
-      <div className="whitespace-pre-wrap break-words" dangerouslySetInnerHTML={renderRich(shown)} />
+      <div
+        className={classNames('break-words', isPost ? 'whitespace-normal' : 'whitespace-pre-wrap')}
+        dangerouslySetInnerHTML={isPost ? renderPost(shown) : renderRich(shown)}
+      />
       {isLong && (
         <button
           onClick={(e) => { e.stopPropagation(); setExpanded((v) => !v) }}
