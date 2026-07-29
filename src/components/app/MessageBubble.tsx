@@ -104,7 +104,7 @@ export function MessageBubble({
     return (
       <>
         {showNameHere && (
-          <button onClick={() => setProfileUid(sender.uid)} className="mb-0.5 block text-xs font-bold" style={{ color: sender.color }}>
+          <button onClick={() => setProfileUid(sender.uid)} className="mb-0.5 block max-w-full truncate text-xs font-bold" style={{ color: sender.color }}>
             {sender.name}
           </button>
         )}
@@ -112,10 +112,10 @@ export function MessageBubble({
         {repliedMessage && (
           <button
             onClick={() => onJump?.(repliedMessage.id)}
-            className="mb-1 block w-full border-l-2 pl-2 text-left text-[0.8rem] opacity-90 transition hover:opacity-100"
+            className="mb-1 block w-full min-w-0 border-l-2 pl-2 text-left text-[0.8rem] opacity-90 transition hover:opacity-100"
             style={{ borderColor: isMine ? 'rgba(255,255,255,0.7)' : 'var(--accent)' }}
           >
-            <div className="font-semibold">{repliedSender?.name ?? 'Сообщение'}</div>
+            <div className="truncate font-semibold">{repliedSender?.name ?? 'Сообщение'}</div>
             <div className="truncate opacity-80">{repliedMessage.deleted ? 'сообщение удалено' : repliedMessage.sticker ? 'стикер' : repliedMessage.attachment ? attachmentLabel(repliedMessage.attachment) : repliedMessage.text}</div>
           </button>
         )}
@@ -173,7 +173,7 @@ export function MessageBubble({
 
   // Shared bottom strip: reactions on the left, time on the right (как в TG).
   const footer = (
-    <div className="mt-1 flex flex-wrap items-end justify-end gap-x-2 gap-y-1">
+    <div className="mt-1 flex min-w-0 flex-wrap items-end justify-end gap-x-2 gap-y-1">
       {reactionPills(false)}
       <span className="ml-auto">{meta(false)}</span>
     </div>
@@ -182,7 +182,7 @@ export function MessageBubble({
   return (
     <div
       id={`msg-${message.id}`}
-      className={classNames('group flex gap-2 px-3 sm:px-4', isMine ? 'flex-row-reverse' : 'flex-row', firstOfGroup ? 'mt-4' : 'mt-1', fresh && 'animate-fade-in')}
+      className={classNames('group flex min-w-0 gap-2 px-3 sm:px-4', isMine ? 'flex-row-reverse' : 'flex-row', firstOfGroup ? 'mt-4' : 'mt-1', fresh && 'animate-fade-in')}
       onContextMenu={message.deleted ? undefined : openMenu}
       onDoubleClick={quickReact}
     >
@@ -196,7 +196,14 @@ export function MessageBubble({
         )
       ) : null}
 
-      <div className={classNames('relative max-w-[76%] sm:max-w-[68%]', isMine ? 'items-end' : 'items-start')}>
+      {/*
+        min-w-0 keeps a wide child (code, an unbreakable link, a preview card)
+        from setting this column's minimum width to its content width, which is
+        what used to stretch the whole chat pane. Channel posts get a fixed
+        comfortable measure instead of a percentage, so a post reads like a post
+        on a wide screen rather than a banner.
+      */}
+      <div className={classNames('relative min-w-0', isPost ? 'w-full max-w-[min(100%,640px)]' : 'max-w-[76%] sm:max-w-[68%]', isMine ? 'items-end' : 'items-start')}>
         {pop && <span className="heart-pop">❤️</span>}
         {message.sticker ? (
           <div className={classNames('flex', isMine ? 'justify-end' : 'justify-start')}>
@@ -220,7 +227,7 @@ export function MessageBubble({
           />
         ) : (
           <div
-            className="relative px-3.5 py-2 text-[0.95rem] leading-relaxed shadow-sm"
+            className="relative min-w-0 overflow-hidden px-3.5 py-2 text-[0.95rem] leading-relaxed shadow-sm"
             style={{
               borderRadius: radius,
               background: isMine ? 'var(--bubble-out)' : 'var(--bubble-in)',
@@ -248,7 +255,7 @@ export function MessageBubble({
           <button
             onClick={() => onOpenComments?.(message)}
             disabled={!onOpenComments}
-            className="mt-1 flex w-full items-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-xs font-bold text-[var(--muted)] shadow-sm transition enabled:hover:bg-[var(--panel-hover)] enabled:hover:text-[var(--text)] disabled:cursor-default"
+            className="mt-1 flex w-full min-w-0 items-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-xs font-bold text-[var(--muted)] shadow-sm transition enabled:hover:bg-[var(--panel-hover)] enabled:hover:text-[var(--text)] disabled:cursor-default"
             style={{ boxShadow: 'var(--shadow)' }}
             title={comments > 0 ? 'Открыть обсуждение' : 'Оставить комментарий'}
           >
@@ -308,7 +315,7 @@ function MediaMessage({
   // Bare photo / GIF / video: just the media; reactions + time float on top.
   if (bare) {
     return (
-      <div className="relative max-w-[380px] overflow-hidden shadow-sm" style={{ borderRadius: radius }}>
+      <div className="relative max-w-[min(100%,380px)] overflow-hidden shadow-sm" style={{ borderRadius: radius }}>
         <VisualMedia a={a} />
         <div className="pointer-events-none absolute inset-x-1.5 bottom-1.5 z-[1] flex flex-wrap items-end justify-end gap-1 [&_button]:pointer-events-auto">
           {reactionPills(true)}
@@ -320,7 +327,7 @@ function MediaMessage({
 
   return (
     <div
-      className={classNames('overflow-hidden text-[0.95rem] leading-relaxed shadow-sm', isVisual && 'max-w-[380px]')}
+      className={classNames('min-w-0 overflow-hidden text-[0.95rem] leading-relaxed shadow-sm', isVisual && 'max-w-[min(100%,380px)]')}
       style={{
         borderRadius: radius,
         background: isMine ? 'var(--bubble-out)' : 'var(--bubble-in)',
@@ -338,7 +345,7 @@ function MediaMessage({
       )}
 
       {/* slim caption strip under the media, как в Telegram */}
-      <div className={classNames('px-3 pb-1.5', caption ? 'pt-1.5' : 'pt-0')}>
+      <div className={classNames('min-w-0 px-3 pb-1.5', caption ? 'pt-1.5' : 'pt-0')}>
         {caption && <LongText text={caption} isMine={isMine} isPost={isPost} />}
         {caption && <LinkPreviewCard text={caption} isMine={isMine} />}
         {footer}
@@ -362,9 +369,9 @@ function VisualMedia({ a, fill }: { a: Attachment; fill?: boolean }) {
         title="Показать спойлер"
       >
         {a.kind === 'video' ? (
-          <video src={a.url} preload="metadata" muted playsInline className={classNames('block max-h-80 max-w-full scale-110 blur-2xl', fill && 'w-full')} style={ratio ? { aspectRatio: ratio } : { minHeight: 160, minWidth: 200 }} />
+          <video src={a.url} preload="metadata" muted playsInline className={classNames('block max-h-80 max-w-full scale-110 blur-2xl', fill && 'w-full')} style={ratio ? { aspectRatio: ratio } : { minHeight: 160 }} />
         ) : (
-          <img src={a.url} alt="" loading="lazy" className={classNames('block max-h-80 max-w-full scale-110 object-cover blur-2xl', fill ? 'w-full' : 'w-auto')} style={{ minWidth: 200, minHeight: 120, ...(ratio ? { aspectRatio: ratio } : {}) }} />
+          <img src={a.url} alt="" loading="lazy" className={classNames('block max-h-80 max-w-full scale-110 object-cover blur-2xl', fill ? 'w-full' : 'w-auto')} style={{ minHeight: 120, ...(ratio ? { aspectRatio: ratio } : {}) }} />
         )}
         <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-black/55 px-3 py-1.5 text-xs font-bold text-white backdrop-blur-[2px]">
           👁 Спойлер
@@ -387,7 +394,7 @@ function VisualMedia({ a, fill }: { a: Attachment; fill?: boolean }) {
         alt={a.name ?? ''}
         loading="lazy"
         className={classNames('block max-h-80 max-w-full object-cover', fill ? 'w-full' : 'w-auto')}
-        style={{ minWidth: 140, ...(ratio ? { aspectRatio: ratio } : {}) }}
+        style={ratio ? { aspectRatio: ratio } : undefined}
       />
     </button>
   )
@@ -398,6 +405,11 @@ function VisualMedia({ a, fill }: { a: Attachment; fill?: boolean }) {
  * Channel posts render through the block formatter, which produces its own
  * paragraphs — so pre-wrap must be off there or every block would gain a blank
  * line.
+ *
+ * break-words is not enough on its own: a single very long token (a bare link,
+ * a hash) has a min-content width of its whole length, which used to push the
+ * bubble — and with it the chat pane — past the viewport. overflow-wrap:anywhere
+ * lets the layout break such a token, so the bubble can actually be narrow.
  */
 function LongText({ text, isMine, isPost }: { text: string; isMine: boolean; isPost?: boolean }) {
   const LIMIT = 700
@@ -407,7 +419,8 @@ function LongText({ text, isMine, isPost }: { text: string; isMine: boolean; isP
   return (
     <>
       <div
-        className={classNames('break-words', isPost ? 'whitespace-normal' : 'whitespace-pre-wrap')}
+        className={classNames('min-w-0 break-words', isPost ? 'whitespace-normal' : 'whitespace-pre-wrap')}
+        style={{ overflowWrap: 'anywhere' }}
         dangerouslySetInnerHTML={isPost ? renderPost(shown) : renderRich(shown)}
       />
       {isLong && (
@@ -430,7 +443,7 @@ function FileMedia({ a }: { a: Attachment }) {
       download={a.name}
       target="_blank"
       rel="noreferrer noopener"
-      className="flex min-w-[220px] items-center gap-2.5 px-3 pt-2.5 no-underline"
+      className="flex min-w-0 items-center gap-2.5 px-3 pt-2.5 no-underline sm:min-w-[220px]"
     >
       <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-current/15">
         <FileText size={19} />
@@ -448,15 +461,15 @@ function PollView({ message, onVote }: { message: Message; onVote: (i: number) =
   const poll = message.poll!
   const total = poll.options.reduce((a, o) => a + o.uids.length, 0)
   return (
-    <div className="min-w-[220px]">
-      <div className="mb-2 font-bold">📊 {poll.question}</div>
+    <div className="min-w-0 sm:min-w-[220px]">
+      <div className="mb-2 break-words font-bold">📊 {poll.question}</div>
       <div className="space-y-1.5">
         {poll.options.map((o, i) => {
           const pct = total ? Math.round((o.uids.length / total) * 100) : 0
           return (
             <button key={i} onClick={() => onVote(i)} className="relative w-full overflow-hidden rounded-lg border border-current/20 px-2.5 py-1.5 text-left text-sm">
               <div className="absolute inset-0 opacity-20" style={{ width: `${pct}%`, background: 'currentColor' }} />
-              <div className="relative flex justify-between"><span>{o.text}</span><span className="font-semibold">{pct}%</span></div>
+              <div className="relative flex min-w-0 justify-between gap-2"><span className="min-w-0 break-words">{o.text}</span><span className="shrink-0 font-semibold">{pct}%</span></div>
             </button>
           )
         })}

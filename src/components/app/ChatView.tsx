@@ -132,10 +132,25 @@ export function ChatView() {
     if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
   }
 
+  /**
+   * Bring a message into view.
+   *
+   * Deliberately NOT scrollIntoView: that scrolls every scrollable ancestor,
+   * including the window, so the smallest horizontal overflow anywhere on the
+   * page made the whole layout slide sideways and the sidebar disappear when
+   * jumping to a pinned message. Moving the message list by hand can only ever
+   * scroll vertically, inside the list.
+   */
   function jumpTo(id: string) {
     const el = document.getElementById(`msg-${id}`)
     if (!el) return
-    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    const box = scroller.current
+    if (box && box.contains(el)) {
+      const target = el.offsetTop - box.clientHeight / 2 + el.offsetHeight / 2
+      box.scrollTo({ top: Math.max(0, target), behavior: 'smooth' })
+    } else {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' })
+    }
     el.classList.remove('msg-flash')
     void el.offsetWidth
     el.classList.add('msg-flash')
@@ -236,11 +251,12 @@ export function ChatView() {
   }
 
   return (
-    // min-w-0 is load-bearing: without it a nowrap preview row (pinned banner)
-    // sets this flex item's min-width to max-content and pushes the sidebar
-    // off-screen. Never remove it.
+    // min-w-0 and overflow-hidden are load-bearing: without them a wide child
+    // (a nowrap preview row, a long link, a channel post) sets this pane's
+    // minimum width to its content width and pushes the sidebar off-screen.
+    // Never remove them.
     <div
-      className="relative flex h-full min-w-0 flex-col"
+      className="relative flex h-full min-w-0 flex-col overflow-hidden"
       onDragEnter={onDragEnter}
       onDragOver={(e) => e.dataTransfer.types.includes('Files') && e.preventDefault()}
       onDragLeave={onDragLeave}
@@ -263,9 +279,9 @@ export function ChatView() {
         <button onClick={() => (counterpartUid ? setProfileUid(counterpartUid) : setRightPanel(true))} className="flex min-w-0 flex-1 items-center gap-3 text-left">
           <Avatar emoji={headerVisual.emoji} color={headerVisual.color} src={headerVisual.avatarUrl} size={42} online={counterpartUid ? presence[counterpartUid]?.online : undefined} />
           <div className="min-w-0">
-            <div className="flex items-center gap-1 font-bold">
+            <div className="flex min-w-0 items-center gap-1 font-bold">
               <span className="truncate">{headerVisual.title}</span>
-              {(counterpart?.verified || chat.verified) && <span className="text-[var(--accent)]">✔</span>}
+              {(counterpart?.verified || chat.verified) && <span className="shrink-0 text-[var(--accent)]">✔</span>}
             </div>
             <div className={classNames('truncate text-xs', sub.accent ? 'text-[var(--accent)]' : 'text-[var(--muted)]')}>{sub.text}</div>
           </div>
@@ -300,7 +316,7 @@ export function ChatView() {
 
       {/* pinned banner */}
       {pinned.length > 0 && (
-        <button onClick={() => jumpTo(pinned[pinned.length - 1].id)} className="flex w-full min-w-0 items-center gap-2 border-b border-[var(--border)] bg-[var(--panel-2)] px-4 py-2 text-left text-sm hover:bg-[var(--panel-hover)]">
+        <button onClick={() => jumpTo(pinned[pinned.length - 1].id)} className="flex w-full min-w-0 items-center gap-2 overflow-hidden border-b border-[var(--border)] bg-[var(--panel-2)] px-4 py-2 text-left text-sm hover:bg-[var(--panel-hover)]">
           <Pin size={15} className="shrink-0 text-[var(--accent)]" />
           <div className="min-w-0 flex-1 overflow-hidden">
             <div className="text-[11px] font-bold text-[var(--accent)]">Закреплённое{pinned.length > 1 ? ` · ${pinned.length}` : ''}</div>
@@ -342,7 +358,7 @@ export function ChatView() {
             const sender = resolve(m.senderUid)
             const replied = m.replyToId ? msgs.find((x) => x.id === m.replyToId) : undefined
             return (
-              <div key={m.id} className={classNames(m.pending && 'opacity-60 transition-opacity', m.failed && 'opacity-80')}>
+              <div key={m.id} className={classNames('min-w-0', m.pending && 'opacity-60 transition-opacity', m.failed && 'opacity-80')}>
                 {newDay && (
                   <div className="my-3 flex justify-center">
                     <span className="rounded-full bg-[var(--panel)] px-3 py-1 text-xs font-semibold text-[var(--muted)] shadow-sm">{dayLabel(m.ts)}</span>
@@ -500,9 +516,9 @@ function CommentsPanel({
   }
 
   return (
-    <div className="absolute inset-0 z-40 flex">
+    <div className="absolute inset-0 z-40 flex overflow-hidden">
       <button onClick={onClose} className="absolute inset-0 bg-black/35 backdrop-blur-[2px]" title="Закрыть" />
-      <div className="relative ml-auto flex h-full w-full min-w-0 flex-col border-l border-[var(--border)] bg-[var(--panel)] shadow-2xl animate-fade-in sm:w-[400px]">
+      <div className="relative ml-auto flex h-full w-full min-w-0 max-w-full flex-col overflow-hidden border-l border-[var(--border)] bg-[var(--panel)] shadow-2xl animate-fade-in sm:w-[400px]">
         <div className="flex min-w-0 items-center gap-2 border-b border-[var(--border)] px-4 py-3">
           <MessageCircle size={17} className="shrink-0 text-[var(--accent)]" />
           <div className="min-w-0 flex-1">
@@ -518,11 +534,11 @@ function CommentsPanel({
         </div>
 
         {/* the post being discussed, trimmed to a couple of lines */}
-        <div className="border-b border-[var(--border)] bg-[var(--panel-2)] px-4 py-2.5">
-          <div className="line-clamp-3 text-xs text-[var(--muted)]">{plainText(post.text) || 'Пост без текста'}</div>
+        <div className="min-w-0 border-b border-[var(--border)] bg-[var(--panel-2)] px-4 py-2.5">
+          <div className="line-clamp-3 break-words text-xs text-[var(--muted)]" style={{ overflowWrap: 'anywhere' }}>{plainText(post.text) || 'Пост без текста'}</div>
         </div>
 
-        <div ref={listRef} className="fancy-scroll min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-3">
+        <div ref={listRef} className="fancy-scroll min-h-0 min-w-0 flex-1 space-y-3 overflow-y-auto overflow-x-hidden px-4 py-3">
           {items === null && (
             <div className="space-y-3" aria-hidden="true">
               {[0, 1, 2].map((i) => (
@@ -546,21 +562,21 @@ function CommentsPanel({
           {items?.map((c) => {
             const who = resolve(c.senderUid)
             return (
-              <div key={c.id} className="flex gap-2">
+              <div key={c.id} className="flex min-w-0 gap-2">
                 <Avatar emoji={who.emoji} color={who.color} src={who.avatarUrl} size={32} />
                 <div className="min-w-0 flex-1 rounded-2xl bg-[var(--bubble-in)] px-3 py-2" style={{ color: 'var(--bubble-in-text)' }}>
-                  <div className="flex items-baseline gap-2">
+                  <div className="flex min-w-0 items-baseline gap-2">
                     <span className="truncate text-xs font-bold" style={{ color: who.color }}>{who.name}</span>
                     <span className="ml-auto shrink-0 text-[10px] text-[var(--muted)]">{timeShort(c.ts)}</span>
                   </div>
-                  <div className="whitespace-pre-wrap break-words text-sm" dangerouslySetInnerHTML={renderRich(c.text)} />
+                  <div className="whitespace-pre-wrap break-words text-sm" style={{ overflowWrap: 'anywhere' }} dangerouslySetInnerHTML={renderRich(c.text)} />
                 </div>
               </div>
             )
           })}
         </div>
 
-        <div className="flex items-end gap-2 border-t border-[var(--border)] px-3 py-2.5">
+        <div className="flex min-w-0 items-end gap-2 border-t border-[var(--border)] px-3 py-2.5">
           <input
             value={text}
             onChange={(e) => setText(e.target.value)}

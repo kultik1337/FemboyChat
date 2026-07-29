@@ -84,7 +84,7 @@ export function AppShell() {
   }, [])
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full flex-col overflow-hidden">
       {showTip && (
         <div className="flex items-center gap-2 bg-[var(--panel-2)] px-4 py-1.5 text-xs text-[var(--muted)]">
           <span>💡 Демо-режим: чтобы увидеть реальное время, открой сайт в <b className="text-[var(--text)]">двух отдельных окнах</b> (не «дублировать вкладку») и войди разными аккаунтами. Для синхронизации между устройствами подключи Supabase (см. README).</span>
@@ -93,12 +93,20 @@ export function AppShell() {
           </button>
         </div>
       )}
-      <div className="min-h-0 flex-1 md:px-3 md:pb-3 md:pt-2" style={{ background: 'linear-gradient(160deg, var(--bg-grad-1), var(--bg-grad-2))' }}>
-        <div className="mx-auto grid h-full max-w-[1500px] grid-cols-1 overflow-hidden md:grid-cols-[minmax(300px,380px)_1fr] md:rounded-3xl md:border md:border-[var(--border)] md:shadow-xl">
-          <aside className={classNames('h-full min-h-0', activeChatId ? 'hidden md:block' : 'block')}>
+      <div className="min-h-0 min-w-0 flex-1 md:px-3 md:pb-3 md:pt-2" style={{ background: 'linear-gradient(160deg, var(--bg-grad-1), var(--bg-grad-2))' }}>
+        {/*
+          CRITICAL: both tracks are minmax(0, ...). A grid item's automatic
+          minimum size is its min-content width, so a plain `1fr` lets one wide
+          child (a code block, an unbreakable link, a channel post) grow the
+          column past the viewport. The sidebar then gets squeezed and the whole
+          page starts scrolling sideways. minmax(0, ...) plus min-w-0 on the
+          panes forbids that: overflow has to be handled inside the pane.
+        */}
+        <div className="mx-auto grid h-full w-full max-w-[1500px] grid-cols-1 overflow-hidden md:grid-cols-[minmax(300px,380px)_minmax(0,1fr)] md:rounded-3xl md:border md:border-[var(--border)] md:shadow-xl">
+          <aside className={classNames('h-full min-h-0 min-w-0 overflow-hidden', activeChatId ? 'hidden md:block' : 'block')}>
             <Sidebar />
           </aside>
-          <main className={classNames('h-full min-h-0 bg-[var(--bg)]', activeChatId ? 'block' : 'hidden md:block')}>
+          <main className={classNames('h-full min-h-0 min-w-0 overflow-hidden bg-[var(--bg)]', activeChatId ? 'block' : 'hidden md:block')}>
             <ChatView />
           </main>
         </div>
