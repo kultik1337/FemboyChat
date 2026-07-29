@@ -147,41 +147,52 @@ body {
 }
 
 /* ───────────────────────── Scrollbars ─────────────────────────
-   Overlay style: a slim neutral capsule instead of a full-height bar.
-   The thumb is inset with a transparent border and background-clip, so the
-   hit area stays comfortable while the visible capsule is only a few pixels
-   wide. */
+   The thumb is a soft capsule tinted like an incoming bubble, not a bright
+   accent bar. WebKit also draws stepper arrows at both ends unless they are
+   explicitly removed — that is what the tiny triangles were. */
 ::-webkit-scrollbar {
   width: var(--sb-size);
   height: var(--sb-size);
 }
-::-webkit-scrollbar-track {
-  background: transparent;
-}
+::-webkit-scrollbar-track,
 ::-webkit-scrollbar-corner {
+  background: transparent;
+  border: 0;
+}
+/* Kill the stepper arrows in every corner and orientation. */
+::-webkit-scrollbar-button,
+::-webkit-scrollbar-button:start:decrement,
+::-webkit-scrollbar-button:end:increment,
+::-webkit-scrollbar-button:horizontal:start:decrement,
+::-webkit-scrollbar-button:horizontal:end:increment,
+::-webkit-scrollbar-button:vertical:start:decrement,
+::-webkit-scrollbar-button:vertical:end:increment {
+  display: none;
+  width: 0;
+  height: 0;
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  min-height: 40px;
+  min-height: 44px;
   border-radius: 999px;
   border: var(--sb-inset) solid transparent;
-  background: color-mix(in srgb, var(--muted) 30%, transparent);
+  background: color-mix(in srgb, var(--muted) 26%, transparent);
   background-clip: content-box;
   transition: background-color 0.18s ease;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: color-mix(in srgb, var(--muted) 55%, transparent);
+  background: color-mix(in srgb, var(--muted) 45%, transparent);
   background-clip: content-box;
 }
 ::-webkit-scrollbar-thumb:active {
-  background: color-mix(in srgb, var(--accent) 70%, transparent);
+  background: color-mix(in srgb, var(--accent) 55%, var(--muted));
   background-clip: content-box;
 }
 
-/* Firefox has no pseudo-elements for this, only the two-keyword shorthand. */
+/* Firefox exposes no pseudo-elements and never draws arrows. */
 html {
   scrollbar-width: thin;
-  scrollbar-color: color-mix(in srgb, var(--muted) 34%, transparent) transparent;
+  scrollbar-color: color-mix(in srgb, var(--muted) 30%, transparent) transparent;
 }
 
 /* Chat wallpapers */
@@ -250,14 +261,20 @@ html {
 }
 .fancy-scroll:hover,
 .fancy-scroll:focus-within {
-  scrollbar-color: color-mix(in srgb, var(--accent) 45%, transparent) transparent;
+  scrollbar-color: color-mix(in srgb, var(--muted) 40%, transparent) transparent;
 }
 .fancy-scroll::-webkit-scrollbar {
   width: var(--sb-size);
   height: var(--sb-size);
 }
-.fancy-scroll::-webkit-scrollbar-track {
+.fancy-scroll::-webkit-scrollbar-track,
+.fancy-scroll::-webkit-scrollbar-corner {
   background: transparent;
+}
+.fancy-scroll::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
 }
 .fancy-scroll::-webkit-scrollbar-thumb {
   min-height: 44px;
@@ -269,26 +286,26 @@ html {
 }
 .fancy-scroll:hover::-webkit-scrollbar-thumb,
 .fancy-scroll:focus-within::-webkit-scrollbar-thumb {
-  background: color-mix(in srgb, var(--accent) 34%, transparent);
+  background: color-mix(in srgb, var(--muted) 34%, transparent);
   background-clip: content-box;
 }
 .fancy-scroll::-webkit-scrollbar-thumb:hover {
-  background: color-mix(in srgb, var(--accent) 62%, transparent);
+  background: color-mix(in srgb, var(--muted) 52%, transparent);
   background-clip: content-box;
 }
 .fancy-scroll::-webkit-scrollbar-thumb:active {
-  background: var(--accent);
+  background: color-mix(in srgb, var(--accent) 55%, var(--muted));
   background-clip: content-box;
 }
 
-/* Coarse pointers get the browser's own overlay bar — a hover-reveal capsule
-   would never appear on touch. */
+/* Coarse pointers get an always-visible thumb — a hover-reveal capsule would
+   never appear on touch. */
 @media (hover: none) {
   .fancy-scroll {
-    scrollbar-color: color-mix(in srgb, var(--muted) 34%, transparent) transparent;
+    scrollbar-color: color-mix(in srgb, var(--muted) 30%, transparent) transparent;
   }
   .fancy-scroll::-webkit-scrollbar-thumb {
-    background: color-mix(in srgb, var(--muted) 34%, transparent);
+    background: color-mix(in srgb, var(--muted) 30%, transparent);
     background-clip: content-box;
   }
 }
