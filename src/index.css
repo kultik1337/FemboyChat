@@ -61,12 +61,9 @@
   --font-scale: 1;
 
   /* Scrollbar geometry: the track is `--sb-size` wide, but the visible capsule
-     is narrower because the thumb is inset by a transparent border. That keeps
-     the grab area comfortable while the bar itself stays slim.
-     Colours are flat hex per theme (see below) on purpose: the standard
-     `scrollbar-color` property is picky, and a value it cannot parse is
-     dropped without warning. */
-  --sb-size: 12px;
+     is narrower because the thumb is inset by a transparent border, which keeps
+     the grab area comfortable while the bar itself stays slim. */
+  --sb-size: 14px;
   --sb-inset: 4px;
 }
 
@@ -87,9 +84,9 @@
   --bubble-out-text: #ffffff;
   --shadow: 0 10px 30px -12px rgba(214, 120, 178, 0.35);
   --ring: rgba(255, 122, 184, 0.35);
-  --sb-thumb: #e3d3e0;
-  --sb-thumb-hover: #c9b2c6;
-  --sb-thumb-active: #ab90a8;
+  --sb-thumb-1: #ecdcea;
+  --sb-thumb-2: #dcc8dd;
+  --sb-thumb-ff: #dcc8dd;
   color-scheme: light;
 }
 
@@ -110,9 +107,9 @@
   --bubble-out-text: #ffffff;
   --shadow: 0 14px 40px -16px rgba(0, 0, 0, 0.6);
   --ring: rgba(255, 122, 184, 0.4);
-  --sb-thumb: #382e47;
-  --sb-thumb-hover: #4d4060;
-  --sb-thumb-active: #6b5a83;
+  --sb-thumb-1: #3b3049;
+  --sb-thumb-2: #4a3c5c;
+  --sb-thumb-ff: #443c56;
   color-scheme: dark;
 }
 
@@ -133,9 +130,9 @@
   --bubble-out-text: #ffffff;
   --shadow: 0 14px 40px -16px rgba(0, 0, 0, 0.7);
   --ring: rgba(124, 196, 255, 0.4);
-  --sb-thumb: #26324f;
-  --sb-thumb-hover: #38496f;
-  --sb-thumb-active: #4f6699;
+  --sb-thumb-1: #2a3757;
+  --sb-thumb-2: #384a72;
+  --sb-thumb-ff: #334463;
   color-scheme: dark;
 }
 
@@ -160,21 +157,17 @@ body {
 }
 
 /* ───────────────────────── Scrollbars ─────────────────────────
-   Two engines, one look:
-
-   • Firefox only understands `scrollbar-width` / `scrollbar-color`.
-   • Chrome understands the ::-webkit-scrollbar pseudo-elements — but it
-     *ignores all of them* as soon as the standard properties are set on the
-     same element. So the standard properties are declared once, on `html`
-     alone, and every scrollable panel is styled through the pseudo-elements.
-
-   Colours come from flat per-theme hex tokens. `color-mix()` here was a
-   mistake: when the standard property cannot parse a value it silently drops
-   the whole declaration, which is exactly how a restyle can look like it
-   never shipped. */
-html {
-  scrollbar-width: thin;
-  scrollbar-color: var(--sb-thumb) transparent;
+   CRITICAL: `scrollbar-width` and `scrollbar-color` are INHERITED, and Chrome
+   disables every ::-webkit-scrollbar pseudo-element on any element that has
+   them. Declaring them on `html` therefore silently kills the custom bar on
+   the entire page — which is exactly why the default arrows kept coming back.
+   They live behind a Firefox-only guard now, because Firefox is the engine
+   that has no pseudo-elements and needs them. */
+@supports (-moz-appearance: none) {
+  html {
+    scrollbar-width: thin;
+    scrollbar-color: var(--sb-thumb-ff) transparent;
+  }
 }
 
 ::-webkit-scrollbar {
@@ -200,18 +193,23 @@ html {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  min-height: 44px;
+  min-height: 48px;
   border-radius: 999px;
   border: var(--sb-inset) solid transparent;
-  background-color: var(--sb-thumb);
+  background-color: transparent;
+  background-image: linear-gradient(180deg, var(--sb-thumb-1), var(--sb-thumb-2));
   background-clip: content-box;
-  transition: background-color 0.18s ease;
+  transition: background-image 0.2s ease;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background-color: var(--sb-thumb-hover);
+  background-image: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--accent) 55%, var(--sb-thumb-2)),
+    color-mix(in srgb, var(--accent-2) 55%, var(--sb-thumb-2))
+  );
 }
 ::-webkit-scrollbar-thumb:active {
-  background-color: var(--sb-thumb-active);
+  background-image: linear-gradient(180deg, var(--accent), var(--accent-2));
 }
 
 /* Chat wallpapers */
@@ -263,6 +261,8 @@ html {
   animation: shimmer 1.6s infinite;
 }
 
+/* `scrollbar-width: none` is the only way to hide the bar in Firefox, and here
+   losing the pseudo-elements is the whole point. */
 .no-scrollbar::-webkit-scrollbar {
   display: none;
 }
@@ -270,20 +270,10 @@ html {
   scrollbar-width: none;
 }
 
-/* Scrollable panels inherit the global capsule and only brighten it slightly
-   while the pointer is inside, so the panel you are working in is obvious.
-   Deliberately no `scrollbar-width` / `scrollbar-color` here — declaring them
-   would switch Chrome back to its plain built-in bar. */
+/* Panels reuse the global capsule; the pointer being inside the panel already
+   warms it up, so no extra rules are needed here. */
 .fancy-scroll::-webkit-scrollbar-thumb {
-  background-color: var(--sb-thumb);
-}
-.fancy-scroll:hover::-webkit-scrollbar-thumb,
-.fancy-scroll:focus-within::-webkit-scrollbar-thumb {
-  background-color: var(--sb-thumb-hover);
-}
-.fancy-scroll::-webkit-scrollbar-thumb:hover,
-.fancy-scroll::-webkit-scrollbar-thumb:active {
-  background-color: var(--sb-thumb-active);
+  background-image: linear-gradient(180deg, var(--sb-thumb-1), var(--sb-thumb-2));
 }
 
 /* ───────────────────────── Rich text extras ───────────────────────── */
