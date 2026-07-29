@@ -1,6 +1,9 @@
-// ───────────────────────── Domain types ─────────────────────────
+// ──────────────────────── Domain types ────────────────────────
 
 export type EntityKind = 'user' | 'group' | 'channel' | 'bot'
+
+/** Who may see a given piece of profile activity. */
+export type Audience = 'everyone' | 'contacts' | 'nobody'
 
 export interface UserSettings {
   theme: 'light' | 'dark' | 'midnight' | 'auto'
@@ -17,6 +20,15 @@ export interface UserSettings {
   showReadReceipts: boolean
   ghostMode: boolean // hide online status
   whoCanMessage: 'everyone' | 'contacts'
+  /**
+   * Server-enforced privacy. `public.directory` and `peer_presence()` read
+   * `settings #>> '{privacy,lastSeen}'` directly, so this is the value that
+   * actually hides presence from other people — the booleans above only
+   * affect local rendering.
+   */
+  privacy?: {
+    lastSeen: Audience
+  }
   // notifications
   notifySound: boolean
   notifyPreview: boolean
@@ -60,6 +72,8 @@ export interface Directory {
   verified: boolean
   members?: number
   online?: boolean
+  /** Only present when the person allows everyone to see it. */
+  lastSeen?: number
 }
 
 export type ChatType = 'dm' | 'group' | 'channel' | 'bot' | 'saved'
@@ -147,7 +161,7 @@ export interface LinkPreview {
   siteName: string
 }
 
-// ───────────────────────── Realtime events ─────────────────────────
+// ──────────────────────── Realtime events ────────────────────────
 
 export type RealtimeEvent =
   | { type: 'message'; message: Message }
