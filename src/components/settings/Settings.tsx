@@ -13,6 +13,7 @@ import {
   Smile,
   Sparkles,
   Trash2,
+  TriangleAlert,
   Upload,
   User,
 } from 'lucide-react'
@@ -440,6 +441,13 @@ function DataTab() {
   const logout = useStore((st) => st.logout)
   const toast = useStore((st) => st.toast)
   const [busy, setBusy] = useState('')
+  const [wipeOpen, setWipeOpen] = useState(false)
+  const [confirmName, setConfirmName] = useState('')
+
+  // Deleting a server account needs a server. In demo mode there is nothing
+  // to delete beyond the local storage the button below already clears.
+  const canDelete = !!backend.rpc && backend.mode !== 'local'
+  const armed = confirmName.trim().toLowerCase().replace(/^@/, '') === account.username.toLowerCase()
 
   /** Real export: profile + every chat this account can read + local prefs. */
   async function exportData() {
@@ -524,6 +532,34 @@ function DataTab() {
     location.reload()
   }
 
+  /**
+   * Point of no return. The server does the work in one transaction; only if it
+   * confirms do we wipe local traces and end the session. Treating a failure as
+   * success here would log someone out of an account that still exists.
+   */
+  async function deleteAccount() {
+    if (!armed || busy) return
+    setBusy('Удаляем аккаунт…')
+    try {
+      const ok = await backend.rpc?.('delete_account')
+      if (ok !== true) {
+        toast('Не удалось удалить аккаунт. Ничего не изменилось — попробуй позже', '⚠️')
+        return
+      }
+      Object.keys(localStorage).filter((k) => k.startsWith('fc:')).forEach((k) => localStorage.removeItem(k))
+      try {
+        await logout()
+      } catch {
+        /* the credentials are already gone; sign-out failing is fine */
+      }
+      location.reload()
+    } catch {
+      toast('Не удалось удалить аккаунт. Ничего не изменилось — попробуй позже', '⚠️')
+    } finally {
+      setBusy('')
+    }
+  }
+
   return (
     <div className="space-y-3">
       <button onClick={exportData} disabled={!!busy} className="btn-ghost w-full">
@@ -531,7 +567,52 @@ function DataTab() {
       </button>
       <p className="text-xs text-[var(--muted)]">В файл попадают профиль, настройки и история всех чатов, к которым у тебя есть доступ — до 1000 сообщений на чат.</p>
       <button onClick={clearLocal} className="flex w-full items-center justify-center gap-2 rounded-xl border border-rose-300/40 py-2.5 font-semibold text-rose-500 hover:bg-rose-500/10">🗑️ Очистить данные на этом устройстве</button>
-      <p className="text-xs text-[var(--muted)]">Полное удаление аккаунта вместе с сообщениями на сервере готовится — сначала сделай экспорт, отменить его будет нельзя.</p>
+
+      {canDelete && (
+        <div className="rounded-2xl border border-rose-300/40 bg-rose-500/[0.04] p-4">
+          <div className="flex items-center gap-2 text-sm font-bold text-rose-500">
+            <TriangleAlert size={16} /> Удалить аккаунт навсегда
+          </div>
+          {!wipeOpen ? (
+            <>
+              <p className="mt-1.5 text-xs text-[var(--muted)]">
+                Удаляет профиль, все твои сообщения и выводит из всех групп и каналов. Отменить нельзя. Почту потом можно будет использовать снова.
+              </p>
+              <button onClick={() => setWipeOpen(true)} className="mt-3 w-full rounded-xl border border-rose-300/40 py-2 text-sm font-semibold text-rose-500 hover:bg-rose-500/10">
+                Продолжить…
+              </button>
+            </>
+          ) : (
+            <>
+              <p className="mt-1.5 text-xs text-[var(--muted)]">
+                Сначала сделай экспорт — после удаления восстановить переписку будет неоткуда. Затем введи свой юзернейм <b>@{account.username}</b> для подтверждения.
+              </p>
+              <input
+                value={confirmName}
+                onChange={(e) => setConfirmName(e.target.value)}
+                placeholder={`@${account.username}`}
+                autoComplete="off"
+                className="input mt-2.5"
+              />
+              <div className="mt-2.5 flex gap-2">
+                <button
+                  onClick={() => { setWipeOpen(false); setConfirmName('') }}
+                  className="btn-ghost flex-1 !py-2 text-sm"
+                >
+                  Отмена
+                </button>
+                <button
+                  onClick={deleteAccount}
+                  disabled={!armed || !!busy}
+                  className="flex-1 rounded-xl bg-rose-500 py-2 text-sm font-bold text-white transition hover:bg-rose-600 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  {busy || 'Удалить навсегда'}
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
     </div>
   )
 }
@@ -545,7 +626,7 @@ function AboutTab() {
       <div className="flex flex-col items-center gap-2 py-4 text-center">
         <div className="grid h-16 w-16 place-items-center rounded-2xl accent-gradient text-3xl text-white">💬</div>
         <div className="text-lg font-black">Femboy<span className="accent-text">Chat</span></div>
-        <div className="text-xs text-[var(--muted)]">Версия 0.5.2 · режим: {mode === 'local' ? 'демо (локальный)' : 'Supabase'}</div>
+        <div className="text-xs text-[var(--muted)]">Версия 0.6.1 · режим: {mode === 'local' ? 'демо (локальный)' : 'Supabase'}</div>
         <p className="max-w-xs text-sm text-[var(--muted)]">Тёплый real-time мессенджер для РУ-сообщества. Сделано с 💖</p>
       </div>
       <button onClick={logout} className="flex w-full items-center justify-center gap-2 rounded-xl border border-rose-300/40 py-2.5 font-semibold text-rose-500 hover:bg-rose-500/10">
