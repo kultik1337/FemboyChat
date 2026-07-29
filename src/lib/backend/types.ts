@@ -74,6 +74,10 @@ export interface Backend {
   listChatPreviews?(): Promise<ChatPreview[]>
 
   // messages
+  /**
+   * Top-level messages only. Comments on channel posts share the same storage
+   * but are never part of a chat's feed — use listComments() for those.
+   */
   listMessages(chatId: string, page?: MessagePage): Promise<Message[]>
   send(input: Omit<Message, 'id' | 'ts' | 'reactions' | 'readByUids'>): Promise<Message>
   edit(chatId: string, id: string, text: string): Promise<void>
@@ -115,6 +119,12 @@ export interface Backend {
 
   /** Optional: mark channel posts as seen by the current user. */
   markViewed?(messageIds: string[]): Promise<void>
+
+  /**
+   * Optional: comments under a single channel post, oldest first.
+   * Absent in demo mode, so callers must use `backend.listComments?.(id)`.
+   */
+  listComments?(postId: string): Promise<Message[]>
 
   // realtime
   subscribe(cb: (e: RealtimeEvent) => void): () => void
