@@ -120,7 +120,7 @@ function InviteCard({ code, isMine }: { code: string; isMine: boolean }) {
 function YouTubeCard({ id, url, start }: { id: string; url: string; start: number }) {
   const [playing, setPlaying] = useState(false)
 
-  // maxres does not exist for every video; hq720 is the safe high-quality one.
+  // hqdefault exists for every video; maxresdefault does not, so do not use it.
   const thumb = `https://i.ytimg.com/vi/${id}/hqdefault.jpg`
   const src =
     `https://www.youtube-nocookie.com/embed/${id}` +
