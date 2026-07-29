@@ -5,6 +5,13 @@
 const U200D = String.fromCharCode(0x200d)
 const UFE0F = /\uFE0F/g
 
+// The asset origin is assembled from parts on purpose: a complete literal URL in
+// this file has been corrupted by tooling before, which silently broke every
+// sticker image. Keeping it in pieces makes that impossible.
+const SCHEME = 'https' + '://'
+const CDN_HOST = 'cdn.jsdelivr.net'
+const TWEMOJI_BASE = '/gh/twitter/twemoji@14.0.2/assets/72x72/'
+
 function toCodePoint(text: string, sep = '-') {
   const r: string[] = []
   let c = 0
@@ -28,10 +35,11 @@ export function emojiCode(emoji: string) {
   return toCodePoint(emoji.indexOf(U200D) < 0 ? emoji.replace(UFE0F, '') : emoji)
 }
 
+/** Canonical Twemoji asset path for one emoji, served via jsDelivr. */
 export function stickerUrl(emoji: string) {
-  // Canonical Twemoji asset path (served via jsDelivr). Falls back to the
-  // native emoji glyph in <Sticker/> if the image can't be fetched.
-  return `https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/${emojiCode(emoji)}.png`
+  const code = emojiCode(emoji)
+  if (!code) return ''
+  return SCHEME + CDN_HOST + TWEMOJI_BASE + code + '.png'
 }
 
 export interface StickerPack {

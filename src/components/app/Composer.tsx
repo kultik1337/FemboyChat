@@ -41,6 +41,16 @@ const TTLS = [
 
 const draftKey = (id: string) => `fc:draft:${id}`
 
+/**
+ * True on touch-first devices. Focusing the input there would slide the on-screen
+ * keyboard up over half the conversation every time a chat is opened, so the
+ * automatic focus is desktop-only — exactly how other messengers behave.
+ */
+function isCoarsePointer() {
+  if (typeof window === 'undefined' || !window.matchMedia) return false
+  return window.matchMedia('(pointer: coarse)').matches
+}
+
 export function Composer() {
   const send = useStore((s) => s.send)
   const edit = useStore((s) => s.edit)
@@ -75,18 +85,48 @@ export function Composer() {
   const ref = useRef<HTMLTextAreaElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
-  // Load per-chat draft when switching chats.
+  /**
+   * Put the cursor in the input, at the end of whatever text is already there.
+   * Deferred by a frame because the textarea is often (re)mounted or resized in
+   * the same commit, and focusing before layout settles scrolls the pane.
+   */
+  function focusInput() {
+    if (isCoarsePointer()) return
+    requestAnimationFrame(() => {
+      const el = ref.current
+      if (!el) return
+      el.focus({ preventScroll: true })
+      const end = el.value.length
+      try {
+        el.setSelectionRange(end, end)
+      } catch {
+        /* not all browsers allow this on a hidden element */
+      }
+    })
+  }
+
+  // Load per-chat draft when switching chats, then take the cursor so the chat
+  // is immediately typeable.
   useEffect(() => {
     setSpoiler(false)
     if (useStore.getState().composeEdit) return
     setText(localStorage.getItem(draftKey(chatId)) ?? '')
+    focusInput()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chatId])
+
+  // Answering a message should also drop you straight into the input.
+  useEffect(() => {
+    if (replyTo) focusInput()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [replyTo?.id])
 
   useEffect(() => {
     if (editing) {
       setText(editing.text)
-      ref.current?.focus()
+      focusInput()
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editing])
 
   function autosize() {
@@ -141,6 +181,7 @@ export function Composer() {
     setReply(null)
     setText('')
     localStorage.removeItem(draftKey(chatId))
+    focusInput()
   }
 
   async function sendPendingFiles(caption: string) {
@@ -197,6 +238,7 @@ export function Composer() {
       edit(editing.id, t)
       setEdit(null)
       setText('')
+      focusInput()
       return
     }
 
@@ -381,6 +423,7 @@ export function Composer() {
             onKeyDown={onKey}
             onPaste={onPaste}
             rows={1}
+            autoFocus
             placeholder={pending.length ? 'Подпись…' : 'Сообщение…  (/ — команды)'}
             className="max-h-40 min-w-0 flex-1 resize-none rounded-2xl border border-[var(--border)] bg-[var(--panel-2)] px-4 py-2.5 outline-none focus:ring-2 focus:ring-[var(--ring)]"
           />
