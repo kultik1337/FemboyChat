@@ -1,7 +1,7 @@
 import type { Account, Chat, Directory, LinkPreview, Message, RealtimeEvent } from '../../types'
 import { defaultSettings } from '../defaults'
 import { normalizeUsername, uid as rid } from '../util'
-import type { Backend, AuthResult, ChatPreview, MessagePage } from './types'
+import type { Backend, AuthResult, ChatPreview, MessagePage, PeerPresence } from './types'
 
 /** Default number of messages loaded per chat page. */
 const PAGE_SIZE = 50
@@ -25,6 +25,8 @@ export class SupabaseBackend implements Backend {
   private account: Account | null = null
   private directoryCache: Directory[] = []
   private lastPresenceAt = 0
+  /** Posts already reported to mark_viewed, so scrolling doesn't re-send them. */
+  private viewed = new Set<string>()
 
   constructor(private url: string, private key: string) {}
 
@@ -332,6 +334,41 @@ export class SupabaseBackend implements Backend {
     await this.client.rpc('mark_read', { chat: chatId })
   }
 
+  /**
+   * Generic server-function call. Deliberately forgiving: every current caller
+   * (view counters, presence, account deletion) prefers a quiet `null` over an
+   * exception bubbling into the UI.
+   */
+  async rpc(fn: string, args?: Record<string, unknown>): Promise<unknown | null> {
+    if (!this.client) return null
+    try {
+      const { data, error } = await this.client.rpc(fn, args ?? {})
+      if (error) return null
+      return data ?? null
+    } catch {
+      return null
+    }
+  }
+
+  /** Real online state, filtered server-side by each user's privacy setting. */
+  async peerPresence(uids: string[]): Promise<PeerPresence[]> {
+    if (uids.length === 0) return []
+    const data = (await this.rpc('peer_presence', { uids })) as any[] | null
+    return (data ?? []).map((r) => ({
+      uid: r.uid,
+      online: !!r.online,
+      lastSeen: r.last_seen ? Date.parse(r.last_seen) : undefined,
+    }))
+  }
+
+  /** Count a channel post as seen. Each id is only ever reported once. */
+  async markViewed(messageIds: string[]) {
+    const fresh = messageIds.filter((id) => id && !this.viewed.has(id))
+    if (fresh.length === 0) return
+    fresh.forEach((id) => this.viewed.add(id))
+    await this.rpc('mark_viewed', { msg_ids: fresh })
+  }
+
   async uploadFile(kind: 'avatar' | 'attachment', file: Blob, name?: string): Promise<{ url: string }> {
     if (!this.account) throw new Error('not authed')
     const bucket = kind === 'avatar' ? 'avatars' : 'attachments'
@@ -425,6 +462,8 @@ function rowToDirectory(r: any): Directory {
     verified: !!r.verified,
     members: r.members,
     online: r.online,
+    // The view only exposes last_seen for users who allow everyone to see it.
+    lastSeen: r.last_seen ? Date.parse(r.last_seen) : undefined,
   }
 }
 function rowToChat(r: any): Chat {
@@ -466,5 +505,8 @@ function rowToMessage(r: any): Message {
     poll: r.poll ?? undefined,
     sticker: r.sticker ?? undefined,
     attachment: r.attachment ?? undefined,
+    commentOf: r.comment_of ?? undefined,
+    viewCount: r.view_count ?? undefined,
+    commentCount: r.comment_count ?? undefined,
   }
 }

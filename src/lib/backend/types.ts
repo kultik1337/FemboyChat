@@ -26,6 +26,14 @@ export interface MessagePage {
   limit?: number
 }
 
+/** One peer's presence, as reported by the `peer_presence` RPC. */
+export interface PeerPresence {
+  uid: string
+  online: boolean
+  /** Only present when that user allows everyone to see their last-seen time. */
+  lastSeen?: number
+}
+
 export interface Backend {
   readonly mode: 'local' | 'supabase'
   init(): Promise<void>
@@ -84,6 +92,29 @@ export interface Backend {
   // presence / typing
   setTyping(chatId: string): void
   setPresence(online: boolean): void
+
+  /**
+   * Optional escape hatch for server-side functions that don't deserve their
+   * own method on this interface — view counters, presence lookups, account
+   * deletion, device management.
+   *
+   * Only the Supabase backend implements it. Callers must therefore use
+   * `backend.rpc?.(...)` and treat `undefined` as "unavailable in this mode",
+   * which keeps demo mode working without a server.
+   *
+   * Errors are swallowed and reported as `null`: none of the current callers
+   * are worth interrupting the user for.
+   */
+  rpc?(fn: string, args?: Record<string, unknown>): Promise<unknown | null>
+
+  /**
+   * Optional: real online state for a set of users, honouring each one's
+   * privacy setting. Falls back to the directory's `online` flag when absent.
+   */
+  peerPresence?(uids: string[]): Promise<PeerPresence[]>
+
+  /** Optional: mark channel posts as seen by the current user. */
+  markViewed?(messageIds: string[]): Promise<void>
 
   // realtime
   subscribe(cb: (e: RealtimeEvent) => void): () => void
