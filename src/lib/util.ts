@@ -75,6 +75,23 @@ export function renderRich(text: string): { __html: string } {
   return { __html: withMentions.replace(/\n/g, '<br/>') }
 }
 
+/**
+ * Flatten a message for one-line previews (sidebar, pinned banner, replies).
+ * Strips the inline formatting markers so `**bold**` never leaks as raw stars,
+ * and collapses newlines so a multi-line post cannot stretch a nowrap row.
+ */
+export function plainText(text: string): string {
+  return text
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/\|\|([^|]+)\|\|/g, '$1')
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/(^|\s)\*([^*]+)\*/g, '$1$2')
+    .replace(/(^|\s)__([^_]+)__/g, '$1$2')
+    .replace(/~~([^~]+)~~/g, '$1')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 /** Extracts the invite code from a FemboyChat invite link (#join=CODE), or null. */
 export function inviteCodeFromUrl(url: string): string | null {
   const m = /#join=([A-Za-z0-9_-]+)/.exec(url)
