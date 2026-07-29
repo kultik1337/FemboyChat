@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Check, CheckCheck, Clock, CornerUpLeft, Download, FileText, MoreHorizontal, Smile } from 'lucide-react'
+import { Check, CheckCheck, Clock, CornerUpLeft, Download, Eye, FileText, MessageCircle, MoreHorizontal, Smile } from 'lucide-react'
 import type { Attachment, Chat, Message } from '../../types'
 import { classNames, renderPost, renderRich, timeShort } from '../../lib/util'
 import { attachmentLabel, prettySize } from '../../lib/media'
@@ -29,6 +29,8 @@ export function MessageBubble({
   otherUid,
   fresh,
   onJump,
+  onOpenComments,
+  commentCount,
 }: {
   message: Message
   chat: Chat
@@ -43,6 +45,10 @@ export function MessageBubble({
   otherUid?: string
   fresh?: boolean
   onJump?: (id: string) => void
+  /** Channel posts only: opens the comment thread for this post. */
+  onOpenComments?: (message: Message) => void
+  /** Overrides the stored counter once the thread has been opened. */
+  commentCount?: number
 }) {
   const react = useStore((s) => s.react)
   const vote = useStore((s) => s.vote)
@@ -79,6 +85,9 @@ export function MessageBubble({
   const showChecks = isMine && chat.type !== 'channel'
   /** Headings, dividers, quotes and lists are a channel-only privilege. */
   const isPost = chat.type === 'channel'
+  // The stored counter is a snapshot from load time; the panel knows better.
+  const comments = commentCount ?? message.commentCount ?? 0
+  const views = message.viewCount ?? 0
 
   // Telegram-style stacked corners: tighten the corner on the sender's side
   // between consecutive messages, keep the outer "tail" corners round.
@@ -231,6 +240,24 @@ export function MessageBubble({
 
             {footer}
           </div>
+        )}
+
+        {/* Channel posts carry their own strip: views on the right, comments on
+            the left. Deleted posts get nothing — there is nothing to discuss. */}
+        {isPost && !message.deleted && !message.pending && (
+          <button
+            onClick={() => onOpenComments?.(message)}
+            disabled={!onOpenComments}
+            className="mt-1 flex w-full items-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-xs font-bold text-[var(--muted)] shadow-sm transition enabled:hover:bg-[var(--panel-hover)] enabled:hover:text-[var(--text)] disabled:cursor-default"
+            style={{ boxShadow: 'var(--shadow)' }}
+            title={comments > 0 ? 'Открыть обсуждение' : 'Оставить комментарий'}
+          >
+            <MessageCircle size={14} className="shrink-0 text-[var(--accent)]" />
+            <span className="truncate">{comments > 0 ? `Комментарии · ${comments}` : 'Комментировать'}</span>
+            <span className="ml-auto flex shrink-0 items-center gap-1 tabular-nums opacity-80">
+              <Eye size={13} /> {views.toLocaleString('ru-RU')}
+            </span>
+          </button>
         )}
 
         {!message.deleted && (
