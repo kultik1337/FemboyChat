@@ -1,4 +1,4 @@
-// ──────────────────────── Domain types ────────────────────────
+// ─────────────────────── Domain types ───────────────────────
 
 export type EntityKind = 'user' | 'group' | 'channel' | 'bot'
 
@@ -145,6 +145,16 @@ export interface Message {
   sticker?: string
   attachment?: Attachment
   /**
+   * Set on a comment: the id of the channel post it belongs to. Comments live
+   * in the same `messages` table as everything else, so any list of a chat's
+   * messages must filter them out — otherwise they show up as ordinary posts.
+   */
+  commentOf?: string
+  /** Channel posts only: how many people have seen this post. */
+  viewCount?: number
+  /** Channel posts only: how many comments hang off this post. */
+  commentCount?: number
+  /**
    * Local-only: this bubble was inserted optimistically and the server has not
    * confirmed the write yet. Never sent to or returned by a backend.
    */
@@ -161,7 +171,7 @@ export interface LinkPreview {
   siteName: string
 }
 
-// ──────────────────────── Realtime events ────────────────────────
+// ─────────────────────── Realtime events ───────────────────────
 
 export type RealtimeEvent =
   | { type: 'message'; message: Message }
