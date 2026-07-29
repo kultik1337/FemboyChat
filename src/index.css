@@ -59,6 +59,11 @@
 
   --radius-bubble: 18px;
   --font-scale: 1;
+
+  /* Scrollbar geometry: the track is `--sb-size` wide, but the visible
+     capsule is narrower because the thumb is inset by a transparent border. */
+  --sb-size: 12px;
+  --sb-inset: 4px;
 }
 
 /* Light "Pastel Femboy" (default) */
@@ -141,20 +146,42 @@ body {
   text-rendering: optimizeLegibility;
 }
 
-/* Prettier scrollbars */
+/* ───────────────────────── Scrollbars ─────────────────────────
+   Overlay style: a slim neutral capsule instead of a full-height bar.
+   The thumb is inset with a transparent border and background-clip, so the
+   hit area stays comfortable while the visible capsule is only a few pixels
+   wide. */
 ::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+  width: var(--sb-size);
+  height: var(--sb-size);
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: color-mix(in srgb, var(--muted) 40%, transparent);
+  min-height: 40px;
   border-radius: 999px;
-  border: 2px solid transparent;
+  border: var(--sb-inset) solid transparent;
+  background: color-mix(in srgb, var(--muted) 30%, transparent);
   background-clip: content-box;
+  transition: background-color 0.18s ease;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: color-mix(in srgb, var(--muted) 60%, transparent);
+  background: color-mix(in srgb, var(--muted) 55%, transparent);
   background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:active {
+  background: color-mix(in srgb, var(--accent) 70%, transparent);
+  background-clip: content-box;
+}
+
+/* Firefox has no pseudo-elements for this, only the two-keyword shorthand. */
+html {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--muted) 34%, transparent) transparent;
 }
 
 /* Chat wallpapers */
@@ -213,27 +240,57 @@ body {
   scrollbar-width: none;
 }
 
-/* Pretty, thin accent scrollbar for panels that scroll internally */
+/* Scrollable panels: the capsule stays invisible until the pointer enters the
+   area, then fades in. Reaching the bar always requires hovering the panel
+   first, so nothing is lost by hiding it at rest. */
 .fancy-scroll {
   scrollbar-width: thin;
-  scrollbar-color: color-mix(in srgb, var(--accent) 70%, transparent) transparent;
+  scrollbar-color: transparent transparent;
+  transition: scrollbar-color 0.25s ease;
+}
+.fancy-scroll:hover,
+.fancy-scroll:focus-within {
+  scrollbar-color: color-mix(in srgb, var(--accent) 45%, transparent) transparent;
 }
 .fancy-scroll::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: var(--sb-size);
+  height: var(--sb-size);
 }
 .fancy-scroll::-webkit-scrollbar-track {
   background: transparent;
 }
 .fancy-scroll::-webkit-scrollbar-thumb {
-  background: linear-gradient(var(--accent), var(--accent-2));
+  min-height: 44px;
   border-radius: 999px;
-  border: 2px solid transparent;
+  border: var(--sb-inset) solid transparent;
+  background: transparent;
+  background-clip: content-box;
+  transition: background-color 0.22s ease;
+}
+.fancy-scroll:hover::-webkit-scrollbar-thumb,
+.fancy-scroll:focus-within::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--accent) 34%, transparent);
   background-clip: content-box;
 }
 .fancy-scroll::-webkit-scrollbar-thumb:hover {
-  background: linear-gradient(var(--accent-2), var(--accent));
+  background: color-mix(in srgb, var(--accent) 62%, transparent);
   background-clip: content-box;
+}
+.fancy-scroll::-webkit-scrollbar-thumb:active {
+  background: var(--accent);
+  background-clip: content-box;
+}
+
+/* Coarse pointers get the browser's own overlay bar — a hover-reveal capsule
+   would never appear on touch. */
+@media (hover: none) {
+  .fancy-scroll {
+    scrollbar-color: color-mix(in srgb, var(--muted) 34%, transparent) transparent;
+  }
+  .fancy-scroll::-webkit-scrollbar-thumb {
+    background: color-mix(in srgb, var(--muted) 34%, transparent);
+    background-clip: content-box;
+  }
 }
 
 /* ───────────────────────── Rich text extras ───────────────────────── */
