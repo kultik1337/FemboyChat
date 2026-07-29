@@ -9,7 +9,7 @@ import { chatCounterpart, usePeople } from './people'
 import { useActions } from './useActions'
 import { openContextMenu } from '../ui/ContextMenu'
 import { attachmentLabel } from '../../lib/media'
-import { classNames, dayLabel, lastSeenLabel } from '../../lib/util'
+import { classNames, dayLabel, lastSeenLabel, plainText } from '../../lib/util'
 
 export function ChatView() {
   const account = useStore((s) => s.account)!
@@ -119,8 +119,9 @@ export function ChatView() {
 
   const counterpartUid = chatCounterpart(chat, account.uid)
   const counterpart = counterpartUid ? resolve(counterpartUid) : null
+  const isChannel = chat.type === 'channel'
   const isAdmin = chat.adminUids.includes(account.uid)
-  const canPost = chat.type !== 'channel' || isAdmin
+  const canPost = !isChannel || isAdmin
 
   const typers = Object.entries(typing[chat.id] ?? {}).filter(([uid, t]) => uid !== account.uid && now - t.at < 4000)
 
@@ -171,8 +172,11 @@ export function ChatView() {
   }
 
   return (
+    // min-w-0 is load-bearing: without it a nowrap preview row (pinned banner)
+    // sets this flex item's min-width to max-content and pushes the sidebar
+    // off-screen. Never remove it.
     <div
-      className="relative flex h-full flex-col"
+      className="relative flex h-full min-w-0 flex-col"
       onDragEnter={onDragEnter}
       onDragOver={(e) => e.dataTransfer.types.includes('Files') && e.preventDefault()}
       onDragLeave={onDragLeave}
@@ -188,8 +192,8 @@ export function ChatView() {
         </div>
       )}
       {/* header */}
-      <div className="flex items-center gap-3 border-b border-[var(--border)] bg-[var(--panel)] px-3 py-2.5" onContextMenu={headerMenu}>
-        <button onClick={() => openChat('')} className="grid h-9 w-9 place-items-center rounded-full hover:bg-[var(--panel-hover)] md:hidden">
+      <div className="flex min-w-0 items-center gap-3 border-b border-[var(--border)] bg-[var(--panel)] px-3 py-2.5" onContextMenu={headerMenu}>
+        <button onClick={() => openChat('')} className="grid h-9 w-9 shrink-0 place-items-center rounded-full hover:bg-[var(--panel-hover)] md:hidden">
           <ArrowLeft size={20} />
         </button>
         <button onClick={() => (counterpartUid ? setProfileUid(counterpartUid) : setRightPanel(true))} className="flex min-w-0 flex-1 items-center gap-3 text-left">
@@ -202,53 +206,59 @@ export function ChatView() {
             <div className={classNames('truncate text-xs', sub.accent ? 'text-[var(--accent)]' : 'text-[var(--muted)]')}>{sub.text}</div>
           </div>
         </button>
-        <button onClick={() => setSearchOpen((v) => !v)} className={classNames('grid h-9 w-9 place-items-center rounded-full hover:bg-[var(--panel-hover)]', searchOpen ? 'text-[var(--accent)]' : 'text-[var(--muted)]')} title="Поиск по чату">
+        <button onClick={() => setSearchOpen((v) => !v)} className={classNames('grid h-9 w-9 shrink-0 place-items-center rounded-full hover:bg-[var(--panel-hover)]', searchOpen ? 'text-[var(--accent)]' : 'text-[var(--muted)]')} title="Поиск по чату">
           <Search size={19} />
         </button>
-        <button onClick={(e) => (counterpartUid ? openContextMenu(e, personMenu(counterpartUid)) : openContextMenu(e, chatMenu(chat)))} className="grid h-9 w-9 place-items-center rounded-full text-[var(--muted)] hover:bg-[var(--panel-hover)]" title="Действия">
+        <button onClick={(e) => (counterpartUid ? openContextMenu(e, personMenu(counterpartUid)) : openContextMenu(e, chatMenu(chat)))} className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-[var(--muted)] hover:bg-[var(--panel-hover)]" title="Действия">
           <Info size={19} />
         </button>
       </div>
 
       {/* in-chat search */}
       {searchOpen && (
-        <div className="flex items-center gap-2 border-b border-[var(--border)] bg-[var(--panel-2)] px-3 py-2">
-          <Search size={16} className="text-[var(--muted)]" />
+        <div className="flex min-w-0 items-center gap-2 border-b border-[var(--border)] bg-[var(--panel-2)] px-3 py-2">
+          <Search size={16} className="shrink-0 text-[var(--muted)]" />
           <input
             autoFocus
             value={query}
             onChange={(e) => { setQuery(e.target.value); setMatchIdx(0) }}
             placeholder="Найти в этом чате…"
-            className="flex-1 bg-transparent text-sm outline-none"
+            className="min-w-0 flex-1 bg-transparent text-sm outline-none"
           />
           {query && (
             <span className="shrink-0 text-xs text-[var(--muted)]">{matches.length ? `${matchIdx + 1} из ${matches.length}` : 'ничего'}</span>
           )}
-          <button disabled={!matches.length} onClick={() => setMatchIdx((i) => (i + 1) % matches.length)} className="grid h-7 w-7 place-items-center rounded-full hover:bg-[var(--panel-hover)] disabled:opacity-40" title="Предыдущее"><ChevronUp size={16} /></button>
-          <button disabled={!matches.length} onClick={() => setMatchIdx((i) => (i - 1 + matches.length) % matches.length)} className="grid h-7 w-7 place-items-center rounded-full hover:bg-[var(--panel-hover)] disabled:opacity-40" title="Следующее"><ChevronDown size={16} /></button>
-          <button onClick={() => { setSearchOpen(false); setQuery('') }} className="grid h-7 w-7 place-items-center rounded-full hover:bg-[var(--panel-hover)]"><X size={16} /></button>
+          <button disabled={!matches.length} onClick={() => setMatchIdx((i) => (i + 1) % matches.length)} className="grid h-7 w-7 shrink-0 place-items-center rounded-full hover:bg-[var(--panel-hover)] disabled:opacity-40" title="Предыдущее"><ChevronUp size={16} /></button>
+          <button disabled={!matches.length} onClick={() => setMatchIdx((i) => (i - 1 + matches.length) % matches.length)} className="grid h-7 w-7 shrink-0 place-items-center rounded-full hover:bg-[var(--panel-hover)] disabled:opacity-40" title="Следующее"><ChevronDown size={16} /></button>
+          <button onClick={() => { setSearchOpen(false); setQuery('') }} className="grid h-7 w-7 shrink-0 place-items-center rounded-full hover:bg-[var(--panel-hover)]"><X size={16} /></button>
         </div>
       )}
 
       {/* pinned banner */}
       {pinned.length > 0 && (
-        <button onClick={() => jumpTo(pinned[pinned.length - 1].id)} className="flex w-full items-center gap-2 border-b border-[var(--border)] bg-[var(--panel-2)] px-4 py-2 text-left text-sm hover:bg-[var(--panel-hover)]">
-          <Pin size={15} className="text-[var(--accent)]" />
-          <div className="min-w-0 flex-1">
+        <button onClick={() => jumpTo(pinned[pinned.length - 1].id)} className="flex w-full min-w-0 items-center gap-2 border-b border-[var(--border)] bg-[var(--panel-2)] px-4 py-2 text-left text-sm hover:bg-[var(--panel-hover)]">
+          <Pin size={15} className="shrink-0 text-[var(--accent)]" />
+          <div className="min-w-0 flex-1 overflow-hidden">
             <div className="text-[11px] font-bold text-[var(--accent)]">Закреплённое{pinned.length > 1 ? ` · ${pinned.length}` : ''}</div>
-            <div className="truncate text-[var(--muted)]">{pinned[pinned.length - 1].sticker ? 'стикер' : pinned[pinned.length - 1].attachment ? attachmentLabel(pinned[pinned.length - 1].attachment) : pinned[pinned.length - 1].text}</div>
+            <div className="truncate text-[var(--muted)]">
+              {pinned[pinned.length - 1].sticker
+                ? 'стикер'
+                : pinned[pinned.length - 1].attachment
+                ? attachmentLabel(pinned[pinned.length - 1].attachment)
+                : plainText(pinned[pinned.length - 1].text)}
+            </div>
           </div>
         </button>
       )}
 
       {/* messages */}
-      <div className="relative min-h-0 flex-1">
-        <div ref={scroller} onScroll={onScroll} onClick={onScrollerClick} className={classNames('relative z-[2] h-full overflow-y-auto py-3 fancy-scroll', `wallpaper-${wallpaper}`)}>
+      <div className="relative min-h-0 min-w-0 flex-1">
+        <div ref={scroller} onScroll={onScroll} onClick={onScrollerClick} className={classNames('relative z-[2] h-full overflow-y-auto overflow-x-hidden py-3 fancy-scroll', `wallpaper-${wallpaper}`)}>
           {visibleMsgs.length === 0 && (
             <div className="mt-16 flex flex-col items-center gap-2 text-center text-[var(--muted)]">
               <div className="text-5xl">{headerVisual.emoji}</div>
               <p className="font-semibold">Пока нет сообщений</p>
-              <p className="text-sm">Напиши первым — это всегда приятно 🎀</p>
+              <p className="text-sm">{isChannel ? 'Здесь скоро появятся посты ✨' : 'Напиши первым — это всегда приятно 🎀'}</p>
             </div>
           )}
           {visibleMsgs.map((m, i) => {
@@ -278,7 +288,9 @@ export function ChatView() {
                 <MessageBubble
                   message={m}
                   chat={chat}
-                  isMine={m.senderUid === account.uid}
+                  /* A channel post belongs to the channel, not to whoever pressed
+                     publish — so it always renders on the left, like in Telegram. */
+                  isMine={!isChannel && m.senderUid === account.uid}
                   sender={sender}
                   firstOfGroup={firstOfGroup}
                   showAvatar={lastOfGroup}
