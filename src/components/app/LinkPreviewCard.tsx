@@ -6,17 +6,87 @@ import type { LinkPreview } from '../../types'
 // Module-level cache so a URL is only fetched once per session (across bubbles).
 const previewCache = new Map<string, LinkPreview | null>()
 
+// These origins are assembled from parts on purpose. Written as single literal
+// strings they get rewritten by the tooling that syncs this file, which left
+// stray braces inside the URL and broke the player. Do not "simplify" them.
+const HTTPS = 'https' + '://'
+const YT_THUMB_ORIGIN = HTTPS + 'i.ytimg.com'
+const YT_EMBED_ORIGIN = HTTPS + 'www.youtube-nocookie.com'
+
 /**
- * Renders under a message's text: either a "join this chat" invite card for
- * FemboyChat invite links, or an OG-preview card (fetched via the link-preview
- * edge function; LocalBackend returns null so nothing shows in demo mode).
+ * Renders under a message's text. In priority order:
+ *   1. FemboyChat invite link  -> "join this chat" card
+ *   2. YouTube link            -> thumbnail facade that becomes a player on click
+ *   3. Direct image link       -> the image itself
+ *   4. Anything else           -> OG-preview card (via the link-preview edge
+ *      function; LocalBackend returns null so nothing shows in demo mode)
  */
 export function LinkPreviewCard({ text, isMine }: { text: string; isMine: boolean }) {
   const url = firstUrl(text)
   if (!url) return null
+
   const invite = inviteCodeFromUrl(url)
   if (invite) return <InviteCard code={invite} isMine={isMine} />
+
+  const yt = youtubeId(url)
+  if (yt) return <YouTubeCard id={yt} url={url} start={youtubeStart(url)} />
+
+  if (isImageUrl(url)) return <ImageCard url={url} isMine={isMine} />
+
   return <UrlPreview url={url} isMine={isMine} />
+}
+
+/**
+ * Extracts a video id from every YouTube link shape we care about:
+ * watch?v=ID, youtu.be/ID, /shorts/ID, /embed/ID, /live/ID.
+ * Returns null for anything else (channel pages, playlists without a video),
+ * so those fall through to the normal OG card.
+ */
+export function youtubeId(raw: string): string | null {
+  let u: URL
+  try {
+    u = new URL(raw)
+  } catch {
+    return null
+  }
+  const host = u.hostname.replace(/^www\./, '')
+  const ok = /^[\w-]{11}$/
+
+  if (host === 'youtu.be') {
+    const id = u.pathname.slice(1).split('/')[0]
+    return ok.test(id) ? id : null
+  }
+  if (host !== 'youtube.com' && host !== 'm.youtube.com' && host !== 'music.youtube.com') return null
+
+  const v = u.searchParams.get('v')
+  if (v && ok.test(v)) return v
+
+  const m = u.pathname.match(/^\/(?:shorts|embed|live|v)\/([\w-]{11})/)
+  return m ? m[1] : null
+}
+
+/** Reads ?t=90 / ?t=1m30s / ?start=90 so "start at" links keep their timestamp. */
+function youtubeStart(raw: string): number {
+  let u: URL
+  try {
+    u = new URL(raw)
+  } catch {
+    return 0
+  }
+  const t = u.searchParams.get('t') ?? u.searchParams.get('start')
+  if (!t) return 0
+  if (/^\d+$/.test(t)) return Number(t)
+  const m = t.match(/^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?$/)
+  if (!m) return 0
+  return Number(m[1] ?? 0) * 3600 + Number(m[2] ?? 0) * 60 + Number(m[3] ?? 0)
+}
+
+function isImageUrl(raw: string): boolean {
+  try {
+    return /\.(png|jpe?g|gif|webp|avif|bmp)$/i.test(new URL(raw).pathname)
+  } catch {
+    return false
+  }
 }
 
 function cardStyle(isMine: boolean): React.CSSProperties {
@@ -45,6 +115,86 @@ function InviteCard({ code, isMine }: { code: string; isMine: boolean }) {
         Присоединиться
       </button>
     </div>
+  )
+}
+
+/**
+ * A "facade" player: we show YouTube's own thumbnail and only mount the iframe
+ * once the user actually presses play. Mounting iframes eagerly would load a
+ * few hundred KB of third-party script per link and visibly stutter a chat that
+ * has several videos in its history.
+ */
+function YouTubeCard({ id, url, start }: { id: string; url: string; start: number }) {
+  const [playing, setPlaying] = useState(false)
+
+  // hqdefault exists for every video; maxresdefault does not, so do not use it.
+  const thumb = `${YT_THUMB_ORIGIN}/vi/${id}/hqdefault.jpg`
+  const src =
+    `${YT_EMBED_ORIGIN}/embed/${id}` +
+    `?autoplay=1&rel=0&modestbranding=1${start ? `&start=${start}` : ''}`
+
+  return (
+    <div
+      className="mt-1.5 overflow-hidden rounded-xl bg-black/60"
+      style={{ aspectRatio: '16 / 9' }}
+      onClick={(e) => e.stopPropagation()}
+    >
+      {playing ? (
+        <iframe
+          src={src}
+          title="YouTube"
+          className="h-full w-full border-0"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+          allowFullScreen
+        />
+      ) : (
+        <button
+          type="button"
+          onClick={() => setPlaying(true)}
+          aria-label="Смотреть видео"
+          className="group relative block h-full w-full"
+        >
+          <img src={thumb} alt="" loading="lazy" className="h-full w-full object-cover" />
+          <span className="absolute inset-0 grid place-items-center">
+            <span className="grid h-12 w-[68px] place-items-center rounded-xl bg-black/65 transition group-hover:bg-[#f00]">
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="#fff" aria-hidden="true">
+                <path d="M8 5v14l11-7z" />
+              </svg>
+            </span>
+          </span>
+          <span className="absolute bottom-1.5 right-2 rounded bg-black/65 px-1.5 py-0.5 text-[10px] font-bold text-white">
+            YouTube
+          </span>
+        </button>
+      )}
+      <a href={url} target="_blank" rel="noreferrer noopener" className="sr-only">
+        Открыть на YouTube
+      </a>
+    </div>
+  )
+}
+
+/** Direct image link: show the picture instead of a mostly-empty OG card. */
+function ImageCard({ url, isMine }: { url: string; isMine: boolean }) {
+  const [broken, setBroken] = useState(false)
+  if (broken) return <UrlPreview url={url} isMine={isMine} />
+
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noreferrer noopener"
+      className="mt-1.5 block overflow-hidden rounded-xl"
+      onClick={(e) => e.stopPropagation()}
+    >
+      <img
+        src={url}
+        alt=""
+        loading="lazy"
+        onError={() => setBroken(true)}
+        className="max-h-72 w-full bg-black/10 object-cover"
+      />
+    </a>
   )
 }
 
