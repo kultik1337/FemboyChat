@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Bell,
   Camera,
@@ -10,6 +10,7 @@ import {
   Monitor,
   Palette,
   ShieldCheck,
+  Smartphone,
   Smile,
   Sparkles,
   Trash2,
@@ -24,6 +25,7 @@ import { EmojiGrid } from '../ui/EmojiPicker'
 import { ACCENT_PRESETS } from '../../lib/defaults'
 import { downscaleImage } from '../../lib/media'
 import { classNames, normalizeUsername } from '../../lib/util'
+import { deviceInfo, deviceKey, deviceLabel, isMobileOs } from '../../lib/device'
 import type { Audience, Message, UserSettings } from '../../types'
 
 type Tab = 'profile' | 'appearance' | 'privacy' | 'notifications' | 'chats' | 'language' | 'data' | 'about'
@@ -268,10 +270,22 @@ const LAST_SEEN_OPTIONS: { id: Audience; label: string; hint: string }[] = [
   { id: 'nobody', label: 'Никто', hint: 'Для остальных ты всегда оффлайн — ни точки, ни времени.' },
 ]
 
+/** One row of public.list_devices(). */
+type Session = {
+  device_key: string
+  browser: string | null
+  os: string | null
+  standalone: boolean
+  created_at: string
+  last_seen: string
+}
+
 function PrivacyTab() {
   const s = useStore((st) => st.account!.settings)
   const patch = useStore((st) => st.patchSettings)
   const logout = useStore((st) => st.logout)
+  const backend = useStore((st) => st.backend)!
+  const toast = useStore((st) => st.toast)
 
   // The server reads settings.privacy.lastSeen directly. Accounts created
   // before this control existed only have the booleans, so derive from them.
@@ -285,29 +299,55 @@ function PrivacyTab() {
     })
   }
 
-  const device = useMemo(() => {
-    const ua = typeof navigator === 'undefined' ? '' : navigator.userAgent
-    const browser = ua.includes('YaBrowser') ? 'Yandex Browser'
-      : ua.includes('Edg/') ? 'Edge'
-      : ua.includes('OPR/') ? 'Opera'
-      : ua.includes('Firefox') ? 'Firefox'
-      : ua.includes('Chrome') ? 'Chrome'
-      : ua.includes('Safari') ? 'Safari'
-      : 'Браузер'
-    const os = ua.includes('Windows') ? 'Windows'
-      : ua.includes('Android') ? 'Android'
-      : ua.includes('iPhone') || ua.includes('iPad') ? 'iOS'
-      : ua.includes('Mac OS X') ? 'macOS'
-      : ua.includes('Linux') ? 'Linux'
-      : 'Неизвестная система'
-    let since = Number(localStorage.getItem('fc:device:since'))
-    if (!since) {
-      since = Date.now()
-      localStorage.setItem('fc:device:since', String(since))
+  // Sessions live on the server; demo mode has none, so it keeps the old
+  // local-only card describing just this browser.
+  const hasSessions = !!backend.rpc && backend.mode !== 'local'
+  const myKey = useMemo(() => deviceKey(), [])
+  const local = useMemo(() => deviceInfo(), [])
+  const [sessions, setSessions] = useState<Session[] | null>(null)
+  const [killing, setKilling] = useState('')
+
+  async function loadSessions() {
+    if (!hasSessions) return
+    const rows = await backend.rpc?.('list_devices')
+    setSessions(Array.isArray(rows) ? (rows as Session[]) : [])
+  }
+
+  useEffect(() => {
+    void loadSessions()
+  }, [hasSessions])
+
+  /**
+   * Ending the current session is just a sign-out with a marker, so this
+   * browser does not quietly reappear in the list on its next heartbeat.
+   */
+  async function endSession(key: string) {
+    if (killing) return
+    const mine = key === myKey
+    if (mine && !confirm('Завершить сеанс на этом устройстве? Придётся войти заново.')) return
+    setKilling(key)
+    try {
+      const ok = await backend.rpc?.('revoke_device', { key })
+      if (ok !== true) {
+        toast('Не удалось завершить сеанс — попробуй позже', '⚠️')
+        return
+      }
+      if (mine) {
+        await logout()
+        location.reload()
+        return
+      }
+      toast('Устройство отключено', '🔒')
+      await loadSessions()
+    } catch {
+      toast('Не удалось завершить сеанс — попробуй позже', '⚠️')
+    } finally {
+      setKilling('')
     }
-    const standalone = typeof window !== 'undefined' && window.matchMedia('(display-mode: standalone)').matches
-    return { browser, os, since, standalone }
-  }, [])
+  }
+
+  const stamp = (iso: string) =>
+    new Date(iso).toLocaleString('ru-RU', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
 
   return (
     <div className="space-y-4">
@@ -350,27 +390,87 @@ function PrivacyTab() {
         </div>
       </div>
 
-      <div className="rounded-2xl border border-[var(--border)] p-4">
-        <div className="text-sm font-bold">Устройство</div>
-        <div className="mt-2 flex items-center justify-between gap-3 text-sm">
-          <div className="flex min-w-0 items-center gap-2.5">
-            <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-[var(--panel-2)] text-[var(--accent)]">
-              <Monitor size={17} />
-            </span>
-            <div className="min-w-0">
-              <div className="truncate font-semibold">
-                {device.browser} · {device.os}{device.standalone ? ' · приложение' : ''}
-              </div>
-              <div className="text-xs text-[var(--muted)]">Вход с {new Date(device.since).toLocaleDateString('ru-RU')}</div>
-            </div>
+      {hasSessions ? (
+        <div className="rounded-2xl border border-[var(--border)] p-4">
+          <div className="flex items-center justify-between gap-2">
+            <div className="text-sm font-bold">Устройства и сеансы</div>
+            {sessions && <span className="chip shrink-0">{sessions.length}</span>}
           </div>
-          <span className="chip shrink-0">текущее</span>
+
+          {sessions === null && (
+            <div className="mt-3 space-y-2" aria-hidden="true">
+              {[0, 1].map((i) => (
+                <div key={i} className="flex items-center gap-2.5">
+                  <div className="h-9 w-9 shrink-0 animate-pulse rounded-xl bg-[var(--panel-2)]" />
+                  <div className="flex-1 space-y-1.5">
+                    <div className="h-3 w-40 animate-pulse rounded bg-[var(--panel-2)]" />
+                    <div className="h-3 w-24 animate-pulse rounded bg-[var(--panel-2)]" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {sessions?.length === 0 && (
+            <p className="mt-2 text-xs text-[var(--muted)]">Список пока пуст — он заполнится в течение минуты после входа.</p>
+          )}
+
+          <div className="mt-3 space-y-2">
+            {sessions?.map((d) => {
+              const mine = d.device_key === myKey
+              return (
+                <div key={d.device_key} className="flex items-center justify-between gap-3 rounded-xl bg-[var(--panel-2)] p-2.5 text-sm">
+                  <div className="flex min-w-0 items-center gap-2.5">
+                    <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-[var(--panel)] text-[var(--accent)]">
+                      {isMobileOs(d.os) ? <Smartphone size={17} /> : <Monitor size={17} />}
+                    </span>
+                    <div className="min-w-0">
+                      <div className="truncate font-semibold">{deviceLabel(d)}</div>
+                      <div className="truncate text-xs text-[var(--muted)]">
+                        {mine ? `Вход с ${stamp(d.created_at)}` : `Активность ${stamp(d.last_seen)}`}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    {mine && <span className="chip">текущее</span>}
+                    <button
+                      onClick={() => endSession(d.device_key)}
+                      disabled={!!killing}
+                      className="rounded-lg px-2 py-1 text-xs font-bold text-rose-500 transition hover:bg-rose-500/10 disabled:opacity-40"
+                      title={mine ? 'Выйти на этом устройстве' : 'Отключить это устройство'}
+                    >
+                      {killing === d.device_key ? '…' : mine ? 'Выйти' : 'Отключить'}
+                    </button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+
+          <p className="mt-2.5 text-xs text-[var(--muted)]">
+            Отключённое устройство выходит из аккаунта само — в течение двух минут или сразу, как только вернётся в окно.
+          </p>
         </div>
-        <button onClick={logout} className="btn-ghost mt-3 w-full !py-2 text-sm text-rose-500">
-          <LogOut size={15} /> Завершить сеанс на этом устройстве
-        </button>
-        <p className="mt-2 text-xs text-[var(--muted)]">Список чужих устройств и удалённый выход требуют хранения сессий на сервере — это следующий шаг. Здесь показано только то, что браузер знает точно.</p>
-      </div>
+      ) : (
+        <div className="rounded-2xl border border-[var(--border)] p-4">
+          <div className="text-sm font-bold">Устройство</div>
+          <div className="mt-2 flex items-center justify-between gap-3 text-sm">
+            <div className="flex min-w-0 items-center gap-2.5">
+              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-[var(--panel-2)] text-[var(--accent)]">
+                {isMobileOs(local.os) ? <Smartphone size={17} /> : <Monitor size={17} />}
+              </span>
+              <div className="min-w-0">
+                <div className="truncate font-semibold">{deviceLabel(local)}</div>
+                <div className="text-xs text-[var(--muted)]">Демо-режим — сеансы не хранятся</div>
+              </div>
+            </div>
+            <span className="chip shrink-0">текущее</span>
+          </div>
+          <button onClick={logout} className="btn-ghost mt-3 w-full !py-2 text-sm text-rose-500">
+            <LogOut size={15} /> Завершить сеанс на этом устройстве
+          </button>
+        </div>
+      )}
     </div>
   )
 }
@@ -626,7 +726,7 @@ function AboutTab() {
       <div className="flex flex-col items-center gap-2 py-4 text-center">
         <div className="grid h-16 w-16 place-items-center rounded-2xl accent-gradient text-3xl text-white">💬</div>
         <div className="text-lg font-black">Femboy<span className="accent-text">Chat</span></div>
-        <div className="text-xs text-[var(--muted)]">Версия 0.6.1 · режим: {mode === 'local' ? 'демо (локальный)' : 'Supabase'}</div>
+        <div className="text-xs text-[var(--muted)]">Версия 0.7.1 · режим: {mode === 'local' ? 'демо (локальный)' : 'Supabase'}</div>
         <p className="max-w-xs text-sm text-[var(--muted)]">Тёплый real-time мессенджер для РУ-сообщества. Сделано с 💖</p>
       </div>
       <button onClick={logout} className="flex w-full items-center justify-center gap-2 rounded-xl border border-rose-300/40 py-2.5 font-semibold text-rose-500 hover:bg-rose-500/10">

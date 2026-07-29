@@ -8,11 +8,14 @@ import { Settings } from '../settings/Settings'
 import { NewChatModal } from './NewChatModal'
 import { Lightbox } from '../ui/Lightbox'
 import { classNames } from '../../lib/util'
+import { deviceInfo, deviceKey } from '../../lib/device'
 
 export function AppShell() {
   const activeChatId = useStore((s) => s.activeChatId)
   const mode = useStore((s) => s.mode)
   const unread = useStore((s) => s.unread)
+  const account = useStore((s) => s.account)
+  const backend = useStore((s) => s.backend)
   const [tipHidden, setTipHidden] = useState(() => localStorage.getItem('fc:hideRealtimeTip') === '1')
   const showTip = mode === 'local' && !tipHidden
 
@@ -20,6 +23,45 @@ export function AppShell() {
     const total = Object.values(unread).reduce((a, b) => a + b, 0)
     document.title = total > 0 ? `(${total}) FemboyChat 🎀` : 'FemboyChat 🎀 — тёплый мессенджер'
   }, [unread])
+
+  /**
+   * Session heartbeat. Announces this device and, more importantly, listens for
+   * the answer: `false` means the row was revoked from another device, so this
+   * one signs itself out. A network hiccup returns null instead, which must not
+   * kick anyone out.
+   */
+  useEffect(() => {
+    const rpc = backend?.rpc
+    if (!account || !backend || !rpc) return
+    const key = deviceKey()
+    const info = deviceInfo()
+    let stopped = false
+
+    async function beat() {
+      if (stopped) return
+      const alive = await rpc!.call(backend, 'register_device', {
+        key,
+        browser: info.browser,
+        os: info.os,
+        standalone: info.standalone,
+      })
+      if (alive === false && !stopped) {
+        stopped = true
+        useStore.getState().toast('Сеанс на этом устройстве завершён', '🔒')
+        await useStore.getState().logout()
+      }
+    }
+
+    void beat()
+    const timer = setInterval(() => void beat(), 120_000)
+    const onFocus = () => void beat()
+    window.addEventListener('focus', onFocus)
+    return () => {
+      stopped = true
+      clearInterval(timer)
+      window.removeEventListener('focus', onFocus)
+    }
+  }, [account?.uid, backend])
 
   // ⌘/Ctrl+K → focus search · Konami code → easter egg
   useEffect(() => {
