@@ -7,6 +7,13 @@ import type { Backend, AuthResult, ChatPreview, MessagePage, PeerPresence } from
 const PAGE_SIZE = 50
 
 /**
+ * How many typing channels may stay joined at once. Typing is only ever shown
+ * for the chat on screen, so a handful is plenty; the cap stops an account with
+ * hundreds of conversations from opening a socket subscription for each one.
+ */
+const TYPING_CHANNEL_LIMIT = 12
+
+/**
  * Optional production backend backed by Supabase.
  *
  * It is only selected when VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY are set.
@@ -27,6 +34,8 @@ export class SupabaseBackend implements Backend {
   private lastPresenceAt = 0
   /** Posts already reported to mark_viewed, so scrolling doesn't re-send them. */
   private viewed = new Set<string>()
+  /** Joined typing channels, keyed by chat id. Insertion order = age. */
+  private typingChannels = new Map<string, any>()
 
   constructor(private url: string, private key: string) {}
 
@@ -163,6 +172,7 @@ export class SupabaseBackend implements Backend {
   }
 
   async logout() {
+    this.dropTypingChannels()
     await this.client.auth.signOut()
     this.account = null
   }
@@ -206,7 +216,12 @@ export class SupabaseBackend implements Backend {
 
   async listChats(): Promise<Chat[]> {
     const { data } = await this.client.rpc('list_my_chats')
-    return (data ?? []).map(rowToChat)
+    const chats = (data ?? []).map(rowToChat)
+    // Joining happens here because this is the one place that knows the full
+    // chat list. Broadcast is send-only until a client joins the channel, which
+    // is exactly why the indicator never used to appear.
+    this.watchTyping(chats)
+    return chats
   }
 
   /**
@@ -291,6 +306,7 @@ export class SupabaseBackend implements Backend {
   }
   async leaveChat(id: string) {
     await this.client.rpc('leave_chat', { chat: id })
+    this.unwatchTyping(id)
   }
 
   /**
@@ -422,11 +438,75 @@ export class SupabaseBackend implements Backend {
     }
   }
 
+  // ── typing ──
+
+  /**
+   * Join the typing channels of the conversations where an indicator is
+   * actually rendered. Channels are only ever shown for people, so groups,
+   * direct chats and bots qualify while broadcast channels do not.
+   */
+  private watchTyping(chats: Chat[]) {
+    if (!this.client) return
+    for (const c of chats) {
+      if (c.type !== 'dm' && c.type !== 'group' && c.type !== 'bot') continue
+      this.typingChannel(c.id)
+    }
+  }
+
+  /**
+   * Get (or join) the broadcast channel carrying typing pings for one chat.
+   *
+   * `self: false` keeps our own pings from bouncing back, and the uid guard
+   * covers the case of the same account being open in two tabs.
+   */
+  private typingChannel(chatId: string) {
+    const existing = this.typingChannels.get(chatId)
+    if (existing) return existing
+
+    const channel = this.client.channel(`typing-${chatId}`, { config: { broadcast: { self: false } } })
+    channel
+      .on('broadcast', { event: 'typing' }, (p: any) => {
+        const uid = p?.payload?.uid
+        if (!uid || uid === this.account?.uid) return
+        this.subs.forEach((cb) =>
+          cb({ type: 'typing', chatId: p?.payload?.chatId ?? chatId, uid, name: p?.payload?.name ?? '' }),
+        )
+      })
+      .subscribe()
+
+    this.typingChannels.set(chatId, channel)
+    // Map iteration order is insertion order, so the first key is the oldest.
+    while (this.typingChannels.size > TYPING_CHANNEL_LIMIT) {
+      const oldest = this.typingChannels.keys().next().value as string | undefined
+      if (!oldest || oldest === chatId) break
+      this.unwatchTyping(oldest)
+    }
+    return channel
+  }
+
+  private unwatchTyping(chatId: string) {
+    const channel = this.typingChannels.get(chatId)
+    if (!channel) return
+    this.typingChannels.delete(chatId)
+    try {
+      this.client?.removeChannel(channel)
+    } catch {
+      /* the socket may already be gone */
+    }
+  }
+
+  private dropTypingChannels() {
+    for (const chatId of [...this.typingChannels.keys()]) this.unwatchTyping(chatId)
+  }
+
   setTyping(chatId: string) {
-    this.client?.channel(`typing-${chatId}`).send({
+    if (!this.client || !this.account) return
+    // Reuses the joined channel; joining on demand also covers a chat that was
+    // opened before its list arrived.
+    this.typingChannel(chatId).send({
       type: 'broadcast',
       event: 'typing',
-      payload: { uid: this.account?.uid, name: this.account?.name, chatId },
+      payload: { uid: this.account.uid, name: this.account.name, chatId },
     })
   }
 
