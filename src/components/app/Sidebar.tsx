@@ -8,7 +8,7 @@ import { useActions } from './useActions'
 import { openContextMenu } from '../ui/ContextMenu'
 import { Logo } from '../ui/Logo'
 import { attachmentLabel } from '../../lib/media'
-import { classNames, timeShort } from '../../lib/util'
+import { classNames, plainText, timeShort } from '../../lib/util'
 import type { Chat } from '../../types'
 
 const FOLDERS = [
@@ -59,12 +59,16 @@ export function Sidebar() {
     const typers = Object.values(typing[c.id] ?? {}).filter((t) => now - t.at < 4000)
     if (typers.length) return { text: c.type === 'group' ? `${typers[0].name} печатает…` : 'печатает…', typing: true, draft: false }
     const draft = c.id !== activeChatId ? localStorage.getItem(`fc:draft:${c.id}`) : null
-    if (draft) return { text: draft, typing: false, draft: true }
+    if (draft) return { text: plainText(draft), typing: false, draft: true }
     const p = previews[c.id]
     if (!p) return { text: c.description ?? 'Нет сообщений', typing: false, draft: false }
     if (p.deleted) return { text: 'сообщение удалено', typing: false, draft: false }
     const prefix = c.type === 'group' && p.senderUid !== account.uid ? `${resolve(p.senderUid).name.split(' ')[0]}: ` : ''
-    const body = p.sticker ? `${p.sticker} стикер` : p.attachment ? attachmentLabel(p.attachment) + (p.text ? ` · ${p.text}` : '') : p.text || 'вложение'
+    // The list is a single line of plain text, so markup has to be flattened
+    // — otherwise a bold message shows its asterisks and a channel post shows
+    // its heading hashes.
+    const text = p.text ? plainText(p.text) : ''
+    const body = p.sticker ? `${p.sticker} стикер` : p.attachment ? attachmentLabel(p.attachment) + (text ? ` · ${text}` : '') : text || 'вложение'
     return { text: prefix + body, typing: false, draft: false }
   }
 
