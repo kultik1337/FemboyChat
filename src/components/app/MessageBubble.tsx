@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Check, CheckCheck, Clock, CornerUpLeft, Download, Eye, FileText, MessageCircle, MoreHorizontal, Smile } from 'lucide-react'
 import type { Attachment, Chat, Message } from '../../types'
 import { classNames, renderPost, renderRich, timeShort } from '../../lib/util'
@@ -14,6 +14,12 @@ import { useActions } from './useActions'
 import type { Person } from './people'
 
 const emojiOnly = (t: string) => /^\p{Extended_Pictographic}(\u200d\p{Extended_Pictographic}|\ufe0f|\s)*$/u.test(t.trim()) && [...t.trim()].length <= 6
+
+/** How far the bubble follows the finger, and where the reply fires. */
+const SWIPE_MAX = 84
+const SWIPE_TRIGGER = 52
+/** Below this the gesture is still undecided — it may turn out to be a scroll. */
+const SWIPE_SLOP = 12
 
 export function MessageBubble({
   message,
@@ -57,6 +63,9 @@ export function MessageBubble({
   const setComposeReply = useStore((s) => s.setComposeReply)
   const { messageMenu } = useActions()
   const [pop, setPop] = useState(false)
+  // Swipe-to-reply: how far the row is currently pulled, and the live gesture.
+  const [pull, setPull] = useState(0)
+  const swipe = useRef<{ x: number; y: number; active: boolean } | null>(null)
 
   function openMenu(e: React.MouseEvent) {
     const { items, reactions } = messageMenu(message)
@@ -88,6 +97,55 @@ export function MessageBubble({
   // The stored counter is a snapshot from load time; the panel knows better.
   const comments = commentCount ?? message.commentCount ?? 0
   const views = message.viewCount ?? 0
+
+  /*
+    Swipe-to-reply, Telegram-style: drag a message to the left and let go.
+    The gesture stays undecided until the finger has clearly moved sideways,
+    so vertical scrolling through the history is never hijacked — that is also
+    why the row keeps `touch-action: pan-y` and the handlers never call
+    preventDefault.
+  */
+  const canSwipeReply = !message.deleted && !message.pending
+
+  function onTouchStart(e: React.TouchEvent) {
+    if (!canSwipeReply || e.touches.length !== 1) return
+    const t = e.touches[0]
+    swipe.current = { x: t.clientX, y: t.clientY, active: false }
+  }
+
+  function onTouchMove(e: React.TouchEvent) {
+    const s = swipe.current
+    if (!s || e.touches.length !== 1) return
+    const t = e.touches[0]
+    const dx = t.clientX - s.x
+    const dy = t.clientY - s.y
+
+    if (!s.active) {
+      // A mostly-vertical move is a scroll: hand it back to the list for good.
+      if (Math.abs(dy) > Math.abs(dx)) {
+        swipe.current = null
+        return
+      }
+      if (Math.abs(dx) < SWIPE_SLOP) return
+      s.active = true
+    }
+
+    // Only leftwards, and with a hard stop so the bubble cannot fly away.
+    setPull(Math.max(0, Math.min(-dx, SWIPE_MAX)))
+  }
+
+  function onTouchEnd() {
+    const s = swipe.current
+    swipe.current = null
+    if (s?.active && pull >= SWIPE_TRIGGER) {
+      setComposeReply(message)
+      navigator.vibrate?.(8)
+    }
+    setPull(0)
+  }
+
+  const swiping = !!swipe.current?.active
+  const swipeProgress = Math.min(1, pull / SWIPE_TRIGGER)
 
   // Telegram-style stacked corners: tighten the corner on the sender's side
   // between consecutive messages, keep the outer "tail" corners round.
@@ -182,10 +240,31 @@ export function MessageBubble({
   return (
     <div
       id={`msg-${message.id}`}
-      className={classNames('group flex min-w-0 gap-2 px-3 sm:px-4', isMine ? 'flex-row-reverse' : 'flex-row', firstOfGroup ? 'mt-4' : 'mt-1', fresh && 'animate-fade-in')}
+      className={classNames('group relative flex min-w-0 gap-2 px-3 sm:px-4', isMine ? 'flex-row-reverse' : 'flex-row', firstOfGroup ? 'mt-4' : 'mt-1', fresh && 'animate-fade-in')}
       onContextMenu={message.deleted ? undefined : openMenu}
       onDoubleClick={quickReact}
+      onTouchStart={onTouchStart}
+      onTouchMove={onTouchMove}
+      onTouchEnd={onTouchEnd}
+      onTouchCancel={onTouchEnd}
+      style={{
+        touchAction: 'pan-y',
+        transform: pull ? `translateX(-${pull}px)` : undefined,
+        transition: swiping ? 'none' : 'transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1)',
+      }}
     >
+      {pull > 0 && (
+        <span
+          className="pointer-events-none absolute right-1 top-1/2 grid h-9 w-9 place-items-center rounded-full bg-[var(--panel-2)] text-[var(--accent)] shadow-sm"
+          style={{
+            opacity: swipeProgress,
+            transform: `translateY(-50%) scale(${0.7 + swipeProgress * 0.3})`,
+          }}
+        >
+          <CornerUpLeft size={17} />
+        </span>
+      )}
+
       {!isMine && chat.type === 'group' ? (
         showAvatar ? (
           <button onClick={() => setProfileUid(sender.uid)} className="mt-auto">
