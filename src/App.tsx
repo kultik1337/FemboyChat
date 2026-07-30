@@ -7,7 +7,11 @@ import { Auth } from './components/auth/Auth'
 import { AppShell } from './components/app/AppShell'
 import { Toasts } from './components/ui/Toasts'
 import { ContextMenu } from './components/ui/ContextMenu'
+import { Effects } from './components/ui/Effects'
 import { Logo } from './components/ui/Logo'
+
+/** How long boot may take before the app gives up and shows something usable. */
+const BOOT_TIMEOUT_MS = 12_000
 
 export default function App() {
   const ready = useStore((s) => s.ready)
@@ -16,7 +20,32 @@ export default function App() {
   const settings = useStore((s) => s.account?.settings)
 
   useEffect(() => {
-    boot()
+    let settled = false
+
+    // boot() sets `ready` as its last step, so anything that threw or stalled on
+    // the way there left the app on the loading screen forever, with no error
+    // shown anywhere. One unreachable request or one bad row in the database
+    // should degrade into "log in again", never into an eternal spinner.
+    const giveUp = (reason: string, err?: unknown) => {
+      if (settled) return
+      settled = true
+      console.error('[boot] ' + reason, err)
+      const s = useStore.getState()
+      if (s.ready) return
+      useStore.setState({ ready: true, route: s.account ? 'app' : 'landing' })
+      s.toast('Не удалось загрузить всё до конца — попробуй обновить страницу', '⚠️')
+    }
+
+    const watchdog = setTimeout(() => giveUp('timed out'), BOOT_TIMEOUT_MS)
+    boot().then(
+      () => {
+        settled = true
+        clearTimeout(watchdog)
+      },
+      (err) => giveUp('failed', err),
+    )
+
+    return () => clearTimeout(watchdog)
   }, [boot])
 
   // Apply appearance whenever settings change (and a sensible default before login).
@@ -62,6 +91,7 @@ export default function App() {
       {route === 'app' && <AppShell />}
       <Toasts />
       <ContextMenu />
+      <Effects />
     </>
   )
 }
