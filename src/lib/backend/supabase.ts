@@ -185,14 +185,28 @@ export class SupabaseBackend implements Backend {
     return { ok: true, account: this.account }
   }
 
+  /**
+   * Find the signed-in user's profile row, creating it on first sight.
+   *
+   * New sign-ups normally get their row from a database trigger; this is the
+   * fallback for accounts created before that trigger existed.
+   *
+   * Two unique constraints can reject the insert, and the retry loop used to
+   * treat both as "nick taken": a clash on the e-mail (an orphaned profile
+   * still holding it) therefore looped twice, failed twice, and returned null,
+   * which then blew up in rowToAccount as "Cannot read properties of null
+   * (reading 'num_id')" and froze the whole boot. Each constraint now gets the
+   * fix it actually needs, and an insert that still fails throws something a
+   * human can read instead of a null.
+   */
   private async ensureProfile(user: any, username?: string, name?: string): Promise<Account> {
     const { data: existing } = await this.client.from('profiles').select('*').eq('uid', user.id).maybeSingle()
     if (existing) return rowToAccount(existing)
     let uname = normalizeUsername(username || user.user_metadata?.username || `user${Date.now().toString(36)}`)
+    let email: string | null = user.email ?? null
     const base = {
       uid: user.id,
       name: name || user.user_metadata?.name || uname,
-      email: user.email ?? null,
       bio: '',
       emoji: '🎀',
       color: '#ff7ab8',
@@ -202,12 +216,28 @@ export class SupabaseBackend implements Backend {
       settings: defaultSettings(),
     }
     let inserted: any = null
-    for (let attempt = 0; attempt < 2 && !inserted; attempt++) {
-      const { data, error } = await this.client.from('profiles').insert({ ...base, username: uname }).select('*').single()
-      if (data) inserted = data
-      else if (error && (error.code === '23505' || (error.message ?? '').includes('duplicate')))
-        uname = `${uname}_${Math.random().toString(36).slice(2, 5)}` // nick taken: append a short suffix
-      else break
+    let lastError: any = null
+    for (let attempt = 0; attempt < 3 && !inserted; attempt++) {
+      const { data, error } = await this.client.from('profiles').insert({ ...base, email, username: uname }).select('*').single()
+      if (data) {
+        inserted = data
+        break
+      }
+      lastError = error
+      const detail = `${error?.message ?? ''} ${error?.details ?? ''}`.toLowerCase()
+      const conflict = error?.code === '23505' || detail.includes('duplicate')
+      if (!conflict) break
+      // The e-mail is optional in the profile; the account itself already owns
+      // it in auth.users, so dropping it here is harmless and unblocks login.
+      if (detail.includes('email')) email = null
+      else uname = `${uname}_${Math.random().toString(36).slice(2, 5)}`
+    }
+    if (!inserted) {
+      throw new Error(
+        lastError?.message
+          ? `Не удалось создать профиль: ${lastError.message}`
+          : 'Не удалось создать профиль — попробуй перезагрузить страницу',
+      )
     }
     return rowToAccount(inserted)
   }
@@ -396,6 +426,8 @@ export class SupabaseBackend implements Backend {
         ttl: input.ttl,
         attachment: input.attachment,
         comment_of: input.commentOf ?? null,
+        // Set only when forwarding; an ordinary message leaves it null.
+        forwarded_from: input.forwardedFrom ?? null,
       })
       .select('*')
       .single()
@@ -730,6 +762,7 @@ function rowToMessage(r: any): Message {
     ts: typeof r.ts === 'number' ? r.ts : Date.parse(r.ts ?? r.created_at ?? Date.now()),
     editedTs: r.edited_ts ?? undefined,
     replyToId: r.reply_to_id ?? undefined,
+    forwardedFrom: r.forwarded_from ?? undefined,
     reactions: r.reactions ?? [],
     pinned: r.pinned,
     deleted: r.deleted,
