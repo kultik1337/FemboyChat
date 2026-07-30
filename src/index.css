@@ -51,7 +51,7 @@
   }
 }
 
-/* ───────────────────── Design tokens ───────────────────── */
+/* ─────────────────── Design tokens ─────────────────── */
 :root {
   --accent: #ff7ab8;
   --accent-2: #7cc4ff;
@@ -168,6 +168,21 @@ body,
   }
 }
 
+/* ...and `dvh` still is not enough, because it deliberately ignores the
+   ON-SCREEN KEYBOARD: when the keyboard opens, dvh keeps its value and the
+   browser scrolls the layout viewport instead, which is what left the composer
+   stranded mid-screen with empty space under it. `--app-h` mirrors
+   visualViewport.height (set by src/lib/viewport.ts) and is the only value that
+   shrinks when the keyboard appears. It stays phone-only: on desktop a resizing
+   window would fight with it. */
+@media (max-width: 767px) {
+  html,
+  body,
+  #root {
+    height: var(--app-h, 100%);
+  }
+}
+
 body {
   margin: 0;
   background: var(--bg);
@@ -199,7 +214,7 @@ body,
   font-variant-emoji: emoji;
 }
 
-/* ───────────────────── Scrollbars ───────────────────────
+/* ─────────────────── Scrollbars ───────────────────
    CRITICAL: `scrollbar-width` and `scrollbar-color` are INHERITED, and Chrome
    disables every ::-webkit-scrollbar pseudo-element on any element that has
    them. Declaring them on `html` therefore silently kills the custom bar on
@@ -319,7 +334,7 @@ body,
   background-image: linear-gradient(180deg, var(--sb-thumb-1), var(--sb-thumb-2));
 }
 
-/* ───────────────────── Rich text extras ───────────────────── */
+/* ─────────────────── Rich text extras ─────────────────── */
 .spoiler {
   background: color-mix(in srgb, var(--muted) 55%, transparent);
   color: transparent;
@@ -341,7 +356,7 @@ body,
   font-weight: 700;
 }
 
-/* ───────────────────── Message niceties ───────────────────── */
+/* ─────────────────── Message niceties ─────────────────── */
 @keyframes msg-flash {
   0%, 100% { background: transparent; }
   25% { background: color-mix(in srgb, var(--accent) 26%, transparent); }
@@ -374,7 +389,7 @@ body,
   transform-origin: bottom;
 }
 
-/* ───────────────────── Media attachments ───────────────────── */
+/* ─────────────────── Media attachments ─────────────────── */
 audio::-webkit-media-controls-panel {
   background: color-mix(in srgb, var(--panel-2) 80%, transparent);
 }
@@ -406,9 +421,15 @@ audio::-webkit-media-controls-panel {
   background: #fff;
 }
 
-/* ───────────────────── Landing ───────────────────── */
+/* ─────────────────── Landing ─────────────────── */
 .landing-bg {
   background: linear-gradient(160deg, var(--bg-grad-1), var(--bg-grad-2));
+  /* The marquee below is `width: max-content`, i.e. deliberately wider than the
+     screen, and the drifting blobs sit outside the viewport too. Without this
+     the landing page could be dragged sideways — there is nothing to see there,
+     it just felt broken. Clipping here (rather than on <body>) keeps the sticky
+     header working, because this element is the page's scroll container. */
+  overflow-x: hidden;
 }
 @keyframes blob-drift {
   0%, 100% { transform: translate(0, 0) scale(1); }
@@ -434,7 +455,7 @@ audio::-webkit-media-controls-panel {
   animation-play-state: paused;
 }
 
-/* ───────────────────── Phones & installed app ───────────────────── */
+/* ─────────────────── Phones & installed app ─────────────────── */
 
 /* Notch and home-bar padding. `env()` resolves to 0 on every desktop browser,
    so these are safe to apply unconditionally. */
@@ -457,7 +478,9 @@ audio::-webkit-media-controls-panel {
 
   /* Reaction pills, context menus and toasts are laid out for a mouse; on a
      narrow screen they must never widen the page (that is what made the sidebar
-     collapse before). */
+     collapse before). `html` is included because clipping <body> alone leaves
+     the root element free to scroll sideways. */
+  html,
   body {
     overflow-x: hidden;
   }
