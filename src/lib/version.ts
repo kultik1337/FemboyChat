@@ -6,6 +6,6 @@
  * bundle. Keep this constant and `package.json`'s "version" field in sync — bump
  * both in the same commit as the changelog post.
  */
-export const APP_VERSION = '0.7.8'
+export const APP_VERSION = '0.8.0'
 
 export const APP_VERSION_LABEL = `v${APP_VERSION}`
