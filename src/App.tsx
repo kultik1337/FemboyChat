@@ -5,6 +5,7 @@ import { defaultSettings } from './lib/defaults'
 import { Landing } from './components/landing/Landing'
 import { Auth } from './components/auth/Auth'
 import { AppShell } from './components/app/AppShell'
+import { TitleBar } from './components/app/TitleBar'
 import { Toasts } from './components/ui/Toasts'
 import { ContextMenu } from './components/ui/ContextMenu'
 import { Logo } from './components/ui/Logo'
@@ -57,9 +58,21 @@ export default function App() {
 
   return (
     <>
-      {route === 'landing' && <Landing />}
-      {route === 'auth' && <Auth />}
-      {route === 'app' && <AppShell />}
+      {/*
+        The title bar renders nothing in a normal browser tab, so this column is
+        equivalent to the old markup there: the routed view is a flex item with
+        `min-h-0 flex-1`, which still resolves to the full height its `h-full`
+        children expect. Toasts and the context menu stay OUTSIDE the column
+        because they are fixed-position overlays and must not become flex items.
+      */}
+      <div className="flex h-full flex-col">
+        <TitleBar />
+        <div className="min-h-0 flex-1">
+          {route === 'landing' && <Landing />}
+          {route === 'auth' && <Auth />}
+          {route === 'app' && <AppShell />}
+        </div>
+      </div>
       <Toasts />
       <ContextMenu />
     </>

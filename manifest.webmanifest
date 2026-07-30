@@ -8,29 +8,17 @@
   "scope": "/",
   "id": "/",
   "display": "standalone",
-  "display_override": ["standalone", "minimal-ui"],
+  "display_override": ["window-controls-overlay", "standalone", "minimal-ui"],
   "orientation": "portrait-primary",
   "background_color": "#fff5fb",
   "theme_color": "#ff9ecd",
   "categories": ["social", "communication"],
   "icons": [
     {
-      "src": "/icon-app.svg",
-      "type": "image/svg+xml",
-      "sizes": "any",
-      "purpose": "any"
-    },
-    {
       "src": "/icon.png",
       "type": "image/png",
       "sizes": "600x598",
       "purpose": "any"
-    },
-    {
-      "src": "/icon-mask.svg",
-      "type": "image/svg+xml",
-      "sizes": "any",
-      "purpose": "maskable"
     }
   ]
 }
