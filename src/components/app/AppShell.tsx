@@ -8,9 +8,11 @@ import { Settings } from '../settings/Settings'
 import { NewChatModal } from './NewChatModal'
 import { Lightbox } from '../ui/Lightbox'
 import { InstallPrompt } from '../ui/InstallPrompt'
+import { PushPrompt } from '../ui/PushPrompt'
 import { classNames } from '../../lib/util'
 import { deviceInfo, deviceKey } from '../../lib/device'
 import { initPwa } from '../../lib/pwa'
+import { refreshPush } from '../../lib/push'
 
 export function AppShell() {
   const activeChatId = useStore((s) => s.activeChatId)
@@ -29,6 +31,27 @@ export function AppShell() {
   // Manifest, service worker and the install banner's state.
   useEffect(() => {
     initPwa()
+  }, [])
+
+  /**
+   * Push endpoints rotate silently, so an already-subscribed device re-saves its
+   * subscription on every boot instead of assuming the stored one still works.
+   */
+  useEffect(() => {
+    if (!account) return
+    void refreshPush()
+  }, [account?.uid])
+
+  /** Tapping a system notification asks the open tab to jump to that chat. */
+  useEffect(() => {
+    if (!('serviceWorker' in navigator)) return
+    const onMessage = (event: MessageEvent) => {
+      const data = event.data as { type?: string; chatId?: string | null } | null
+      if (!data || data.type !== 'OPEN_CHAT' || !data.chatId) return
+      void useStore.getState().openChat(data.chatId)
+    }
+    navigator.serviceWorker.addEventListener('message', onMessage)
+    return () => navigator.serviceWorker.removeEventListener('message', onMessage)
   }, [])
 
   /**
@@ -123,7 +146,12 @@ export function AppShell() {
       <Settings />
       <NewChatModal />
       <Lightbox />
-      {!activeChatId && <InstallPrompt />}
+      {!activeChatId && (
+        <>
+          <InstallPrompt />
+          <PushPrompt />
+        </>
+      )}
     </div>
   )
 }
