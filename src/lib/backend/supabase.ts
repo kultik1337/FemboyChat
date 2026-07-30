@@ -13,6 +13,45 @@ const PAGE_SIZE = 50
  */
 const TYPING_CHANNEL_LIMIT = 12
 
+/** Buckets. Avatars stay public; everything people send each other does not. */
+const AVATAR_BUCKET = 'avatars'
+const ATTACHMENT_BUCKET = 'attachments'
+
+/**
+ * How long a signed attachment link stays valid. Long enough that an open tab
+ * keeps working through a normal session, short enough that a leaked link is
+ * not a permanent public door into someone's private chat.
+ */
+const SIGNED_URL_TTL_SEC = 60 * 60 * 24
+
+/** Re-sign this long before expiry, so a link never dies mid-playback. */
+const SIGN_REFRESH_MARGIN_MS = 10 * 60 * 1000
+
+/**
+ * Pull the storage object path out of an attachment URL pointing at our private
+ * bucket.
+ *
+ * Returns null for anything else — external GIFs, blob: previews of a file that
+ * has not been uploaded yet, data: URLs — so those are left completely alone.
+ *
+ * Both shapes are handled: the legacy `.../object/public/attachments/<path>`
+ * links stored in old rows, and `.../object/sign/attachments/<path>?token=...`
+ * written since the bucket became private. The query string is dropped, so a
+ * long-expired token in the database is harmless: only the path matters.
+ */
+function attachmentObjectPath(url?: string): string | null {
+  const marker = `/${ATTACHMENT_BUCKET}/`
+  if (!url || !url.includes(marker)) return null
+  const tail = url.split(marker).slice(1).join(marker)
+  const path = (tail ?? '').split('?')[0]
+  if (!path) return null
+  try {
+    return decodeURIComponent(path)
+  } catch {
+    return path
+  }
+}
+
 /**
  * Optional production backend backed by Supabase.
  *
@@ -36,6 +75,8 @@ export class SupabaseBackend implements Backend {
   private viewed = new Set<string>()
   /** Joined typing channels, keyed by chat id. Insertion order = age. */
   private typingChannels = new Map<string, any>()
+  /** Signed attachment links, keyed by storage path, with their expiry. */
+  private signedUrls = new Map<string, { url: string; exp: number }>()
 
   constructor(private url: string, private key: string) {}
 
@@ -64,13 +105,23 @@ export class SupabaseBackend implements Backend {
       .channel('fc-messages')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, (p: any) => {
         if (p.new?.comment_of) return
-        this.subs.forEach((cb) => cb({ type: 'message', message: rowToMessage(p.new) }))
+        void this.emitMessage('message', rowToMessage(p.new))
       })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'messages' }, (p: any) => {
         if (p.new?.comment_of) return
-        this.subs.forEach((cb) => cb({ type: 'message:update', message: rowToMessage(p.new) }))
+        void this.emitMessage('message:update', rowToMessage(p.new))
       })
       .subscribe()
+  }
+
+  /**
+   * Fan a message out to subscribers, giving its attachment a usable link
+   * first. An arriving row carries whatever URL was stored months ago, which
+   * for a private bucket is not something the browser can load.
+   */
+  private async emitMessage(type: 'message' | 'message:update', message: Message) {
+    const ready = await this.withSignedAttachment(message)
+    this.subs.forEach((cb) => cb({ type, message: ready } as RealtimeEvent))
   }
 
   private async refreshDirectory() {
@@ -173,6 +224,9 @@ export class SupabaseBackend implements Backend {
 
   async logout() {
     this.dropTypingChannels()
+    // Signed links are tied to the session that asked for them; a different
+    // account must never inherit them from the previous one.
+    this.signedUrls.clear()
     await this.client.auth.signOut()
     this.account = null
   }
@@ -326,7 +380,8 @@ export class SupabaseBackend implements Backend {
       .limit(page?.limit ?? PAGE_SIZE)
     if (page?.before) q = q.lt('ts', new Date(page.before).toISOString())
     const { data } = await q
-    return (data ?? []).map(rowToMessage).reverse()
+    // One signing request covers every attachment on the page.
+    return this.withSignedAttachments((data ?? []).map(rowToMessage).reverse())
   }
   async send(input: Omit<Message, 'id' | 'ts' | 'reactions' | 'readByUids'>): Promise<Message> {
     const { data } = await this.client
@@ -344,7 +399,7 @@ export class SupabaseBackend implements Backend {
       })
       .select('*')
       .single()
-    return rowToMessage(data)
+    return this.withSignedAttachment(rowToMessage(data))
   }
   async edit(_c: string, id: string, text: string) {
     await this.client.from('messages').update({ text, edited_ts: Date.now() }).eq('id', id)
@@ -407,16 +462,81 @@ export class SupabaseBackend implements Backend {
       .select('*')
       .eq('comment_of', postId)
       .order('ts', { ascending: true })
-    return (data ?? []).map(rowToMessage)
+    return this.withSignedAttachments((data ?? []).map(rowToMessage))
+  }
+
+  // ── attachment links ──
+
+  /**
+   * Turn storage paths into signed links, using the in-memory cache for
+   * anything still comfortably valid and asking storage for the rest in a
+   * single batched request.
+   *
+   * Failures are quiet on purpose: a missing link degrades one thumbnail, and
+   * that is far better than an exception taking the whole chat down.
+   */
+  private async signPaths(paths: string[]): Promise<Map<string, string>> {
+    const out = new Map<string, string>()
+    if (!this.client) return out
+    const now = Date.now()
+    const missing: string[] = []
+    for (const path of paths) {
+      const hit = this.signedUrls.get(path)
+      if (hit && hit.exp - SIGN_REFRESH_MARGIN_MS > now) out.set(path, hit.url)
+      else missing.push(path)
+    }
+    if (missing.length === 0) return out
+    try {
+      const { data, error } = await this.client.storage
+        .from(ATTACHMENT_BUCKET)
+        .createSignedUrls(missing, SIGNED_URL_TTL_SEC)
+      if (error || !data) return out
+      for (const row of data as any[]) {
+        const signed: string | undefined = row?.signedUrl ?? row?.signedURL
+        const path: string | undefined = row?.path
+        if (!signed || !path) continue
+        this.signedUrls.set(path, { url: signed, exp: now + SIGNED_URL_TTL_SEC * 1000 })
+        out.set(path, signed)
+      }
+    } catch {
+      /* offline or storage hiccup — keep whatever the cache had */
+    }
+    return out
+  }
+
+  /** Swap stored attachment URLs for freshly signed ones. */
+  private async withSignedAttachments(messages: Message[]): Promise<Message[]> {
+    const paths = new Set<string>()
+    for (const m of messages) {
+      const path = attachmentObjectPath(m.attachment?.url)
+      if (path) paths.add(path)
+    }
+    if (paths.size === 0) return messages
+    const signed = await this.signPaths([...paths])
+    if (signed.size === 0) return messages
+    return messages.map((m) => {
+      if (!m.attachment) return m
+      const path = attachmentObjectPath(m.attachment.url)
+      const url = path ? signed.get(path) : undefined
+      return url ? { ...m, attachment: { ...m.attachment, url } } : m
+    })
+  }
+
+  private async withSignedAttachment(message: Message): Promise<Message> {
+    const [signed] = await this.withSignedAttachments([message])
+    return signed ?? message
   }
 
   async uploadFile(kind: 'avatar' | 'attachment', file: Blob, name?: string): Promise<{ url: string }> {
     if (!this.account) throw new Error('not authed')
-    const bucket = kind === 'avatar' ? 'avatars' : 'attachments'
+    const bucket = kind === 'avatar' ? AVATAR_BUCKET : ATTACHMENT_BUCKET
     const { extensionFor } = await import('../media')
+    // ASCII only: a signed link is issued for an exact object path, so a name
+    // that survives a percent-encoding round trip is one less thing to break.
     const safeBase = (name ?? 'file')
       .replace(/\.[^.]*$/, '')
-      .replace(/[^a-zA-Z0-9а-яёА-ЯЁ_-]+/g, '_')
+      .replace(/[^a-zA-Z0-9_-]+/g, '_')
+      .replace(/^_+|_+$/g, '')
       .slice(0, 40) || 'file'
     const path = `${this.account.uid}/${Date.now()}-${safeBase}.${extensionFor(file.type, name)}`
     const { error } = await this.client.storage.from(bucket).upload(path, file, {
@@ -424,8 +544,16 @@ export class SupabaseBackend implements Backend {
       upsert: false,
     })
     if (error) throw new Error(error.message ?? 'Не удалось загрузить файл')
-    const { data } = this.client.storage.from(bucket).getPublicUrl(path)
-    return { url: data.publicUrl as string }
+    // Avatars are meant to be visible everywhere, including to people who share
+    // no chat with you, so that bucket stays public.
+    if (bucket === AVATAR_BUCKET) {
+      const { data } = this.client.storage.from(bucket).getPublicUrl(path)
+      return { url: data.publicUrl as string }
+    }
+    const signed = await this.signPaths([path])
+    const url = signed.get(path)
+    if (!url) throw new Error('Файл загрузился, но ссылку получить не удалось — попробуй ещё раз')
+    return { url }
   }
 
   async fetchLinkPreview(url: string): Promise<LinkPreview | null> {
