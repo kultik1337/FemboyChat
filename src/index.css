@@ -51,7 +51,7 @@
   }
 }
 
-/* ─────────────────────── Design tokens ─────────────────────── */
+/* ───────────────────── Design tokens ───────────────────── */
 :root {
   --accent: #ff7ab8;
   --accent-2: #7cc4ff;
@@ -155,6 +155,19 @@ body,
   height: 100%;
 }
 
+/* On phones `100%` is the WRONG height: the address bar makes the visual
+   viewport shorter than the layout viewport, so the composer ends up hidden
+   underneath it and the message list scrolls under the browser chrome. `dvh`
+   tracks the actually visible area and shrinks/grows with the address bar. The
+   @supports guard keeps older engines on the percentage fallback above. */
+@supports (height: 100dvh) {
+  html,
+  body,
+  #root {
+    height: 100dvh;
+  }
+}
+
 body {
   margin: 0;
   background: var(--bg);
@@ -162,6 +175,11 @@ body {
   font-size: calc(15px * var(--font-scale));
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+  /* No rubber-band bounce dragging the whole app around on iOS, and no pull-to-
+     refresh eating an upward swipe in the message list. */
+  overscroll-behavior-y: none;
+  /* Safari inflates text in landscape unless this is pinned. */
+  -webkit-text-size-adjust: 100%;
 }
 
 /* The `.font-sans` utility is included on purpose: a class beats `body` on
@@ -181,7 +199,7 @@ body,
   font-variant-emoji: emoji;
 }
 
-/* ─────────────────────── Scrollbars ────────────────────────
+/* ───────────────────── Scrollbars ───────────────────────
    CRITICAL: `scrollbar-width` and `scrollbar-color` are INHERITED, and Chrome
    disables every ::-webkit-scrollbar pseudo-element on any element that has
    them. Declaring them on `html` therefore silently kills the custom bar on
@@ -301,7 +319,7 @@ body,
   background-image: linear-gradient(180deg, var(--sb-thumb-1), var(--sb-thumb-2));
 }
 
-/* ─────────────────────── Rich text extras ─────────────────────── */
+/* ───────────────────── Rich text extras ───────────────────── */
 .spoiler {
   background: color-mix(in srgb, var(--muted) 55%, transparent);
   color: transparent;
@@ -323,7 +341,7 @@ body,
   font-weight: 700;
 }
 
-/* ─────────────────────── Message niceties ─────────────────────── */
+/* ───────────────────── Message niceties ───────────────────── */
 @keyframes msg-flash {
   0%, 100% { background: transparent; }
   25% { background: color-mix(in srgb, var(--accent) 26%, transparent); }
@@ -356,7 +374,7 @@ body,
   transform-origin: bottom;
 }
 
-/* ─────────────────────── Media attachments ─────────────────────── */
+/* ───────────────────── Media attachments ───────────────────── */
 audio::-webkit-media-controls-panel {
   background: color-mix(in srgb, var(--panel-2) 80%, transparent);
 }
@@ -388,7 +406,7 @@ audio::-webkit-media-controls-panel {
   background: #fff;
 }
 
-/* ─────────────────────── Landing ─────────────────────── */
+/* ───────────────────── Landing ───────────────────── */
 .landing-bg {
   background: linear-gradient(160deg, var(--bg-grad-1), var(--bg-grad-2));
 }
@@ -414,6 +432,53 @@ audio::-webkit-media-controls-panel {
 }
 .landing-marquee:hover {
   animation-play-state: paused;
+}
+
+/* ───────────────────── Phones & installed app ───────────────────── */
+
+/* Notch and home-bar padding. `env()` resolves to 0 on every desktop browser,
+   so these are safe to apply unconditionally. */
+.safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.safe-top {
+  padding-top: env(safe-area-inset-top);
+}
+
+@media (max-width: 767px) {
+  /* iOS zooms the page in whenever a focused field's text is smaller than 16px,
+     and it never zooms back out — the single most common reason a mobile web app
+     feels broken. 16px is the threshold, not a design choice. */
+  input,
+  textarea,
+  select {
+    font-size: 16px;
+  }
+
+  /* Reaction pills, context menus and toasts are laid out for a mouse; on a
+     narrow screen they must never widen the page (that is what made the sidebar
+     collapse before). */
+  body {
+    overflow-x: hidden;
+  }
+}
+
+/* Touch devices draw their own overlay scrollbar, so our capsule only steals
+   horizontal space and can never be hovered. Hide it and give the real buttons
+   a finger-sized hit area instead. */
+@media (hover: none) and (pointer: coarse) {
+  ::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+  }
+  .btn-primary,
+  .btn-ghost {
+    min-height: 44px;
+  }
+  /* Hover styling sticks after a tap on touch, which looks like a stuck state. */
+  .btn-ghost:hover {
+    background: var(--panel-2);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
