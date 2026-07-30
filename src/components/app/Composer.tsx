@@ -402,20 +402,17 @@ export function Composer() {
           }}
         />
       ) : (
-        <div className="flex items-end gap-1">
-          <IconButton title="Эмодзи" active={emoji} onClick={() => { setEmoji((v) => !v); setStickers(false); setGifs(false) }}>
-            <Smile size={21} />
-          </IconButton>
-          <IconButton title="Стикеры" active={stickers} onClick={() => { setStickers((v) => !v); setEmoji(false); setGifs(false) }}>
-            <StickerIcon size={21} />
-          </IconButton>
-          <IconButton title="GIF" active={gifs} onClick={() => { setGifs((v) => !v); setEmoji(false); setStickers(false) }}>
-            <ImagePlay size={21} />
-          </IconButton>
-          <IconButton title="Прикрепить файл" onClick={() => fileRef.current?.click()}>
-            <Paperclip size={20} />
-          </IconButton>
-
+        /*
+          LAYOUT, and why it is two rows on a phone:
+          eight round buttons plus a send button need ~360px on their own, so on a
+          390px screen the text field was left with a couple of dozen pixels and
+          its placeholder wrapped one letter per line. Below `sm` the field gets a
+          full row of its own and the buttons sit underneath it. From `sm` up the
+          wrapper turns into `display: contents`, so the buttons become direct
+          flex items again and the familiar single-row desktop bar is unchanged —
+          the explicit `order` values keep the field between the two icon groups.
+        */
+        <div className="flex flex-col gap-1.5 sm:flex-row sm:items-end sm:gap-1">
           <textarea
             ref={ref}
             value={text}
@@ -423,39 +420,57 @@ export function Composer() {
             onKeyDown={onKey}
             onPaste={onPaste}
             rows={1}
-            autoFocus
+            autoFocus={!isCoarsePointer()}
             placeholder={pending.length ? 'Подпись…' : 'Сообщение…  (/ — команды)'}
-            className="max-h-40 min-w-0 flex-1 resize-none rounded-2xl border border-[var(--border)] bg-[var(--panel-2)] px-4 py-2.5 outline-none focus:ring-2 focus:ring-[var(--ring)]"
+            className="max-h-40 w-full min-w-0 resize-none rounded-2xl border border-[var(--border)] bg-[var(--panel-2)] px-4 py-2.5 outline-none focus:ring-2 focus:ring-[var(--ring)] sm:order-2 sm:w-auto sm:flex-1"
           />
 
-          <div className="relative">
-            <IconButton title="Исчезающее сообщение" onClick={() => setTtlOpen((v) => !v)} active={!!ttl}>
-              <Clock size={20} />
+          <div className="flex items-center gap-0.5 sm:contents">
+            <IconButton title="Эмодзи" active={emoji} onClick={() => { setEmoji((v) => !v); setStickers(false); setGifs(false) }}>
+              <Smile size={21} />
             </IconButton>
-            {ttlOpen && (
-              <>
-                <div className="fixed inset-0 z-20" onClick={() => setTtlOpen(false)} />
-                <div className="absolute bottom-12 right-0 z-30 w-36 rounded-xl border border-[var(--border)] bg-[var(--panel)] p-1 shadow-xl animate-pop-in" style={{ boxShadow: 'var(--shadow)' }}>
-                  {TTLS.map((o) => (
-                    <button key={o.v} onClick={() => { setTtl(o.v); setTtlOpen(false) }} className={classNames('block w-full rounded-lg px-3 py-1.5 text-left text-sm hover:bg-[var(--panel-hover)]', ttl === o.v && 'font-bold accent-text')}>{o.label}</button>
-                  ))}
-                </div>
-              </>
+            <IconButton title="Стикеры" active={stickers} onClick={() => { setStickers((v) => !v); setEmoji(false); setGifs(false) }}>
+              <StickerIcon size={21} />
+            </IconButton>
+            <IconButton title="GIF" active={gifs} onClick={() => { setGifs((v) => !v); setEmoji(false); setStickers(false) }}>
+              <ImagePlay size={21} />
+            </IconButton>
+            <IconButton title="Прикрепить файл" onClick={() => fileRef.current?.click()}>
+              <Paperclip size={20} />
+            </IconButton>
+
+            {/* Pushes send to the far right on the phone row; harmless on desktop. */}
+            <span className="flex-1 sm:hidden" />
+
+            <div className="relative sm:order-3">
+              <IconButton title="Исчезающее сообщение" onClick={() => setTtlOpen((v) => !v)} active={!!ttl}>
+                <Clock size={20} />
+              </IconButton>
+              {ttlOpen && (
+                <>
+                  <div className="fixed inset-0 z-20" onClick={() => setTtlOpen(false)} />
+                  <div className="absolute bottom-12 right-0 z-30 w-36 rounded-xl border border-[var(--border)] bg-[var(--panel)] p-1 shadow-xl animate-pop-in" style={{ boxShadow: 'var(--shadow)' }}>
+                    {TTLS.map((o) => (
+                      <button key={o.v} onClick={() => { setTtl(o.v); setTtlOpen(false) }} className={classNames('block w-full rounded-lg px-3 py-1.5 text-left text-sm hover:bg-[var(--panel-hover)]', ttl === o.v && 'font-bold accent-text')}>{o.label}</button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+            <IconButton title="Опрос" className="sm:order-3" onClick={() => setPollOpen(true)}>
+              <ListChecks size={20} />
+            </IconButton>
+
+            {showMic ? (
+              <button onClick={() => setRecording(true)} className="grid h-11 w-11 shrink-0 place-items-center rounded-full accent-gradient text-white shadow-md transition hover:brightness-105 active:scale-95 sm:order-3" title="Голосовое сообщение">
+                <Mic size={19} />
+              </button>
+            ) : (
+              <button onClick={submit} disabled={sending} className="grid h-11 w-11 shrink-0 place-items-center rounded-full accent-gradient text-white shadow-md transition hover:brightness-105 active:scale-95 disabled:opacity-60 sm:order-3" title="Отправить">
+                {sending ? <Loader2 size={19} className="animate-spin" /> : <Send size={19} />}
+              </button>
             )}
           </div>
-          <IconButton title="Опрос" onClick={() => setPollOpen(true)}>
-            <ListChecks size={20} />
-          </IconButton>
-
-          {showMic ? (
-            <button onClick={() => setRecording(true)} className="grid h-11 w-11 shrink-0 place-items-center rounded-full accent-gradient text-white shadow-md transition hover:brightness-105 active:scale-95" title="Голосовое сообщение">
-              <Mic size={19} />
-            </button>
-          ) : (
-            <button onClick={submit} disabled={sending} className="grid h-11 w-11 shrink-0 place-items-center rounded-full accent-gradient text-white shadow-md transition hover:brightness-105 active:scale-95 disabled:opacity-60" title="Отправить">
-              {sending ? <Loader2 size={19} className="animate-spin" /> : <Send size={19} />}
-            </button>
-          )}
         </div>
       )}
 
@@ -475,7 +490,7 @@ function attachmentChipLabel(a: Attachment) {
   }
 }
 
-function IconButton({ children, onClick, title, active }: { children: React.ReactNode; onClick: () => void; title: string; active?: boolean }) {
+function IconButton({ children, onClick, title, active, className }: { children: React.ReactNode; onClick: () => void; title: string; active?: boolean; className?: string }) {
   return (
     <button
       onClick={onClick}
@@ -483,6 +498,7 @@ function IconButton({ children, onClick, title, active }: { children: React.Reac
       className={classNames(
         'grid h-10 w-10 shrink-0 place-items-center rounded-full transition hover:bg-[var(--panel-hover)]',
         active ? 'text-[var(--accent)]' : 'text-[var(--muted)]',
+        className,
       )}
     >
       {children}

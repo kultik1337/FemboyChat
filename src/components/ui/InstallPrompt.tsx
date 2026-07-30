@@ -1,13 +1,28 @@
 import { useEffect, useState } from 'react'
-import { Download, Plus, Share2, X } from 'lucide-react'
-import { canInstall, dismissInstall, installDismissed, isIos, isStandalone, onInstallChange, promptInstall } from '../../lib/pwa'
+import { Download, MoreVertical, Plus, Share2, X } from 'lucide-react'
+import {
+	canInstall,
+	dismissInstall,
+	installDismissed,
+	isChromiumDesktop,
+	isIos,
+	isStandalone,
+	onInstallChange,
+	promptInstall,
+} from '../../lib/pwa'
+
+/** How long to wait for Chrome's install event before falling back to a hint. */
+const HINT_DELAY_MS = 2500
 
 /**
  * A one-line invitation to install the app, shown at the bottom of the screen.
  *
- * Two very different flows hide behind one banner:
- *  - Chromium: the browser handed us a real install event, so one tap installs.
- *  - iOS Safari: no such event exists, so the banner explains the Share ->
+ * Three different flows hide behind one banner:
+ *  - Chromium with the install event: one tap installs.
+ *  - Desktop Chromium without it: the browser can still install from its own
+ *    menu, so the banner points there rather than disappearing (that silence is
+ *    why the banner looked broken on PC).
+ *  - iOS Safari: no install event exists at all, so it explains the Share ->
  *    "На экран «Домой»" route instead of pretending there is a button.
  *
  * Dismissal is remembered, and the banner never appears once the app is already
@@ -16,6 +31,7 @@ import { canInstall, dismissInstall, installDismissed, isIos, isStandalone, onIn
 export function InstallPrompt() {
 	const [, bump] = useState(0)
 	const [narrow, setNarrow] = useState(() => window.matchMedia('(max-width: 767px)').matches)
+	const [hintReady, setHintReady] = useState(false)
 
 	useEffect(() => onInstallChange(() => bump((n) => n + 1)), [])
 
@@ -26,12 +42,19 @@ export function InstallPrompt() {
 		return () => mq.removeEventListener('change', onChange)
 	}, [])
 
+	// The written fallback waits a moment: if the real event is coming, the
+	// one-tap button should win instead of flashing instructions first.
+	useEffect(() => {
+		const t = setTimeout(() => setHintReady(true), HINT_DELAY_MS)
+		return () => clearTimeout(t)
+	}, [])
+
 	if (isStandalone() || installDismissed()) return null
 
-	const ios = isIos()
 	const native = canInstall()
-	// The iOS hint is only worth the screen space on a phone-sized screen.
-	if (!native && !(ios && narrow)) return null
+	const iosHint = !native && isIos() && narrow
+	const desktopHint = !native && !isIos() && hintReady && isChromiumDesktop()
+	if (!native && !iosHint && !desktopHint) return null
 
 	return (
 		<div className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center px-3 pb-[calc(env(safe-area-inset-bottom)+12px)]">
@@ -41,15 +64,23 @@ export function InstallPrompt() {
 				</div>
 				<div className="min-w-0 flex-1 text-xs leading-snug">
 					<div className="font-bold text-[var(--text)]">Установить FemboyChat</div>
-					{native ? (
-						<div className="text-[var(--muted)]">Отдельное окно, иконка на экране, работает быстрее</div>
-					) : (
+					{native && <div className="text-[var(--muted)]">Отдельное окно, иконка на экране, работает быстрее</div>}
+					{iosHint && (
 						<div className="flex flex-wrap items-center gap-1 text-[var(--muted)]">
 							<span>Нажми</span>
 							<Share2 size={13} className="inline-block" />
 							<span>, затем</span>
 							<Plus size={13} className="inline-block" />
 							<span className="font-semibold text-[var(--text)]">На экран «Домой»</span>
+						</div>
+					)}
+					{desktopHint && (
+						<div className="flex flex-wrap items-center gap-1 text-[var(--muted)]">
+							<span>Меню браузера</span>
+							<MoreVertical size={13} className="inline-block" />
+							<span>→</span>
+							<span className="font-semibold text-[var(--text)]">Установить приложение</span>
+							<span>(или иконка установки в адресной строке)</span>
 						</div>
 					)}
 				</div>

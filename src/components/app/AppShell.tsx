@@ -146,12 +146,17 @@ export function AppShell() {
       <Settings />
       <NewChatModal />
       <Lightbox />
-      {!activeChatId && (
-        <>
-          <InstallPrompt />
-          <PushPrompt />
-        </>
-      )}
+      {/*
+        These banners are fixed to the bottom of the screen. On a phone that is
+        exactly where the composer lives, so inside an open chat they are hidden
+        there. On desktop the composer is inside a panel and there is room to
+        spare -- hiding them there is what made the install banner look missing,
+        because a chat is almost always open on a wide screen.
+      */}
+      <div className={activeChatId ? 'hidden md:block' : undefined}>
+        <InstallPrompt />
+        <PushPrompt />
+      </div>
     </div>
   )
 }

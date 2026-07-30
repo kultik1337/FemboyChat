@@ -16,6 +16,12 @@ type BeforeInstallPromptEvent = Event & {
 	userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>
 }
 
+/** Also not in the DOM lib: the modern, structured user-agent info. */
+type NavigatorUAData = {
+	brands?: Array<{ brand: string; version: string }>
+	mobile?: boolean
+}
+
 const HIDE_KEY = 'fc:hideInstall'
 const RELOADED_KEY = 'fc:swReloaded'
 
@@ -47,6 +53,26 @@ export function isIos(): boolean {
 	if (/iPhone|iPad|iPod/i.test(ua)) return true
 	// iPadOS reports itself as a Mac; touch points give it away.
 	return navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1
+}
+
+/**
+ * Desktop Chromium (Chrome, Edge, Brave, Opera...). These browsers CAN install
+ * the app from their own menu even when `beforeinstallprompt` never reached us,
+ * which is why the banner offers written instructions there instead of giving
+ * up silently. Firefox and desktop Safari have no install flow at all, so they
+ * are excluded — promising them anything would be a lie.
+ */
+export function isChromiumDesktop(): boolean {
+	const ua = navigator.userAgent
+	const data = (navigator as Navigator & { userAgentData?: NavigatorUAData }).userAgentData
+	const mobile = data?.mobile ?? /Android|iPhone|iPad|iPod/i.test(ua)
+	if (mobile) return false
+	if (data?.brands?.length) {
+		return data.brands.some((b) => /Chromium|Chrome|Edge|Opera|Brave/i.test(b.brand))
+	}
+	if (/Firefox\//i.test(ua)) return false
+	// Safari's UA also contains "Safari" but never "Chrome".
+	return /Chrome\/|Chromium\/|Edg\//i.test(ua)
 }
 
 export function canInstall(): boolean {
@@ -89,6 +115,14 @@ function addMeta(name: string, content: string): void {
 	document.head.appendChild(el)
 }
 
+function addLink(rel: string, href: string): void {
+	if (document.querySelector('link[rel="' + rel + '"]')) return
+	const el = document.createElement('link')
+	el.setAttribute('rel', rel)
+	el.setAttribute('href', href)
+	document.head.appendChild(el)
+}
+
 function injectManifest(): void {
 	if (!document.querySelector('link[rel="manifest"]')) {
 		const link = document.createElement('link')
@@ -96,6 +130,8 @@ function injectManifest(): void {
 		link.href = '/manifest.webmanifest'
 		document.head.appendChild(link)
 	}
+	// iOS ignores the manifest icons entirely and uses this instead.
+	addLink('apple-touch-icon', '/icon.png')
 	addMeta('mobile-web-app-capable', 'yes')
 	addMeta('apple-mobile-web-app-capable', 'yes')
 	addMeta('apple-mobile-web-app-title', 'FemboyChat')
@@ -142,13 +178,17 @@ function registerServiceWorker(): void {
 	else window.addEventListener('load', start, { once: true })
 }
 
-/** Safe to call more than once; only the first call does the work. */
+/**
+ * Safe to call more than once; only the first call does the work.
+ *
+ * The install listener is attached BEFORE the manifest is injected on purpose:
+ * Chrome can fire `beforeinstallprompt` as soon as it has both a manifest and
+ * an active service worker, and an event that fires before the listener exists
+ * is lost for good -- which is exactly how the banner went missing on desktop.
+ */
 export function initPwa(): void {
 	if (started) return
 	started = true
-
-	injectManifest()
-	registerServiceWorker()
 
 	window.addEventListener('beforeinstallprompt', (event) => {
 		event.preventDefault()
@@ -160,4 +200,7 @@ export function initPwa(): void {
 		localStorage.setItem(HIDE_KEY, '1')
 		notify()
 	})
+
+	injectManifest()
+	registerServiceWorker()
 }
