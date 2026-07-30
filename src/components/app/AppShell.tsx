@@ -7,8 +7,10 @@ import { RightPanel } from './RightPanel'
 import { Settings } from '../settings/Settings'
 import { NewChatModal } from './NewChatModal'
 import { Lightbox } from '../ui/Lightbox'
+import { InstallPrompt } from '../ui/InstallPrompt'
 import { classNames } from '../../lib/util'
 import { deviceInfo, deviceKey } from '../../lib/device'
+import { initPwa } from '../../lib/pwa'
 
 export function AppShell() {
   const activeChatId = useStore((s) => s.activeChatId)
@@ -23,6 +25,11 @@ export function AppShell() {
     const total = Object.values(unread).reduce((a, b) => a + b, 0)
     document.title = total > 0 ? `(${total}) FemboyChat 🎀` : 'FemboyChat 🎀 — тёплый мессенджер'
   }, [unread])
+
+  // Manifest, service worker and the install banner's state.
+  useEffect(() => {
+    initPwa()
+  }, [])
 
   /**
    * Session heartbeat. Announces this device and, more importantly, listens for
@@ -84,7 +91,7 @@ export function AppShell() {
   }, [])
 
   return (
-    <div className="flex h-full flex-col overflow-hidden">
+    <div className="safe-bottom flex h-full flex-col overflow-hidden">
       {showTip && (
         <div className="flex items-center gap-2 bg-[var(--panel-2)] px-4 py-1.5 text-xs text-[var(--muted)]">
           <span>💡 Демо-режим: чтобы увидеть реальное время, открой сайт в <b className="text-[var(--text)]">двух отдельных окнах</b> (не «дублировать вкладку») и войди разными аккаунтами. Для синхронизации между устройствами подключи Supabase (см. README).</span>
@@ -116,6 +123,7 @@ export function AppShell() {
       <Settings />
       <NewChatModal />
       <Lightbox />
+      {!activeChatId && <InstallPrompt />}
     </div>
   )
 }

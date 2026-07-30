@@ -1,15 +1,11 @@
 /**
- * The version the app reports about itself.
+ * The single source of truth for the app version.
  *
- * This is the single value the UI renders — Settings → О приложении reads it
- * instead of hardcoding a number that silently rots. Keep `version` in
- * package.json identical: `npm version` bumps that one, and this constant is
- * the copy the bundle can actually import (importing package.json from src
- * would drag the whole manifest into the client bundle).
- *
- * When a change ships, bump both and use the same number in the Changelog post.
+ * `package.json` is deliberately NOT imported here: pulling it into `src` would
+ * require `resolveJsonModule` and would drag the whole manifest into the client
+ * bundle. Keep this constant and `package.json`'s "version" field in sync — bump
+ * both in the same commit as the changelog post.
  */
-export const APP_VERSION = '0.7.7'
+export const APP_VERSION = '0.7.8'
 
-/** Human-readable build label, e.g. "v0.7.7". */
 export const APP_VERSION_LABEL = `v${APP_VERSION}`

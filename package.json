@@ -1,12 +1,12 @@
 {
   "name": "femboychat",
   "private": true,
-  "version": "0.7.7",
-  "type": "module",
+  "version": "0.7.8",
   "description": "FemboyChat — современный real-time мессенджер для РУ-сегмента (Telegram-подобный аналог).",
+  "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build && cp icon.png dist/icon.png",
+    "build": "vite build && cp icon.png dist/icon.png && cp icon-mask.svg dist/icon-mask.svg && cp manifest.webmanifest dist/manifest.webmanifest && cp sw.js dist/sw.js",
     "typecheck": "tsc --noEmit",
     "verify": "tsx scripts/verify.ts",
     "preview": "vite preview"
