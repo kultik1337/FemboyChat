@@ -41,6 +41,12 @@ const TTLS = [
 
 const draftKey = (id: string) => `fc:draft:${id}`
 
+/** Longest message the server will store. Matches the AI worker's own cap. */
+const MAX_LEN = 4000
+
+/** Start warning about the length only when the end is actually in sight. */
+const COUNTER_FROM = MAX_LEN - 300
+
 /**
  * True on touch-first devices. Focusing the input there would slide the on-screen
  * keyboard up over half the conversation every time a chat is opened, so the
@@ -82,6 +88,11 @@ export function Composer() {
   const [sending, setSending] = useState(false)
   const [recording, setRecording] = useState(false)
   const [spoiler, setSpoiler] = useState(false)
+  // Which autocomplete row the arrow keys are currently on, and whether Escape
+  // has hidden the list for the token being typed.
+  const [acIndex, setAcIndex] = useState(0)
+  const [acHidden, setAcHidden] = useState(false)
+  const [dragOver, setDragOver] = useState(false)
   const ref = useRef<HTMLTextAreaElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
@@ -139,6 +150,7 @@ export function Composer() {
 
   function updateText(v: string) {
     setText(v)
+    setAcHidden(false)
     if (!editing) {
       if (v) localStorage.setItem(draftKey(chatId), v)
       else localStorage.removeItem(draftKey(chatId))
@@ -171,9 +183,34 @@ export function Composer() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mentionQuery, chat?.id, chat?.memberUids.length])
 
+  // Both lists are keyboard-driven through one cursor; only one can be open at
+  // a time because their triggers ("/…" at the start, "@…" at the end) exclude
+  // each other.
+  const acList: 'mention' | 'slash' | null = mentionMatches.length ? 'mention' : slashMatches.length ? 'slash' : null
+  const acCount = acList === 'mention' ? mentionMatches.length : acList === 'slash' ? slashMatches.length : 0
+  const acOpen = !acHidden && acCount > 0
+
+  // A new query means a new list, so the cursor goes back to the top.
+  useEffect(() => {
+    setAcIndex(0)
+  }, [slashQuery, mentionQuery])
+
   function pickMention(username: string) {
     updateText(text.replace(/@[a-zA-Z0-9_]{0,24}$/, `@${username} `))
     ref.current?.focus()
+  }
+
+  function pickSlash(name: string) {
+    setText(`/${name} `)
+    setAcHidden(true)
+    ref.current?.focus()
+  }
+
+  /** Take whatever the autocomplete cursor is sitting on. */
+  function acceptAutocomplete() {
+    const i = Math.min(acIndex, acCount - 1)
+    if (acList === 'mention') pickMention(mentionMatches[i].username)
+    else if (acList === 'slash') pickSlash(slashMatches[i].name)
   }
 
   function afterSend() {
@@ -233,6 +270,11 @@ export function Composer() {
     if (sending) return
     const t = text.trim()
 
+    if (t.length > MAX_LEN) {
+      toast(`Слишком длинное — убери ещё ${t.length - MAX_LEN} символов`, '✏️')
+      return
+    }
+
     if (editing) {
       if (!t) return
       edit(editing.id, t)
@@ -270,16 +312,99 @@ export function Composer() {
     }
   }
 
+  /**
+   * Keep a list going when Enter inserts a newline: a line that starts with a
+   * bullet or a number gets the next marker for free, and pressing Enter on an
+   * empty item ends the list instead of laying down markers forever.
+   * Returns true when it handled the key.
+   */
+  function continueList(): boolean {
+    const el = ref.current
+    if (!el) return false
+    const start = el.selectionStart
+    const end = el.selectionEnd
+    if (start !== end) return false
+
+    const before = text.slice(0, start)
+    const line = before.slice(before.lastIndexOf('\n') + 1)
+    const m = /^(\s*)(?:([-*•])\s+|(\d+)\.\s+)/.exec(line)
+    if (!m) return false
+
+    const rest = text.slice(end)
+
+    // Nothing after the marker: the person is done with the list.
+    if (line.trim() === (m[2] ?? `${m[3]}.`)) {
+      const head = before.slice(0, before.length - line.length)
+      updateText(head + rest)
+      requestAnimationFrame(() => el.setSelectionRange(head.length, head.length))
+      return true
+    }
+
+    const marker = m[2] ? `${m[2]} ` : `${Number(m[3]) + 1}. `
+    const insert = `\n${m[1]}${marker}`
+    updateText(before + insert + rest)
+    const caret = before.length + insert.length
+    requestAnimationFrame(() => el.setSelectionRange(caret, caret))
+    return true
+  }
+
   function onKey(e: React.KeyboardEvent) {
+    // The autocomplete owns the arrows and Enter while it is open, the same way
+    // it does in editors — clicking a row was previously the only way to pick one.
+    if (acOpen) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        setAcIndex((i) => (i + 1) % acCount)
+        return
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        setAcIndex((i) => (i - 1 + acCount) % acCount)
+        return
+      }
+      if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
+        e.preventDefault()
+        acceptAutocomplete()
+        return
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        setAcHidden(true)
+        return
+      }
+    }
+
+    // Ctrl/⌘+Enter always sends, whatever "Enter отправляет" is set to.
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault()
+      submit()
+      return
+    }
+
     if (e.key === 'Enter' && !e.shiftKey && settings.enterToSend) {
       e.preventDefault()
       submit()
+      return
     }
+
+    // Any Enter that survives to here inserts a newline, so it can continue a list.
+    if (e.key === 'Enter' && continueList()) {
+      e.preventDefault()
+      return
+    }
+
     if (e.key === 'ArrowUp' && !text && !editing && !replyTo) {
       e.preventDefault()
       editLastMine()
     }
     if (e.key === 'Escape') {
+      // Close whatever tray is open first; only then drop the reply or edit.
+      if (emoji || stickers || gifs) {
+        setEmoji(false)
+        setStickers(false)
+        setGifs(false)
+        return
+      }
       setReply(null)
       setEdit(null)
     }
@@ -295,9 +420,37 @@ export function Composer() {
 
   const canSend = !!text.trim() || pending.length > 0
   const showMic = !canSend && !editing && typeof navigator !== 'undefined' && !!navigator.mediaDevices
+  const overLimit = text.length > MAX_LEN
 
   return (
-    <div className="relative border-t border-[var(--border)] bg-[var(--panel)] px-3 py-2.5">
+    <div
+      className="relative border-t border-[var(--border)] bg-[var(--panel)] px-3 py-2.5"
+      onDragOver={(e) => {
+        if (!Array.from(e.dataTransfer.types).includes('Files')) return
+        e.preventDefault()
+        setDragOver(true)
+      }}
+      onDragLeave={(e) => {
+        // Ignore the leave events fired while crossing child elements.
+        if (e.currentTarget.contains(e.relatedTarget as Node | null)) return
+        setDragOver(false)
+      }}
+      onDrop={(e) => {
+        const files = Array.from(e.dataTransfer.files ?? [])
+        setDragOver(false)
+        if (!files.length) return
+        e.preventDefault()
+        addPendingFiles(files)
+      }}
+    >
+      {dragOver && (
+        <div className="pointer-events-none absolute inset-1 z-40 grid place-items-center rounded-2xl border-2 border-dashed border-[var(--accent)] bg-[var(--panel-2)]/90 animate-pop-in">
+          <div className="flex items-center gap-2 text-sm font-bold accent-text">
+            <Paperclip size={17} /> Отпускай — прикреплю
+          </div>
+        </div>
+      )}
+
       {(replyTo || editing) && (
         <div className="mb-2 flex items-center gap-2 rounded-xl bg-[var(--panel-2)] px-3 py-2 text-sm">
           <CornerUpLeft size={16} className="text-[var(--accent)]" />
@@ -333,14 +486,18 @@ export function Composer() {
         </div>
       )}
 
-      {mentionMatches.length > 0 && (
+      {acOpen && acList === 'mention' && (
         <div className="absolute bottom-full left-2 right-2 z-30 mb-2 overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--panel)] shadow-xl animate-pop-in" style={{ boxShadow: 'var(--shadow)' }}>
           <div className="fancy-scroll max-h-56 overflow-y-auto p-1">
-            {mentionMatches.map((p) => (
+            {mentionMatches.map((p, i) => (
               <button
                 key={p.uid}
                 onClick={() => pickMention(p.username)}
-                className="flex w-full items-center gap-2.5 rounded-xl px-3 py-1.5 text-left hover:bg-[var(--panel-hover)]"
+                onMouseEnter={() => setAcIndex(i)}
+                className={classNames(
+                  'flex w-full items-center gap-2.5 rounded-xl px-3 py-1.5 text-left hover:bg-[var(--panel-hover)]',
+                  i === acIndex && 'bg-[var(--panel-hover)]',
+                )}
               >
                 <Avatar emoji={p.emoji} color={p.color} src={p.avatarUrl} size={30} />
                 <div className="min-w-0">
@@ -353,14 +510,18 @@ export function Composer() {
         </div>
       )}
 
-      {slashMatches.length > 0 && (
+      {acOpen && acList === 'slash' && (
         <div className="absolute bottom-full left-2 right-2 z-30 mb-2 overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--panel)] shadow-xl animate-pop-in" style={{ boxShadow: 'var(--shadow)' }}>
           <div className="fancy-scroll max-h-56 overflow-y-auto p-1">
-            {slashMatches.map((c) => (
+            {slashMatches.map((c, i) => (
               <button
                 key={c.name}
-                onClick={() => { setText(`/${c.name} `); ref.current?.focus() }}
-                className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left hover:bg-[var(--panel-hover)]"
+                onClick={() => pickSlash(c.name)}
+                onMouseEnter={() => setAcIndex(i)}
+                className={classNames(
+                  'flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left hover:bg-[var(--panel-hover)]',
+                  i === acIndex && 'bg-[var(--panel-hover)]',
+                )}
               >
                 <span className="text-xl">{c.emoji}</span>
                 <div className="min-w-0">
@@ -413,6 +574,12 @@ export function Composer() {
           the explicit `order` values keep the field between the two icon groups.
         */
         <div className="flex flex-col gap-1.5 sm:flex-row sm:items-end sm:gap-1">
+          {/*
+            `no-scrollbar`: the field grows with its content up to 160px and then
+            scrolls, and the bar the browser drew inside that small rounded box
+            was pure noise — a fat coloured pill sitting on the border radius.
+            Scrolling with the wheel, the caret and touch all still work.
+          */}
           <textarea
             ref={ref}
             value={text}
@@ -422,7 +589,10 @@ export function Composer() {
             rows={1}
             autoFocus={!isCoarsePointer()}
             placeholder={pending.length ? 'Подпись…' : 'Сообщение…  (/ — команды)'}
-            className="max-h-40 w-full min-w-0 resize-none rounded-2xl border border-[var(--border)] bg-[var(--panel-2)] px-4 py-2.5 outline-none focus:ring-2 focus:ring-[var(--ring)] sm:order-2 sm:w-auto sm:flex-1"
+            className={classNames(
+              'no-scrollbar max-h-40 w-full min-w-0 resize-none rounded-2xl border bg-[var(--panel-2)] px-4 py-2.5 outline-none focus:ring-2 sm:order-2 sm:w-auto sm:flex-1',
+              overLimit ? 'border-rose-500 focus:ring-rose-500/40' : 'border-[var(--border)] focus:ring-[var(--ring)]',
+            )}
           />
 
           <div className="flex items-center gap-0.5 sm:contents">
@@ -466,11 +636,17 @@ export function Composer() {
                 <Mic size={19} />
               </button>
             ) : (
-              <button onClick={submit} disabled={sending} className="grid h-11 w-11 shrink-0 place-items-center rounded-full accent-gradient text-white shadow-md transition hover:brightness-105 active:scale-95 disabled:opacity-60 sm:order-3" title="Отправить">
+              <button onClick={submit} disabled={sending || overLimit} className="grid h-11 w-11 shrink-0 place-items-center rounded-full accent-gradient text-white shadow-md transition hover:brightness-105 active:scale-95 disabled:opacity-60 sm:order-3" title="Отправить (Ctrl+Enter)">
                 {sending ? <Loader2 size={19} className="animate-spin" /> : <Send size={19} />}
               </button>
             )}
           </div>
+        </div>
+      )}
+
+      {text.length >= COUNTER_FROM && (
+        <div className={classNames('mt-1 text-right text-[11px] font-bold tabular-nums', overLimit ? 'text-rose-500' : 'text-[var(--muted)]')}>
+          {text.length} / {MAX_LEN}
         </div>
       )}
 
