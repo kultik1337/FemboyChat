@@ -1,6 +1,7 @@
 import { Ban, Bell, BellOff, Copy, CornerUpLeft, Download, Forward, Hash, Info, LogOut, MessageCircle, Pencil, Pin, Trash2, UserRound } from 'lucide-react'
 import { useStore } from '../../store/useStore'
 import { usePeople } from './people'
+import { openForward } from './ForwardPicker'
 import type { MenuItem } from '../ui/ContextMenu'
 import type { Chat, Message } from '../../types'
 
@@ -101,7 +102,16 @@ export function useActions() {
     const st = useStore.getState()
     const saved = st.chats.find((c) => c.type === 'saved')
     if (!saved || !st.account) return toast('Избранное недоступно', '🔖')
-    await st.backend!.send({ chatId: saved.id, senderUid: st.account.uid, text: m.text, sticker: m.sticker, attachment: m.attachment, forwardedFrom: m.senderUid })
+    await st.backend!.send({
+      chatId: saved.id,
+      senderUid: st.account.uid,
+      text: m.text,
+      sticker: m.sticker,
+      attachment: m.attachment,
+      poll: m.poll,
+      // Forwarding a forward still credits whoever actually wrote it.
+      forwardedFrom: m.forwardedFrom ?? m.senderUid,
+    })
     if (st.activeChatId === saved.id) await openChat(saved.id)
     toast('Переслано в Избранное', '🔖')
   }
@@ -111,7 +121,8 @@ export function useActions() {
     const mine = m.senderUid === me?.uid
     const items: MenuItem[] = [
       { label: 'Ответить', icon: <CornerUpLeft size={15} />, onClick: () => setComposeReply(m) },
-      { label: 'Переслать в Избранное', icon: <Forward size={15} />, onClick: () => forwardToSaved(m) },
+      { label: 'Переслать…', icon: <Forward size={15} />, onClick: () => openForward(m) },
+      { label: 'В Избранное', icon: <Forward size={15} />, onClick: () => forwardToSaved(m) },
       { label: 'Копировать', icon: <Copy size={15} />, onClick: () => copy(m.sticker ?? m.text) },
       { label: m.pinned ? 'Открепить' : 'Закрепить', icon: <Pin size={15} />, checked: m.pinned, onClick: () => pin(m.id) },
     ]
