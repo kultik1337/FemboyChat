@@ -11,15 +11,17 @@
  * That alone was not enough on iOS. Safari insists on scrolling the *document*
  * to bring a focused field into view, and since the app is one tall flex column
  * with the composer at the very bottom, tapping the input pushed the entire
- * interface above the top of the screen — leaving a black page with nothing but
- * Safari's own ↑↓✓ accessory bar floating over it.
+ * interface above the top of the screen. So on phones `#root` is pinned to the
+ * visual viewport: `position: fixed`, exactly as tall as the visible area, and
+ * any document scroll Safari performs is undone immediately.
  *
- * The fix is what native apps effectively do: pin the shell to the visual
- * viewport. On phones `#root` becomes `position: fixed`, exactly as tall as the
- * visible area, offset by `visualViewport.offsetTop`, and any document scroll
- * Safari performs is undone immediately. There is then nothing left to scroll,
- * so the layout cannot run away — the composer sits on the keyboard and the
- * message list keeps the remaining space, like Telegram.
+ * One measurement is never enough. iOS animates the keyboard for ~300ms and
+ * reports intermediate sizes along the way, so a single reading (or even four
+ * timed ones) can land mid-animation and leave the shell shorter than the
+ * screen -- a slab of empty page between the composer and the keyboard. The
+ * shell is therefore re-measured every animation frame for a short while after
+ * anything that can move the viewport, which costs nothing and always converges
+ * on the final size.
  */
 
 let started = false
@@ -80,27 +82,29 @@ export function initViewport(): void {
 	}
 
 	/**
-	 * iOS reports the new viewport a few frames late, and sometimes twice, so a
-	 * single measurement after focus is unreliable. Re-measure over ~half a
-	 * second instead of guessing one magic delay.
+	 * Re-measure every frame until `trackUntil`, so the shell follows the
+	 * keyboard animation instead of guessing where it will end up.
 	 */
-	const nudge = (): void => {
+	let trackUntil = 0
+	let rafId = 0
+	const pump = (): void => {
 		apply()
-		setTimeout(apply, 60)
-		setTimeout(apply, 200)
-		setTimeout(apply, 450)
+		if (Date.now() < trackUntil) {
+			rafId = requestAnimationFrame(pump)
+		} else {
+			rafId = 0
+		}
+	}
+	const track = (ms: number): void => {
+		trackUntil = Math.max(trackUntil, Date.now() + ms)
+		if (!rafId) rafId = requestAnimationFrame(pump)
 	}
 
 	apply()
-	vv.addEventListener('resize', apply)
-	// Safari also lets the page slide up behind the keyboard; re-measuring on
-	// scroll keeps the height honest while that happens.
+	// The keyboard animation is the long one; a plain resize settles fast.
+	vv.addEventListener('resize', () => track(400))
 	vv.addEventListener('scroll', apply)
-	// Opening and closing the keyboard.
-	window.addEventListener('focusin', nudge)
-	window.addEventListener('focusout', nudge)
-	// Rotation reports the new size a beat late on iOS.
-	window.addEventListener('orientationchange', () => {
-		setTimeout(nudge, 250)
-	})
+	window.addEventListener('focusin', () => track(1200))
+	window.addEventListener('focusout', () => track(1200))
+	window.addEventListener('orientationchange', () => track(1200))
 }

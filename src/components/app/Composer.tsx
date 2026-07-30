@@ -11,6 +11,7 @@ import {
   Mic,
   Music,
   Paperclip,
+  Plus,
   Send,
   Smile,
   Sticker as StickerIcon,
@@ -88,6 +89,8 @@ export function Composer() {
   const [sending, setSending] = useState(false)
   const [recording, setRecording] = useState(false)
   const [spoiler, setSpoiler] = useState(false)
+  // Phone-only sheet holding the actions that no longer fit on the bar.
+  const [moreOpen, setMoreOpen] = useState(false)
   // Which autocomplete row the arrow keys are currently on, and whether Escape
   // has hidden the list for the token being typed.
   const [acIndex, setAcIndex] = useState(0)
@@ -120,6 +123,7 @@ export function Composer() {
   // is immediately typeable.
   useEffect(() => {
     setSpoiler(false)
+    setMoreOpen(false)
     if (useStore.getState().composeEdit) return
     setText(localStorage.getItem(draftKey(chatId)) ?? '')
     focusInput()
@@ -211,6 +215,15 @@ export function Composer() {
     const i = Math.min(acIndex, acCount - 1)
     if (acList === 'mention') pickMention(mentionMatches[i].username)
     else if (acList === 'slash') pickSlash(slashMatches[i].name)
+  }
+
+  /** Close every tray/sheet the bar can open. */
+  function closeTrays() {
+    setEmoji(false)
+    setStickers(false)
+    setGifs(false)
+    setMoreOpen(false)
+    setTtlOpen(false)
   }
 
   function afterSend() {
@@ -399,10 +412,8 @@ export function Composer() {
     }
     if (e.key === 'Escape') {
       // Close whatever tray is open first; only then drop the reply or edit.
-      if (emoji || stickers || gifs) {
-        setEmoji(false)
-        setStickers(false)
-        setGifs(false)
+      if (emoji || stickers || gifs || moreOpen || ttlOpen) {
+        closeTrays()
         return
       }
       setReply(null)
@@ -421,10 +432,11 @@ export function Composer() {
   const canSend = !!text.trim() || pending.length > 0
   const showMic = !canSend && !editing && typeof navigator !== 'undefined' && !!navigator.mediaDevices
   const overLimit = text.length > MAX_LEN
+  const ttlLabel = TTLS.find((o) => o.v === ttl)?.label ?? 'Выкл'
 
   return (
     <div
-      className="relative border-t border-[var(--border)] bg-[var(--panel)] px-3 py-2.5"
+      className="relative border-t border-[var(--border)] bg-[var(--panel)] px-2 py-2 sm:px-3 sm:py-2.5"
       onDragOver={(e) => {
         if (!Array.from(e.dataTransfer.types).includes('Files')) return
         e.preventDefault()
@@ -538,6 +550,28 @@ export function Composer() {
       {stickers && <StickerTray onPick={(s) => { send({ text: '', sticker: s }); setStickers(false) }} onClose={() => setStickers(false)} />}
       {gifs && <GifTray onPick={sendGif} onClose={() => setGifs(false)} />}
 
+      {/*
+        The self-destruct menu lives at composer level rather than inside its
+        button, because that button is hidden on phones — the «➕» sheet opens
+        this same menu there.
+      */}
+      {ttlOpen && (
+        <>
+          <div className="fixed inset-0 z-20" onClick={() => setTtlOpen(false)} />
+          <div className="absolute bottom-16 right-3 z-30 w-40 rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-1 shadow-xl animate-pop-in" style={{ boxShadow: 'var(--shadow)' }}>
+            {TTLS.map((o) => (
+              <button
+                key={o.v}
+                onClick={() => { setTtl(o.v); setTtlOpen(false) }}
+                className={classNames('block w-full rounded-xl px-3 py-2 text-left text-sm hover:bg-[var(--panel-hover)]', ttl === o.v && 'font-bold accent-text')}
+              >
+                {o.label}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+
       <input ref={fileRef} type="file" multiple hidden onChange={(e) => { addPendingFiles(Array.from(e.target.files ?? [])); e.target.value = '' }} />
 
       {recording ? (
@@ -564,16 +598,46 @@ export function Composer() {
         />
       ) : (
         /*
-          LAYOUT, and why it is two rows on a phone:
-          eight round buttons plus a send button need ~360px on their own, so on a
-          390px screen the text field was left with a couple of dozen pixels and
-          its placeholder wrapped one letter per line. Below `sm` the field gets a
-          full row of its own and the buttons sit underneath it. From `sm` up the
-          wrapper turns into `display: contents`, so the buttons become direct
-          flex items again and the familiar single-row desktop bar is unchanged —
-          the explicit `order` values keep the field between the two icon groups.
+          LAYOUT — one row, on every screen.
+
+          Eight round buttons plus send need ~360px on their own, so on a 390px
+          phone the field was left with a couple of dozen pixels and wrapped its
+          placeholder one letter per line. Giving the field its own row fixed
+          that but ate ~70px of vertical space on a screen that also has to fit
+          a header, a pinned banner and the keyboard — the conversation was
+          reduced to a slit.
+
+          So on phones only four controls stay on the bar: «➕», the field,
+          emoji and send. Stickers, GIFs, files, polls and self-destruct move
+          into the «➕» sheet. From `sm` up the sheet button disappears, the
+          hidden group turns into `display: contents`, and the familiar desktop
+          bar is exactly as it was — the `order` values keep the field between
+          the two icon groups.
         */
-        <div className="flex flex-col gap-1.5 sm:flex-row sm:items-end sm:gap-1">
+        <div className="flex items-end gap-0.5 sm:gap-1">
+          <div className="relative sm:hidden">
+            <IconButton title="Ещё" active={moreOpen} onClick={() => { setMoreOpen((v) => !v); setEmoji(false); setStickers(false); setGifs(false) }}>
+              <Plus size={22} className={classNames('transition-transform', moreOpen && 'rotate-45')} />
+            </IconButton>
+            {moreOpen && (
+              <>
+                <div className="fixed inset-0 z-20" onClick={() => setMoreOpen(false)} />
+                <div className="absolute bottom-12 left-0 z-30 w-56 overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-1 shadow-xl animate-pop-in" style={{ boxShadow: 'var(--shadow)' }}>
+                  <SheetItem icon={<Paperclip size={17} />} label="Фото или файл" onClick={() => { setMoreOpen(false); fileRef.current?.click() }} />
+                  <SheetItem icon={<StickerIcon size={17} />} label="Стикеры" onClick={() => { setMoreOpen(false); setStickers(true) }} />
+                  <SheetItem icon={<ImagePlay size={17} />} label="GIF" onClick={() => { setMoreOpen(false); setGifs(true) }} />
+                  <SheetItem icon={<ListChecks size={17} />} label="Опрос" onClick={() => { setMoreOpen(false); setPollOpen(true) }} />
+                  <SheetItem
+                    icon={<Clock size={17} />}
+                    label="Исчезающее"
+                    hint={ttl ? ttlLabel : undefined}
+                    onClick={() => { setMoreOpen(false); setTtlOpen(true) }}
+                  />
+                </div>
+              </>
+            )}
+          </div>
+
           {/*
             `no-scrollbar`: the field grows with its content up to 160px and then
             scrolls, and the bar the browser drew inside that small rounded box
@@ -588,59 +652,45 @@ export function Composer() {
             onPaste={onPaste}
             rows={1}
             autoFocus={!isCoarsePointer()}
-            placeholder={pending.length ? 'Подпись…' : 'Сообщение…  (/ — команды)'}
+            placeholder={pending.length ? 'Подпись…' : 'Сообщение…'}
             className={classNames(
-              'no-scrollbar max-h-40 w-full min-w-0 resize-none rounded-2xl border bg-[var(--panel-2)] px-4 py-2.5 outline-none focus:ring-2 sm:order-2 sm:w-auto sm:flex-1',
+              'no-scrollbar max-h-40 min-w-0 flex-1 resize-none rounded-2xl border bg-[var(--panel-2)] px-3.5 py-2.5 outline-none focus:ring-2 sm:order-2 sm:px-4',
               overLimit ? 'border-rose-500 focus:ring-rose-500/40' : 'border-[var(--border)] focus:ring-[var(--ring)]',
             )}
           />
 
-          <div className="flex items-center gap-0.5 sm:contents">
-            <IconButton title="Эмодзи" active={emoji} onClick={() => { setEmoji((v) => !v); setStickers(false); setGifs(false) }}>
-              <Smile size={21} />
-            </IconButton>
-            <IconButton title="Стикеры" active={stickers} onClick={() => { setStickers((v) => !v); setEmoji(false); setGifs(false) }}>
+          <IconButton title="Эмодзи" className="sm:order-1" active={emoji} onClick={() => { setEmoji((v) => !v); setStickers(false); setGifs(false); setMoreOpen(false) }}>
+            <Smile size={21} />
+          </IconButton>
+
+          {/* Desktop-only group: `display: none` on phones, plain flex items from `sm`. */}
+          <span className="hidden sm:contents">
+            <IconButton title="Стикеры" className="sm:order-1" active={stickers} onClick={() => { setStickers((v) => !v); setEmoji(false); setGifs(false) }}>
               <StickerIcon size={21} />
             </IconButton>
-            <IconButton title="GIF" active={gifs} onClick={() => { setGifs((v) => !v); setEmoji(false); setStickers(false) }}>
+            <IconButton title="GIF" className="sm:order-1" active={gifs} onClick={() => { setGifs((v) => !v); setEmoji(false); setStickers(false) }}>
               <ImagePlay size={21} />
             </IconButton>
-            <IconButton title="Прикрепить файл" onClick={() => fileRef.current?.click()}>
+            <IconButton title="Прикрепить файл" className="sm:order-1" onClick={() => fileRef.current?.click()}>
               <Paperclip size={20} />
             </IconButton>
-
-            {/* Pushes send to the far right on the phone row; harmless on desktop. */}
-            <span className="flex-1 sm:hidden" />
-
-            <div className="relative sm:order-3">
-              <IconButton title="Исчезающее сообщение" onClick={() => setTtlOpen((v) => !v)} active={!!ttl}>
-                <Clock size={20} />
-              </IconButton>
-              {ttlOpen && (
-                <>
-                  <div className="fixed inset-0 z-20" onClick={() => setTtlOpen(false)} />
-                  <div className="absolute bottom-12 right-0 z-30 w-36 rounded-xl border border-[var(--border)] bg-[var(--panel)] p-1 shadow-xl animate-pop-in" style={{ boxShadow: 'var(--shadow)' }}>
-                    {TTLS.map((o) => (
-                      <button key={o.v} onClick={() => { setTtl(o.v); setTtlOpen(false) }} className={classNames('block w-full rounded-lg px-3 py-1.5 text-left text-sm hover:bg-[var(--panel-hover)]', ttl === o.v && 'font-bold accent-text')}>{o.label}</button>
-                    ))}
-                  </div>
-                </>
-              )}
-            </div>
+            <IconButton title="Исчезающее сообщение" className="sm:order-3" active={!!ttl} onClick={() => setTtlOpen((v) => !v)}>
+              <Clock size={20} />
+            </IconButton>
             <IconButton title="Опрос" className="sm:order-3" onClick={() => setPollOpen(true)}>
               <ListChecks size={20} />
             </IconButton>
+          </span>
 
-            {showMic ? (
-              <button onClick={() => setRecording(true)} className="grid h-11 w-11 shrink-0 place-items-center rounded-full accent-gradient text-white shadow-md transition hover:brightness-105 active:scale-95 sm:order-3" title="Голосовое сообщение">
-                <Mic size={19} />
-              </button>
-            ) : (
-              <button onClick={submit} disabled={sending || overLimit} className="grid h-11 w-11 shrink-0 place-items-center rounded-full accent-gradient text-white shadow-md transition hover:brightness-105 active:scale-95 disabled:opacity-60 sm:order-3" title="Отправить (Ctrl+Enter)">
-                {sending ? <Loader2 size={19} className="animate-spin" /> : <Send size={19} />}
-              </button>
-            )}
-          </div>
+          {showMic ? (
+            <button onClick={() => setRecording(true)} className="grid h-11 w-11 shrink-0 place-items-center rounded-full accent-gradient text-white shadow-md transition hover:brightness-105 active:scale-95 sm:order-3" title="Голосовое сообщение">
+              <Mic size={19} />
+            </button>
+          ) : (
+            <button onClick={submit} disabled={sending || overLimit} className="grid h-11 w-11 shrink-0 place-items-center rounded-full accent-gradient text-white shadow-md transition hover:brightness-105 active:scale-95 disabled:opacity-60 sm:order-3" title="Отправить (Ctrl+Enter)">
+              {sending ? <Loader2 size={19} className="animate-spin" /> : <Send size={19} />}
+            </button>
+          )}
         </div>
       )}
 
@@ -664,6 +714,17 @@ function attachmentChipLabel(a: Attachment) {
     case 'audio': return '🎵 аудио'
     default: return `📎 ${a.name ?? 'файл'}`
   }
+}
+
+/** One row of the phone «➕» sheet. */
+function SheetItem({ icon, label, hint, onClick }: { icon: React.ReactNode; label: string; hint?: string; onClick: () => void }) {
+  return (
+    <button onClick={onClick} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-semibold hover:bg-[var(--panel-hover)]">
+      <span className="text-[var(--accent)]">{icon}</span>
+      <span className="min-w-0 flex-1 truncate">{label}</span>
+      {hint && <span className="shrink-0 text-xs font-bold accent-text">{hint}</span>}
+    </button>
+  )
 }
 
 function IconButton({ children, onClick, title, active, className }: { children: React.ReactNode; onClick: () => void; title: string; active?: boolean; className?: string }) {
