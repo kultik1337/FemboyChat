@@ -26,6 +26,7 @@ import { ACCENT_PRESETS } from '../../lib/defaults'
 import { downscaleImage } from '../../lib/media'
 import { classNames, normalizeUsername } from '../../lib/util'
 import { deviceInfo, deviceKey, deviceLabel, isMobileOs } from '../../lib/device'
+import { APP_VERSION } from '../../lib/version'
 import type { Audience, Message, UserSettings } from '../../types'
 
 type Tab = 'profile' | 'appearance' | 'privacy' | 'notifications' | 'chats' | 'language' | 'data' | 'about'
@@ -726,7 +727,7 @@ function AboutTab() {
       <div className="flex flex-col items-center gap-2 py-4 text-center">
         <div className="grid h-16 w-16 place-items-center rounded-2xl accent-gradient text-3xl text-white">💬</div>
         <div className="text-lg font-black">Femboy<span className="accent-text">Chat</span></div>
-        <div className="text-xs text-[var(--muted)]">Версия 0.7.1 · режим: {mode === 'local' ? 'демо (локальный)' : 'Supabase'}</div>
+        <div className="text-xs text-[var(--muted)]">Версия {APP_VERSION} · режим: {mode === 'local' ? 'демо (локальный)' : 'Supabase'}</div>
         <p className="max-w-xs text-sm text-[var(--muted)]">Тёплый real-time мессенджер для РУ-сообщества. Сделано с 💖</p>
       </div>
       <button onClick={logout} className="flex w-full items-center justify-center gap-2 rounded-xl border border-rose-300/40 py-2.5 font-semibold text-rose-500 hover:bg-rose-500/10">
