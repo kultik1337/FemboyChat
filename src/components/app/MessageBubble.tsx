@@ -11,6 +11,7 @@ import { VideoPlayer } from '../ui/VideoPlayer'
 import { LinkPreviewCard } from './LinkPreviewCard'
 import { openContextMenu } from '../ui/ContextMenu'
 import { useActions } from './useActions'
+import { usePeople } from './people'
 import type { Person } from './people'
 
 const emojiOnly = (t: string) => /^\p{Extended_Pictographic}(\u200d\p{Extended_Pictographic}|\ufe0f|\s)*$/u.test(t.trim()) && [...t.trim()].length <= 6
@@ -62,6 +63,8 @@ export function MessageBubble({
   const setProfileUid = useStore((s) => s.setProfileUid)
   const setComposeReply = useStore((s) => s.setComposeReply)
   const { messageMenu } = useActions()
+  // Forwarded messages name whoever actually wrote them.
+  const { resolve } = usePeople()
   const [pop, setPop] = useState(false)
   // Swipe-to-reply: how far the row is currently pulled, and the live gesture.
   const [pull, setPull] = useState(0)
@@ -156,6 +159,8 @@ export function MessageBubble({
     ? `${R} ${near.top} ${near.bot} ${R}`
     : `${near.top} ${R} ${R} ${near.bot}`
 
+  const forwardedFrom = message.forwardedFrom ? resolve(message.forwardedFrom) : null
+
   const buildHeader = (withName: boolean) => {
     const showNameHere = withName && showName
     if (!showNameHere && !message.forwardedFrom && !repliedMessage) return null
@@ -166,7 +171,15 @@ export function MessageBubble({
             {sender.name}
           </button>
         )}
-        {message.forwardedFrom && <div className="mb-0.5 text-[11px] opacity-70">↪ переслано</div>}
+        {message.forwardedFrom && (
+          <button
+            onClick={() => setProfileUid(message.forwardedFrom!)}
+            className="mb-1 block max-w-full truncate text-[11px] font-semibold opacity-80 transition hover:opacity-100"
+            title="Открыть профиль автора"
+          >
+            ↪ Переслано от {forwardedFrom?.name ?? 'Кто-то'}
+          </button>
+        )}
         {repliedMessage && (
           <button
             onClick={() => onJump?.(repliedMessage.id)}
