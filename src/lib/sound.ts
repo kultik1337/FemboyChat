@@ -105,12 +105,23 @@ export function playSound(voice: Voice): void {
 }
 
 /**
+ * The original name of the incoming chime, kept because the notification path
+ * still calls it. New code should use `playSound`.
+ */
+export function beep(): void {
+  playSound('receive')
+}
+
+/**
  * Watch the store and give the chat its two sounds.
  *
  * Deliberately a subscription rather than calls sprinkled through the store:
  * every path that can add a message (optimistic send, realtime, a reload of the
  * page) ends in the same place, so one watcher covers all of them and no future
  * feature has to remember to play anything.
+ *
+ * The incoming sound is skipped for the chat that is open on screen only when
+ * the store's own notifier already handled it — see the throttle below.
  */
 export function initSounds(): void {
   if (typeof window === 'undefined') return
@@ -123,6 +134,8 @@ export function initSounds(): void {
   const seen = new Map<string, { id: string; ts: number }>()
   /** Outgoing is throttled: the optimistic row and its confirmation are one send. */
   let lastSendAt = 0
+  /** Incoming is throttled too, so a burst of arrivals is one chime. */
+  let lastReceiveAt = 0
 
   useStore.subscribe((state) => {
     const account = state.account
@@ -139,9 +152,9 @@ export function initSounds(): void {
       if (last.id === prev.id || last.ts < prev.ts) continue
       if (last.system || last.deleted) continue
 
+      const now = Date.now()
       if (last.senderUid === account.uid) {
         if (!settings.sendSound) continue
-        const now = Date.now()
         if (now - lastSendAt < 1200) continue
         lastSendAt = now
         playSound('send')
@@ -149,6 +162,10 @@ export function initSounds(): void {
         if (!settings.notifySound) continue
         // A hidden tab is the push notification's job, not ours.
         if (typeof document !== 'undefined' && document.hidden) continue
+        // The store already chimes for a chat that is not open; do not double it.
+        if (chatId !== state.activeChatId) continue
+        if (now - lastReceiveAt < 900) continue
+        lastReceiveAt = now
         playSound('receive')
       }
     }
