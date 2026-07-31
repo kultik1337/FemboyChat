@@ -7,6 +7,7 @@ import { Settings } from '../settings/Settings'
 import { NewChatModal } from './NewChatModal'
 import { AdminPanel } from './AdminPanel'
 import { BotStudio } from './BotStudio'
+import { AiAssist } from './AiAssist'
 import { Lightbox } from '../ui/Lightbox'
 import { InstallPrompt } from '../ui/InstallPrompt'
 import { PushPrompt } from '../ui/PushPrompt'
@@ -28,7 +29,7 @@ const BACK_TRIGGER = 90
  * once (settings, a menu, a keyboard shortcut). Rather than threading state
  * through half the tree, anyone can dispatch `fc:open-panel`.
  */
-type Overlay = 'admin' | 'bots' | null
+type Overlay = 'admin' | 'bots' | 'assist' | null
 
 /** Open one of the shell's overlays from anywhere in the app. */
 export function openPanel(panel: Exclude<Overlay, null>): void {
@@ -110,7 +111,7 @@ export function AppShell() {
   useEffect(() => {
     const onOpen = (e: Event) => {
       const detail = (e as CustomEvent).detail as Overlay
-      if (detail === 'admin' || detail === 'bots') setOverlay(detail)
+      if (detail === 'admin' || detail === 'bots' || detail === 'assist') setOverlay(detail)
     }
     window.addEventListener('fc:open-panel', onOpen)
     return () => window.removeEventListener('fc:open-panel', onOpen)
@@ -177,7 +178,7 @@ export function AppShell() {
   }, [account?.uid, backend])
 
   // ⌘/Ctrl+K → focus search · ⌘/Ctrl+Shift+A → admin · ⌘/Ctrl+Shift+B → bots
-  // · Konami code → easter egg
+  // · ⌘/Ctrl+Shift+I → ИИ-помощник · Konami code → easter egg
   useEffect(() => {
     const KONAMI = ['arrowup', 'arrowup', 'arrowdown', 'arrowdown', 'arrowleft', 'arrowright', 'arrowleft', 'arrowright', 'b', 'a']
     let seq: string[] = []
@@ -197,6 +198,11 @@ export function AppShell() {
       if (mod && e.shiftKey && key === 'b') {
         e.preventDefault()
         setOverlay('bots')
+        return
+      }
+      if (mod && e.shiftKey && key === 'i') {
+        e.preventDefault()
+        setOverlay('assist')
         return
       }
       seq = [...seq, key].slice(-KONAMI.length)
@@ -265,6 +271,7 @@ export function AppShell() {
       <NewChatModal />
       {overlay === 'admin' && <AdminPanel onClose={() => setOverlay(null)} />}
       {overlay === 'bots' && <BotStudio onClose={() => setOverlay(null)} />}
+      {overlay === 'assist' && <AiAssist onClose={() => setOverlay(null)} />}
       <Lightbox />
       {/*
         These banners are fixed to the bottom of the screen. On a phone that is
