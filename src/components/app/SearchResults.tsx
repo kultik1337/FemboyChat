@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Bot, Hash, Megaphone, MessageSquare, Users } from 'lucide-react'
 import { useStore } from '../../store/useStore'
 import { Avatar } from '../ui/Avatar'
+import { Verified } from '../ui/Verified'
 import { useActions } from './useActions'
 import { openContextMenu } from '../ui/ContextMenu'
 import { attachmentLabel } from '../../lib/media'
@@ -179,7 +180,7 @@ function ResultRow({ r, onClick, onContext }: { r: Directory; onClick: () => voi
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1">
           <span className="truncate font-semibold">{r.name}</span>
-          {r.verified && <span className="text-[var(--accent)]">✔</span>}
+          {r.verified && <Verified size={15} />}
         </div>
         <div className="truncate text-xs text-[var(--muted)]">
           {r.username ? `@${r.username}` : ''}
