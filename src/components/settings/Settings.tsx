@@ -22,12 +22,12 @@ import { useStore } from '../../store/useStore'
 import { Modal } from '../ui/Modal'
 import { Avatar } from '../ui/Avatar'
 import { EmojiGrid } from '../ui/EmojiPicker'
-import { ACCENT_PRESETS } from '../../lib/defaults'
+import { ACCENT_PRESETS, THEME_PRESETS, WALLPAPER_PRESETS } from '../../lib/defaults'
 import { downscaleImage } from '../../lib/media'
 import { classNames, normalizeUsername } from '../../lib/util'
 import { deviceInfo, deviceKey, deviceLabel, isMobileOs } from '../../lib/device'
 import { APP_VERSION } from '../../lib/version'
-import type { Audience, Message, UserSettings } from '../../types'
+import type { Audience, Message } from '../../types'
 
 type Tab = 'profile' | 'appearance' | 'privacy' | 'notifications' | 'chats' | 'language' | 'data' | 'about'
 
@@ -162,7 +162,7 @@ function ProfileTab() {
           <div>
             <div className="mb-1.5 text-xs font-bold text-[var(--muted)]">ЦВЕТ ФОНА</div>
             <div className="flex flex-wrap gap-2">
-              {['#ff7ab8', '#b388ff', '#7cc4ff', '#5ad1c4', '#ffb26b', '#ff8f8f', '#8ee6a0', '#f2a2e8'].map((c) => (
+              {['#7c9cff', '#a78bfa', '#7cc4ff', '#5ad1c4', '#ffb26b', '#ff8f8f', '#8ee6a0', '#ff7ab8'].map((c) => (
                 <button key={c} onClick={() => setColor(c)} className={classNames('h-8 w-8 rounded-full ring-offset-2 ring-offset-[var(--panel)]', color === c && 'ring-2 ring-[var(--accent)]')} style={{ background: c }} />
               ))}
             </div>
@@ -202,30 +202,39 @@ function ProfileTab() {
 }
 
 // ── Appearance ──
+/**
+ * Everything here is driven by the preset tables in `lib/defaults`, so a new
+ * theme or wallpaper shows up the moment it is added there — the previous
+ * version hard-coded four themes and four backgrounds and silently hid the
+ * rest, which meant the palette shipped in 1.0 was unreachable from the UI.
+ */
 function AppearanceTab() {
   const s = useStore((st) => st.account!.settings)
   const patch = useStore((st) => st.patchSettings)
-  const themes: { id: UserSettings['theme']; label: string; emoji: string }[] = [
-    { id: 'auto', label: 'Как в системе', emoji: '🌗' },
-    { id: 'light', label: 'Пастель', emoji: '🌸' },
-    { id: 'dark', label: 'Catgirl Night', emoji: '🐈‍⬛' },
-    { id: 'midnight', label: 'Programmer Socks', emoji: '🧦' },
-  ]
-  const walls: { id: UserSettings['wallpaper']; label: string }[] = [
-    { id: 'aurora', label: 'Аврора' },
-    { id: 'dots', label: 'Точки' },
-    { id: 'hearts', label: 'Сердечки' },
-    { id: 'plain', label: 'Гладкий' },
-  ]
+  const custom = !ACCENT_PRESETS.some((a) => a.accent.toLowerCase() === s.accent.toLowerCase())
+
   return (
     <div className="space-y-6">
       <div>
         <div className="mb-2 text-sm font-semibold">Тема</div>
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-          {themes.map((t) => (
-            <button key={t.id} onClick={() => patch({ theme: t.id })} className={classNames('rounded-2xl border p-3 text-center', s.theme === t.id ? 'border-[var(--accent)] ring-2 ring-[var(--ring)]' : 'border-[var(--border)]')}>
-              <div className="text-2xl">{t.emoji}</div>
-              <div className="mt-1 text-xs font-semibold">{t.label}</div>
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          {THEME_PRESETS.map((t) => (
+            <button
+              key={t.id}
+              onClick={() => patch({ theme: t.id })}
+              className={classNames(
+                'flex items-center gap-3 rounded-2xl border p-2.5 text-left transition',
+                s.theme === t.id ? 'border-[var(--accent)] ring-2 ring-[var(--ring)]' : 'border-[var(--border)] hover:bg-[var(--panel-hover)]',
+              )}
+            >
+              <span
+                className="h-10 w-10 shrink-0 rounded-xl border border-black/10"
+                style={{ background: `linear-gradient(135deg, ${t.swatch[0]} 0 50%, ${t.swatch[1]} 50% 100%)` }}
+              />
+              <span className="min-w-0">
+                <span className="block truncate text-sm font-semibold">{t.name}</span>
+                <span className="block truncate text-[11px] text-[var(--muted)]">{t.hint}</span>
+              </span>
             </button>
           ))}
         </div>
@@ -235,21 +244,41 @@ function AppearanceTab() {
         <div className="mb-2 text-sm font-semibold">Акцентный цвет</div>
         <div className="flex flex-wrap items-center gap-2">
           {ACCENT_PRESETS.map((a) => (
-            <button key={a.accent} onClick={() => patch({ accent: a.accent })} className={classNames('h-9 w-9 rounded-full ring-offset-2 ring-offset-[var(--panel)]', s.accent === a.accent && 'ring-2 ring-[var(--accent)]')} style={{ background: `linear-gradient(135deg, ${a.accent}, ${a.accent2})` }} title={a.name} />
+            <button
+              key={a.accent}
+              onClick={() => patch({ accent: a.accent })}
+              className={classNames('h-9 w-9 rounded-full ring-offset-2 ring-offset-[var(--panel)]', s.accent.toLowerCase() === a.accent.toLowerCase() && 'ring-2 ring-[var(--accent)]')}
+              style={{ background: `linear-gradient(135deg, ${a.accent}, ${a.accent2})` }}
+              title={a.name}
+            />
           ))}
-          <label className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border border-dashed border-[var(--border)]">
+          <label
+            className={classNames(
+              'flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border border-dashed border-[var(--border)] ring-offset-2 ring-offset-[var(--panel)]',
+              custom && 'ring-2 ring-[var(--accent)]',
+            )}
+            title="Свой цвет"
+          >
             <input type="color" value={s.accent} onChange={(e) => patch({ accent: e.target.value })} className="h-6 w-6 cursor-pointer border-0 bg-transparent p-0" />
           </label>
         </div>
+        <p className="mt-1.5 text-xs text-[var(--muted)]">Акцент не зависит от темы — любой цвет работает с любой палитрой.</p>
       </div>
 
       <div>
-        <div className="mb-2 text-sm font-semibold">Обои чата</div>
-        <div className="grid grid-cols-4 gap-2">
-          {walls.map((w) => (
-            <button key={w.id} onClick={() => patch({ wallpaper: w.id })} className={classNames('overflow-hidden rounded-xl border', s.wallpaper === w.id ? 'border-[var(--accent)] ring-2 ring-[var(--ring)]' : 'border-[var(--border)]')}>
-              <div className={`h-12 w-full wallpaper-${w.id}`} />
-              <div className="py-1 text-center text-[11px] font-semibold">{w.label}</div>
+        <div className="mb-2 text-sm font-semibold">Фон чата</div>
+        <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
+          {WALLPAPER_PRESETS.map((w) => (
+            <button
+              key={w.id}
+              onClick={() => patch({ wallpaper: w.id })}
+              className={classNames(
+                'overflow-hidden rounded-xl border transition',
+                s.wallpaper === w.id ? 'border-[var(--accent)] ring-2 ring-[var(--ring)]' : 'border-[var(--border)] hover:bg-[var(--panel-hover)]',
+              )}
+            >
+              <div className={classNames('h-12 w-full', `wallpaper-${w.id}`)} />
+              <div className="truncate py-1 text-center text-[11px] font-semibold">{w.name}</div>
             </button>
           ))}
         </div>
