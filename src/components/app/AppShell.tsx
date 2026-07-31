@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { X } from 'lucide-react'
 import { useStore } from '../../store/useStore'
 import { Sidebar } from './Sidebar'
@@ -13,6 +13,12 @@ import { classNames } from '../../lib/util'
 import { deviceInfo, deviceKey } from '../../lib/device'
 import { initPwa } from '../../lib/pwa'
 import { refreshPush } from '../../lib/push'
+import './motion.css'
+
+/** How close to the left edge a finger has to land to mean «back». */
+const EDGE_PX = 30
+/** How far it has to travel before the chat actually closes. */
+const BACK_TRIGGER = 90
 
 export function AppShell() {
   const activeChatId = useStore((s) => s.activeChatId)
@@ -20,8 +26,59 @@ export function AppShell() {
   const unread = useStore((s) => s.unread)
   const account = useStore((s) => s.account)
   const backend = useStore((s) => s.backend)
+  const openChat = useStore((s) => s.openChat)
   const [tipHidden, setTipHidden] = useState(() => localStorage.getItem('fc:hideRealtimeTip') === '1')
   const showTip = mode === 'local' && !tipHidden
+  const animations = account?.settings.animations ?? true
+
+  /*
+    Edge-swipe back. A finger that starts within a few pixels of the left edge
+    drags the chat pane sideways and, if it travels far enough, closes it — the
+    same gesture iOS and Android use everywhere else, so it needs no teaching.
+
+    Two things it deliberately does NOT do: it never calls preventDefault (that
+    would kill scrolling inside the message list), and it gives up the moment
+    the movement turns out to be mostly vertical.
+  */
+  const [drag, setDrag] = useState(0)
+  const dragRef = useRef<{ x: number; y: number; live: boolean } | null>(null)
+
+  function onTouchStart(e: React.TouchEvent) {
+    if (!activeChatId || e.touches.length !== 1) return
+    if (window.matchMedia('(min-width: 768px)').matches) return
+    const t = e.touches[0]
+    if (t.clientX > EDGE_PX) return
+    dragRef.current = { x: t.clientX, y: t.clientY, live: true }
+  }
+
+  function onTouchMove(e: React.TouchEvent) {
+    const s = dragRef.current
+    if (!s?.live) return
+    const t = e.touches[0]
+    const dx = t.clientX - s.x
+    const dy = t.clientY - s.y
+    if (Math.abs(dy) > Math.abs(dx)) {
+      // Scrolling, not going back.
+      dragRef.current = null
+      setDrag(0)
+      return
+    }
+    setDrag(Math.max(0, Math.min(dx, window.innerWidth)))
+  }
+
+  function onTouchEnd() {
+    const s = dragRef.current
+    dragRef.current = null
+    if (!s?.live) return
+    const far = drag > BACK_TRIGGER
+    setDrag(0)
+    if (far) {
+      navigator.vibrate?.(6)
+      void openChat('')
+    }
+  }
+
+  const dragging = !!dragRef.current?.live && drag > 0
 
   useEffect(() => {
     const total = Object.values(unread).reduce((a, b) => a + b, 0)
@@ -133,10 +190,32 @@ export function AppShell() {
           panes forbids that: overflow has to be handled inside the pane.
         */}
         <div className="mx-auto grid h-full w-full max-w-[1500px] grid-cols-1 overflow-hidden md:grid-cols-[minmax(300px,380px)_minmax(0,1fr)] md:rounded-3xl md:border md:border-[var(--border)] md:shadow-xl">
-          <aside className={classNames('h-full min-h-0 min-w-0 overflow-hidden', activeChatId ? 'hidden md:block' : 'block')}>
+          <aside
+            /* Remounting on the way back is what plays the entrance animation. */
+            key={activeChatId ? 'aside-hidden' : 'aside'}
+            className={classNames(
+              'h-full min-h-0 min-w-0 overflow-hidden',
+              activeChatId ? 'hidden md:block' : 'block',
+              animations && !activeChatId && 'screen-in-left',
+            )}
+          >
             <Sidebar />
           </aside>
-          <main className={classNames('h-full min-h-0 min-w-0 overflow-hidden bg-[var(--bg)]', activeChatId ? 'block' : 'hidden md:block')}>
+          <main
+            key={activeChatId || 'main-empty'}
+            className={classNames(
+              'h-full min-h-0 min-w-0 overflow-hidden bg-[var(--bg)]',
+              activeChatId ? 'block' : 'hidden md:block',
+              animations && activeChatId && 'screen-in-right',
+              !dragging && 'screen-drag',
+              dragging && 'screen-dragging',
+            )}
+            style={drag ? { transform: `translateX(${drag}px)` } : undefined}
+            onTouchStart={onTouchStart}
+            onTouchMove={onTouchMove}
+            onTouchEnd={onTouchEnd}
+            onTouchCancel={onTouchEnd}
+          >
             <ChatView />
           </main>
         </div>
