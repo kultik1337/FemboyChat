@@ -10,14 +10,14 @@ import { playSound } from '../../lib/sound'
  * The messenger's admin panel.
  *
  * Everything here is a thin skin over four RPCs; the rules live in the
- * database, where they cannot be argued with from a console. The panel exists
- * so that granting somebody premium, a verified tick or the right to build bots
- * is a tap rather than a SQL statement typed at two in the morning.
+ * database, where they cannot be argued with from a browser console. The panel
+ * exists so that granting somebody premium, a verified tick or the right to
+ * build bots is a tap rather than a SQL statement typed at two in the morning.
  *
- * The list deliberately shows two different things at once: with an empty
- * search box it is «everyone who already has a perk» (a short, useful audit
- * list), and with a query it becomes a people search, so granting something new
- * does not require knowing anyone's uid.
+ * The list deliberately shows two different things: with an empty search box it
+ * is «everyone who already has a perk» — a short, useful audit list — and with
+ * a query it becomes people search, so granting something new does not require
+ * knowing anyone's uid.
  */
 
 interface Row {
@@ -25,6 +25,8 @@ interface Row {
   username: string
   name: string
   num_id: number
+  emoji: string
+  color: string
   avatar_url: string | null
   is_admin: boolean
   can_create_bots: boolean
@@ -150,7 +152,7 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
             )}
           >
             <div className="flex items-center gap-2">
-              <Avatar name={row.name || row.username} url={row.avatar_url || undefined} size={36} />
+              <Avatar emoji={row.emoji} color={row.color} src={row.avatar_url} size={36} />
               <div className="min-w-0 flex-1">
                 <div className="truncate text-sm font-semibold">{row.name || row.username}</div>
                 <div className="truncate text-xs text-[var(--muted)]">@{row.username} · #{row.num_id}</div>
