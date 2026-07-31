@@ -43,7 +43,11 @@ export function ChatView() {
   const openedAt = useRef(Date.now())
   /** scrollHeight captured right before an upward page load, to avoid a jump. */
   const prependAnchor = useRef<number | null>(null)
+  /** Message count at the previous render, to tell new arrivals from paging. */
+  const prevLen = useRef(0)
   const [atBottom, setAtBottom] = useState(true)
+  /** How many messages arrived while the history was scrolled up. */
+  const [newCount, setNewCount] = useState(0)
   const [searchOpen, setSearchOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [matchIdx, setMatchIdx] = useState(0)
@@ -68,11 +72,13 @@ export function ChatView() {
     setSearchOpen(false)
     setQuery('')
     prependAnchor.current = null
+    prevLen.current = 0
     viewedRef.current = new Set()
     setCommentsForId(null)
     setCommentCounts({})
     setSelectMode(false)
     setSelectedIds([])
+    setNewCount(0)
     const el = scroller.current
     if (el) el.scrollTop = el.scrollHeight
     atBottomRef.current = true
@@ -86,9 +92,35 @@ export function ChatView() {
     if (prependAnchor.current !== null) {
       el.scrollTop += el.scrollHeight - prependAnchor.current
       prependAnchor.current = null
+      prevLen.current = msgs.length
       return
     }
-    if (atBottomRef.current) el.scrollTop = el.scrollHeight
+
+    const added = msgs.length - prevLen.current
+    prevLen.current = msgs.length
+
+    /*
+      Sending is a promise to keep talking, so it always returns the view to the
+      bottom — reading old messages and then answering used to leave you stuck
+      up in the history, watching nothing happen.
+    */
+    const last = msgs[msgs.length - 1]
+    const iJustSent = added > 0 && !!last && last.senderUid === account.uid && last.ts > openedAt.current
+
+    if (atBottomRef.current || iJustSent) {
+      if (iJustSent && !atBottomRef.current) {
+        atBottomRef.current = true
+        setAtBottom(true)
+        el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+      } else {
+        el.scrollTop = el.scrollHeight
+      }
+      setNewCount(0)
+      return
+    }
+
+    // Reading further up: count what arrived instead of yanking the view down.
+    if (added > 0) setNewCount((c) => c + added)
   }, [msgs.length])
 
   /**
@@ -165,6 +197,8 @@ export function ChatView() {
     const bottom = el.scrollHeight - el.scrollTop - el.clientHeight < 90
     atBottomRef.current = bottom
     setAtBottom(bottom)
+    // Reaching the bottom means everything below has been read.
+    if (bottom) setNewCount(0)
     reportViews()
     // Infinite scroll upwards.
     if (el.scrollTop < 140 && activeChatId && !loading && !paging && hasMore[activeChatId] !== false && msgs.length) {
@@ -176,6 +210,7 @@ export function ChatView() {
   function scrollToBottom() {
     const el = scroller.current
     if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+    setNewCount(0)
   }
 
   /**
@@ -186,13 +221,22 @@ export function ChatView() {
    * page made the whole layout slide sideways and the sidebar disappear when
    * jumping to a pinned message. Moving the message list by hand can only ever
    * scroll vertically, inside the list.
+   *
+   * The offset is measured with rectangles rather than `offsetTop`, because
+   * `offsetTop` is relative to the nearest positioned ancestor — each row now
+   * has one — so it used to read as ≈ 0 and every jump landed at the very top
+   * of the history.
    */
   function jumpTo(id: string) {
     const el = document.getElementById(`msg-${id}`)
-    if (!el) return
     const box = scroller.current
+    if (!el) {
+      toast('Это сообщение ещё не загружено — прокрути историю выше', '🔎')
+      return
+    }
     if (box && box.contains(el)) {
-      const target = el.offsetTop - box.clientHeight / 2 + el.offsetHeight / 2
+      const delta = el.getBoundingClientRect().top - box.getBoundingClientRect().top
+      const target = box.scrollTop + delta - box.clientHeight / 2 + el.offsetHeight / 2
       box.scrollTo({ top: Math.max(0, target), behavior: 'smooth' })
     } else {
       el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' })
@@ -247,7 +291,7 @@ export function ChatView() {
     jumpTo(matches[matches.length - 1 - idx])
   }, [matches, matchIdx])
 
-  /** Copy as a readable transcript: «who · when», then the text. */
+  /** Copy as a readable transcript: «кто · когда», then the text. */
   function copySelected() {
     if (!picked.length) return
     const text = picked
@@ -530,14 +574,24 @@ export function ChatView() {
           )}
         </div>
 
-        {!atBottom && (
+        {/*
+          The jump-down button doubles as an unread counter, like in Telegram:
+          while you are reading further up, everything that arrives is counted
+          on the badge instead of dragging the view down under your finger.
+        */}
+        {(!atBottom || newCount > 0) && (
           <button
             onClick={scrollToBottom}
             className="absolute bottom-4 right-4 z-[3] grid h-11 w-11 place-items-center rounded-full border border-[var(--border)] bg-[var(--panel)] text-[var(--text)] shadow-lg transition hover:scale-105 active:scale-95"
             style={{ boxShadow: 'var(--shadow)' }}
-            title="Вниз"
+            title={newCount > 0 ? `Новых сообщений: ${newCount}` : 'Вниз'}
           >
             <ArrowDown size={20} />
+            {newCount > 0 && (
+              <span className="absolute -right-1 -top-1 grid h-5 min-w-[20px] place-items-center rounded-full accent-gradient px-1 text-[10px] font-black tabular-nums text-white shadow-md animate-pop-in">
+                {newCount > 99 ? '99+' : newCount}
+              </span>
+            )}
           </button>
         )}
       </div>
