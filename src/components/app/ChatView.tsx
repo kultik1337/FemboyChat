@@ -3,6 +3,7 @@ import { ArrowDown, ArrowLeft, ChevronDown, ChevronUp, Eye, Info, MessageCircle,
 import { useStore } from '../../store/useStore'
 import { Avatar } from '../ui/Avatar'
 import { Logo } from '../ui/Logo'
+import { Verified } from '../ui/Verified'
 import { MessageBubble } from './MessageBubble'
 import { Composer } from './Composer'
 import { chatCounterpart, usePeople } from './people'
@@ -81,6 +82,30 @@ export function ChatView() {
     }
     if (atBottomRef.current) el.scrollTop = el.scrollHeight
   }, [msgs.length])
+
+  /**
+   * A hit from the global search opens the chat and then asks for one specific
+   * message. The chat's first page is usually still in flight at that moment,
+   * so the bubble is polled for briefly instead of looked up once; a hit that
+   * lives deeper in the history simply leaves the chat open at the bottom.
+   */
+  useEffect(() => {
+    function onJump(e: Event) {
+      const detail = (e as CustomEvent<{ chatId: string; messageId: string }>).detail
+      if (!detail || detail.chatId !== activeChatId) return
+      let tries = 0
+      const tick = () => {
+        if (document.getElementById(`msg-${detail.messageId}`)) {
+          jumpTo(detail.messageId)
+          return
+        }
+        if (tries++ < 20) setTimeout(tick, 150)
+      }
+      tick()
+    }
+    window.addEventListener('fc:jump', onJump)
+    return () => window.removeEventListener('fc:jump', onJump)
+  }, [activeChatId])
 
   // Count a post as seen once it is actually on screen. Runs after layout, so
   // the freshly rendered bubbles already have their geometry.
@@ -279,9 +304,9 @@ export function ChatView() {
         <button onClick={() => (counterpartUid ? setProfileUid(counterpartUid) : setRightPanel(true))} className="flex min-w-0 flex-1 items-center gap-3 text-left">
           <Avatar emoji={headerVisual.emoji} color={headerVisual.color} src={headerVisual.avatarUrl} size={42} online={counterpartUid ? presence[counterpartUid]?.online : undefined} />
           <div className="min-w-0">
-            <div className="flex min-w-0 items-center gap-1 font-bold">
+            <div className="flex min-w-0 items-center gap-1.5 font-bold">
               <span className="truncate">{headerVisual.title}</span>
-              {(counterpart?.verified || chat.verified) && <span className="shrink-0 text-[var(--accent)]">✔</span>}
+              {(counterpart?.verified || chat.verified) && <Verified size={16} />}
             </div>
             <div className={classNames('truncate text-xs', sub.accent ? 'text-[var(--accent)]' : 'text-[var(--muted)]')}>{sub.text}</div>
           </div>
