@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Ban, Bell, BellOff, Copy, ImagePlus, Link2, LogOut, MessageCircle, Pencil, Pin, Shield, ShieldOff, Trash2, UserMinus, UserPlus, X } from 'lucide-react'
+import { Ban, Bell, BellOff, Copy, ImagePlus, Link2, LogOut, MessageCircle, Pencil, Pin, Shield, ShieldOff, Sparkles, Trash2, UserMinus, UserPlus, X } from 'lucide-react'
 import { useStore } from '../../store/useStore'
 import { Avatar } from '../ui/Avatar'
 import { Verified } from '../ui/Verified'
@@ -10,6 +10,15 @@ import { downscaleImage } from '../../lib/media'
 import { classNames, lastSeenLabel } from '../../lib/util'
 import { GroupEditModal } from './GroupEditModal'
 import { InviteManager } from './InviteManager'
+
+/**
+ * Ask the shell for the AI helper. Deliberately an event and not an import of
+ * `openPanel`: AppShell already imports this file, so importing it back would
+ * close the cycle.
+ */
+function openAssist() {
+  window.dispatchEvent(new CustomEvent('fc:open-panel', { detail: 'assist' }))
+}
 
 export function RightPanel() {
   const open = useStore((s) => s.rightPanelOpen)
@@ -134,7 +143,7 @@ export function RightPanel() {
         </div>
 
         {showProfile ? (
-          <ProfileBody uid={showProfile} onMessage={() => { const d = directory.find((x) => x.uid === showProfile) ?? { uid: showProfile } as any; startWith(d); close() }} />
+          <ProfileBody uid={showProfile} onMessage={() => { const d = directory.find((x) => x.uid === showProfile) ?? { uid: showProfile } as any; startWith(d); close() }} onAssist={() => { close(); openAssist() }} />
         ) : chat ? (
           <div className="px-5 pb-8">
             <div className="flex flex-col items-center text-center">
@@ -151,6 +160,7 @@ export function RightPanel() {
             {chat.isPrivate && <div className="mt-1 text-center text-xs text-[var(--muted)]">🔒 приватный {chat.type === 'channel' ? 'канал' : 'чат'}</div>}
 
             <div className="mt-4 space-y-1">
+              <Row onClick={() => { close(); openAssist() }} icon={<Sparkles size={18} />} label="ИИ-помощник" />
               {(chat.type === 'group' || chat.type === 'channel') && isAdmin && (
                 <Row onClick={() => setEditOpen(true)} icon={<Pencil size={18} />} label="Редактировать" />
               )}
@@ -275,11 +285,12 @@ function chatsWord(n: number) {
  * used to be mostly blank. Whatever the server does not answer with, the old
  * local `resolve()` still covers, so the panel never renders empty.
  */
-function ProfileBody({ uid, onMessage }: { uid: string; onMessage: () => void }) {
+function ProfileBody({ uid, onMessage, onAssist }: { uid: string; onMessage: () => void; onAssist: () => void }) {
   const { resolve } = usePeople()
   const account = useStore((s) => s.account)!
   const presence = useStore((s) => s.presence)
   const directory = useStore((s) => s.directory)
+  const activeChatId = useStore((s) => s.activeChatId)
   const backend = useStore((s) => s.backend)!
   const toast = useStore((s) => s.toast)
   const p = resolve(uid)
@@ -412,6 +423,7 @@ function ProfileBody({ uid, onMessage }: { uid: string; onMessage: () => void })
         {!isMe && (
           <div className="mt-5 space-y-1">
             <button onClick={onMessage} className="btn-primary w-full"><MessageCircle size={18} /> Написать сообщение</button>
+            {activeChatId && <Row onClick={onAssist} icon={<Sparkles size={18} />} label="ИИ-помощник по переписке" />}
             <Row onClick={() => toast('Пользователь заблокирован (демо)', '🚫')} icon={<Ban size={18} />} label="Заблокировать" danger />
           </div>
         )}
