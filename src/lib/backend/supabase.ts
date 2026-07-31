@@ -421,6 +421,9 @@ export class SupabaseBackend implements Backend {
         sender_uid: input.senderUid,
         text: input.text,
         reply_to_id: input.replyToId,
+        // The exact fragment the author highlighted before replying. Null for
+        // an ordinary reply, which quotes the whole message by definition.
+        quote: input.quote ?? null,
         sticker: input.sticker,
         poll: input.poll,
         ttl: input.ttl,
@@ -762,6 +765,7 @@ function rowToMessage(r: any): Message {
     ts: typeof r.ts === 'number' ? r.ts : Date.parse(r.ts ?? r.created_at ?? Date.now()),
     editedTs: r.edited_ts ?? undefined,
     replyToId: r.reply_to_id ?? undefined,
+    quote: r.quote ?? undefined,
     forwardedFrom: r.forwarded_from ?? undefined,
     reactions: r.reactions ?? [],
     pinned: r.pinned,
