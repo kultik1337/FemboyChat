@@ -53,8 +53,8 @@
 
 /* ─────────────────── Design tokens ─────────────────── */
 :root {
-  --accent: #ff7ab8;
-  --accent-2: #7cc4ff;
+  --accent: #7c9cff;
+  --accent-2: #9d8bff;
   --accent-contrast: #ffffff;
 
   --radius-bubble: 18px;
@@ -76,57 +76,86 @@
   --sb-inset: 4px;
 }
 
-/* Light "Pastel Femboy" (default) */
+/*
+ * A palette only ever sets surfaces, text and shadows. The accent pair stays
+ * under the user's control and is written onto :root by applyAppearance(), so
+ * every theme works with every accent instead of shipping nine fixed looks.
+ */
+
+/* Light — neutral daylight */
 [data-theme='light'] {
-  --bg: #fff5fb;
-  --bg-grad-1: #ffe3f3;
-  --bg-grad-2: #e3f0ff;
+  --bg: #f5f7fb;
+  --bg-grad-1: #eef2fb;
+  --bg-grad-2: #f6f2fb;
   --panel: #ffffff;
-  --panel-2: #fff7fc;
-  --panel-hover: #fdeaf5;
-  --text: #2a2230;
-  --muted: #8a7f92;
-  --border: #f1dcec;
+  --panel-2: #f7f9fd;
+  --panel-hover: #eef1f8;
+  --text: #1d2230;
+  --muted: #737e93;
+  --border: #e3e8f1;
   --bubble-in: #ffffff;
-  --bubble-in-text: #2a2230;
+  --bubble-in-text: #1d2230;
   --bubble-out: linear-gradient(135deg, var(--accent), var(--accent-2));
   --bubble-out-text: #ffffff;
-  --shadow: 0 10px 30px -12px rgba(214, 120, 178, 0.35);
-  --ring: rgba(255, 122, 184, 0.35);
-  --sb-thumb-1: #ecdcea;
-  --sb-thumb-2: #dcc8dd;
-  --sb-thumb-ff: #dcc8dd;
+  --shadow: 0 10px 30px -12px rgba(40, 60, 110, 0.22);
+  --ring: color-mix(in srgb, var(--accent) 32%, transparent);
+  --sb-thumb-1: #dfe4ee;
+  --sb-thumb-2: #c9d1e0;
+  --sb-thumb-ff: #c9d1e0;
   color-scheme: light;
 }
 
-/* Dark "Catgirl Night" */
+/* Dark — soft charcoal, the new default */
 [data-theme='dark'] {
-  --bg: #14101a;
-  --bg-grad-1: #1d1526;
-  --bg-grad-2: #101820;
-  --panel: #1b1622;
-  --panel-2: #211a2b;
-  --panel-hover: #2a2136;
-  --text: #f4eefb;
-  --muted: #a394b5;
-  --border: #2e2539;
-  --bubble-in: #241d2f;
-  --bubble-in-text: #f4eefb;
+  --bg: #171a21;
+  --bg-grad-1: #1c2029;
+  --bg-grad-2: #171b26;
+  --panel: #1c2029;
+  --panel-2: #222732;
+  --panel-hover: #2a303d;
+  --text: #eef1f7;
+  --muted: #98a2b5;
+  --border: #2b313d;
+  --bubble-in: #232833;
+  --bubble-in-text: #eef1f7;
   --bubble-out: linear-gradient(135deg, var(--accent), var(--accent-2));
   --bubble-out-text: #ffffff;
   --shadow: 0 14px 40px -16px rgba(0, 0, 0, 0.6);
-  --ring: rgba(255, 122, 184, 0.4);
-  --sb-thumb-1: #3b3049;
-  --sb-thumb-2: #4a3c5c;
-  --sb-thumb-ff: #443c56;
+  --ring: color-mix(in srgb, var(--accent) 38%, transparent);
+  --sb-thumb-1: #333a48;
+  --sb-thumb-2: #414a5c;
+  --sb-thumb-ff: #3c4454;
   color-scheme: dark;
 }
 
-/* Midnight "Programmer Socks" — deep navy + pink */
+/* Graphite — nearly black, no colour cast at all */
+[data-theme='graphite'] {
+  --bg: #0e0f12;
+  --bg-grad-1: #14161a;
+  --bg-grad-2: #101114;
+  --panel: #15171b;
+  --panel-2: #1b1e23;
+  --panel-hover: #23272e;
+  --text: #f0f1f3;
+  --muted: #949aa4;
+  --border: #23262c;
+  --bubble-in: #1b1e23;
+  --bubble-in-text: #f0f1f3;
+  --bubble-out: linear-gradient(135deg, var(--accent), var(--accent-2));
+  --bubble-out-text: #ffffff;
+  --shadow: 0 14px 40px -16px rgba(0, 0, 0, 0.75);
+  --ring: color-mix(in srgb, var(--accent) 38%, transparent);
+  --sb-thumb-1: #2a2e35;
+  --sb-thumb-2: #383d46;
+  --sb-thumb-ff: #333840;
+  color-scheme: dark;
+}
+
+/* Midnight — deep navy */
 [data-theme='midnight'] {
   --bg: #0b1020;
   --bg-grad-1: #101a33;
-  --bg-grad-2: #1a1030;
+  --bg-grad-2: #131a30;
   --panel: #111830;
   --panel-2: #16203c;
   --panel-hover: #1d284a;
@@ -138,11 +167,103 @@
   --bubble-out: linear-gradient(135deg, var(--accent), var(--accent-2));
   --bubble-out-text: #ffffff;
   --shadow: 0 14px 40px -16px rgba(0, 0, 0, 0.7);
-  --ring: rgba(124, 196, 255, 0.4);
+  --ring: color-mix(in srgb, var(--accent) 38%, transparent);
   --sb-thumb-1: #2a3757;
   --sb-thumb-2: #384a72;
   --sb-thumb-ff: #334463;
   color-scheme: dark;
+}
+
+/* Ocean — teal depths */
+[data-theme='ocean'] {
+  --bg: #071a22;
+  --bg-grad-1: #0a2530;
+  --bg-grad-2: #07202b;
+  --panel: #0b2430;
+  --panel-2: #0e2b36;
+  --panel-hover: #143743;
+  --text: #e6f6fa;
+  --muted: #86a9b4;
+  --border: #16353f;
+  --bubble-in: #0e2b36;
+  --bubble-in-text: #e6f6fa;
+  --bubble-out: linear-gradient(135deg, var(--accent), var(--accent-2));
+  --bubble-out-text: #ffffff;
+  --shadow: 0 14px 40px -16px rgba(0, 20, 28, 0.7);
+  --ring: color-mix(in srgb, var(--accent) 38%, transparent);
+  --sb-thumb-1: #17404c;
+  --sb-thumb-2: #205563;
+  --sb-thumb-ff: #1d4c59;
+  color-scheme: dark;
+}
+
+/* Forest — dark greens */
+[data-theme='forest'] {
+  --bg: #0c1712;
+  --bg-grad-1: #10201a;
+  --bg-grad-2: #0d1a15;
+  --panel: #10201a;
+  --panel-2: #14261d;
+  --panel-hover: #1b3227;
+  --text: #e9f5ec;
+  --muted: #8fab99;
+  --border: #1d3529;
+  --bubble-in: #14261d;
+  --bubble-in-text: #e9f5ec;
+  --bubble-out: linear-gradient(135deg, var(--accent), var(--accent-2));
+  --bubble-out-text: #ffffff;
+  --shadow: 0 14px 40px -16px rgba(0, 16, 8, 0.7);
+  --ring: color-mix(in srgb, var(--accent) 38%, transparent);
+  --sb-thumb-1: #1e3a2c;
+  --sb-thumb-2: #2a4d3a;
+  --sb-thumb-ff: #264534;
+  color-scheme: dark;
+}
+
+/* Sunset — warm dusk */
+[data-theme='sunset'] {
+  --bg: #1a1113;
+  --bg-grad-1: #241618;
+  --bg-grad-2: #1d1216;
+  --panel: #211517;
+  --panel-2: #291a1c;
+  --panel-hover: #342124;
+  --text: #fbeeea;
+  --muted: #b39a95;
+  --border: #35211f;
+  --bubble-in: #291a1c;
+  --bubble-in-text: #fbeeea;
+  --bubble-out: linear-gradient(135deg, var(--accent), var(--accent-2));
+  --bubble-out-text: #ffffff;
+  --shadow: 0 14px 40px -16px rgba(30, 6, 0, 0.7);
+  --ring: color-mix(in srgb, var(--accent) 38%, transparent);
+  --sb-thumb-1: #3a2528;
+  --sb-thumb-2: #4d3134;
+  --sb-thumb-ff: #452c2f;
+  color-scheme: dark;
+}
+
+/* Lavender — the soft light one */
+[data-theme='lavender'] {
+  --bg: #f6f4ff;
+  --bg-grad-1: #efeaff;
+  --bg-grad-2: #f6f0ff;
+  --panel: #ffffff;
+  --panel-2: #f8f6ff;
+  --panel-hover: #efeaff;
+  --text: #241f33;
+  --muted: #7d7595;
+  --border: #e6e0f6;
+  --bubble-in: #ffffff;
+  --bubble-in-text: #241f33;
+  --bubble-out: linear-gradient(135deg, var(--accent), var(--accent-2));
+  --bubble-out-text: #ffffff;
+  --shadow: 0 10px 30px -12px rgba(90, 70, 160, 0.25);
+  --ring: color-mix(in srgb, var(--accent) 32%, transparent);
+  --sb-thumb-1: #e2dcf3;
+  --sb-thumb-2: #cdc4e6;
+  --sb-thumb-ff: #cdc4e6;
+  color-scheme: light;
 }
 
 * {
@@ -270,7 +391,9 @@ body,
   background-image: linear-gradient(180deg, var(--accent), var(--accent-2));
 }
 
-/* Chat wallpapers */
+/* ─────────────────── Chat wallpapers ───────────────────
+   Every background is built from the palette's own tokens, so it works in all
+   eight themes and follows the accent instead of shipping a fixed picture. */
 .wallpaper-aurora {
   background:
     radial-gradient(1200px 600px at 10% -10%, color-mix(in srgb, var(--accent) 22%, transparent), transparent 60%),
@@ -289,6 +412,42 @@ body,
   background-color: var(--bg);
   background-image: radial-gradient(circle at 50% 40%, color-mix(in srgb, var(--accent) 14%, transparent) 8px, transparent 9px);
   background-size: 46px 46px;
+}
+/* Soft off-centre glows — the calm default. */
+.wallpaper-mesh {
+  background:
+    radial-gradient(900px 700px at 85% -15%, color-mix(in srgb, var(--accent) 16%, transparent), transparent 65%),
+    radial-gradient(700px 600px at -10% 110%, color-mix(in srgb, var(--accent-2) 14%, transparent), transparent 60%),
+    linear-gradient(160deg, var(--bg-grad-1), var(--bg-grad-2));
+}
+.wallpaper-grid {
+  background-color: var(--bg);
+  background-image:
+    linear-gradient(color-mix(in srgb, var(--muted) 12%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--muted) 12%, transparent) 1px, transparent 1px);
+  background-size: 28px 28px, 28px 28px;
+}
+.wallpaper-waves {
+  background-color: var(--bg);
+  background-image: repeating-linear-gradient(
+    115deg,
+    color-mix(in srgb, var(--accent) 8%, transparent) 0 14px,
+    transparent 14px 34px
+  );
+}
+/* Two offset dot grids of different sizes read as a starfield. */
+.wallpaper-stars {
+  background-color: var(--bg);
+  background-image:
+    radial-gradient(color-mix(in srgb, var(--text) 26%, transparent) 1px, transparent 1px),
+    radial-gradient(color-mix(in srgb, var(--accent) 30%, transparent) 1.5px, transparent 2px);
+  background-size: 64px 64px, 141px 121px;
+  background-position: 0 0, 24px 38px;
+}
+.wallpaper-glow {
+  background:
+    radial-gradient(60% 60% at 50% 120%, color-mix(in srgb, var(--accent) 20%, transparent), transparent 70%),
+    var(--bg);
 }
 
 .glass {
@@ -387,6 +546,19 @@ body,
 .jumbo-in {
   animation: jumbo-in 0.4s cubic-bezier(0.22, 1, 0.36, 1);
   transform-origin: bottom;
+}
+
+/* Selected for a bulk action. Deliberately a tint of the accent rather than a
+   checkbox column, so the list does not jump when selection mode starts. */
+.msg-selected {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+/* The fragment of a message that was quoted in a reply. */
+.quote-mark {
+  border-left: 3px solid var(--accent);
+  padding-left: 8px;
+  color: var(--muted);
 }
 
 /* ─────────────────── Media attachments ─────────────────── */

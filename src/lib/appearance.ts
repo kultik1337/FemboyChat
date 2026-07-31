@@ -1,4 +1,4 @@
-import type { UserSettings } from '../types'
+import type { ThemeName, UserSettings } from '../types'
 
 function shade(hex: string, amt: number) {
   const h = hex.replace('#', '')
@@ -12,14 +12,39 @@ function shade(hex: string, amt: number) {
   return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, '0')}`
 }
 
-/** Reflect the user's appearance settings onto the document. */
+/** Themes that paint light text on a dark surface. */
+const DARK_THEMES = new Set<string>(['dark', 'graphite', 'midnight', 'ocean', 'forest', 'sunset'])
+
+export function isDarkTheme(t: ThemeName): boolean {
+  return DARK_THEMES.has(resolveTheme(t))
+}
+
+/**
+ * Reflect the user's appearance settings onto the document.
+ *
+ * The browser UI colour is kept in step with the palette on purpose: on Android
+ * and in the installed app the system paints its own bar with it, and a pink
+ * strip above a graphite app was the last visible leftover of the old look.
+ */
 export function applyAppearance(s: UserSettings) {
   const root = document.documentElement
-  root.setAttribute('data-theme', resolveTheme(s.theme))
+  const theme = resolveTheme(s.theme)
+  root.setAttribute('data-theme', theme)
   root.style.setProperty('--accent', s.accent)
   root.style.setProperty('--accent-2', shade(s.accent, 40))
   root.style.setProperty('--font-scale', String(s.fontScale))
   root.style.setProperty('--radius-bubble', `${s.bubbleRadius}px`)
+
+  const bg = getComputedStyle(root).getPropertyValue('--bg').trim()
+  if (bg) {
+    let meta = document.querySelector('meta[name="theme-color"]')
+    if (!meta) {
+      meta = document.createElement('meta')
+      meta.setAttribute('name', 'theme-color')
+      document.head.appendChild(meta)
+    }
+    meta.setAttribute('content', bg)
+  }
 }
 
 export function resolveTheme(t: UserSettings['theme']) {
