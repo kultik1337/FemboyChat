@@ -5,6 +5,8 @@ import { ChatView } from './ChatView'
 import { RightPanel } from './RightPanel'
 import { Settings } from '../settings/Settings'
 import { NewChatModal } from './NewChatModal'
+import { AdminPanel } from './AdminPanel'
+import { BotStudio } from './BotStudio'
 import { Lightbox } from '../ui/Lightbox'
 import { InstallPrompt } from '../ui/InstallPrompt'
 import { PushPrompt } from '../ui/PushPrompt'
@@ -21,6 +23,18 @@ const EDGE_PX = 30
 /** How far it has to travel before the chat actually closes. */
 const BACK_TRIGGER = 90
 
+/**
+ * Panels that live above everything and are opened from several places at
+ * once (settings, a menu, a keyboard shortcut). Rather than threading state
+ * through half the tree, anyone can dispatch `fc:open-panel`.
+ */
+type Overlay = 'admin' | 'bots' | null
+
+/** Open one of the shell's overlays from anywhere in the app. */
+export function openPanel(panel: Exclude<Overlay, null>): void {
+  window.dispatchEvent(new CustomEvent('fc:open-panel', { detail: panel }))
+}
+
 export function AppShell() {
   const activeChatId = useStore((s) => s.activeChatId)
   const mode = useStore((s) => s.mode)
@@ -31,6 +45,7 @@ export function AppShell() {
   const [tipHidden, setTipHidden] = useState(() => localStorage.getItem('fc:hideRealtimeTip') === '1')
   const showTip = mode === 'local' && !tipHidden
   const animations = account?.settings.animations ?? true
+  const [overlay, setOverlay] = useState<Overlay>(null)
 
   /*
     Edge-swipe back. A finger that starts within a few pixels of the left edge
@@ -89,6 +104,16 @@ export function AppShell() {
   // Manifest, service worker and the install banner's state.
   useEffect(() => {
     initPwa()
+  }, [])
+
+  /** Any part of the app may ask for one of the big panels. */
+  useEffect(() => {
+    const onOpen = (e: Event) => {
+      const detail = (e as CustomEvent).detail as Overlay
+      if (detail === 'admin' || detail === 'bots') setOverlay(detail)
+    }
+    window.addEventListener('fc:open-panel', onOpen)
+    return () => window.removeEventListener('fc:open-panel', onOpen)
   }, [])
 
   /**
@@ -151,17 +176,30 @@ export function AppShell() {
     }
   }, [account?.uid, backend])
 
-  // ⌘/Ctrl+K → focus search · Konami code → easter egg
+  // ⌘/Ctrl+K → focus search · ⌘/Ctrl+Shift+A → admin · ⌘/Ctrl+Shift+B → bots
+  // · Konami code → easter egg
   useEffect(() => {
     const KONAMI = ['arrowup', 'arrowup', 'arrowdown', 'arrowdown', 'arrowleft', 'arrowright', 'arrowleft', 'arrowright', 'b', 'a']
     let seq: string[] = []
     const onKey = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+      const mod = e.ctrlKey || e.metaKey
+      const key = e.key.toLowerCase()
+      if (mod && !e.shiftKey && key === 'k') {
         e.preventDefault()
         document.getElementById('sidebar-search')?.focus()
         return
       }
-      seq = [...seq, e.key.toLowerCase()].slice(-KONAMI.length)
+      if (mod && e.shiftKey && key === 'a') {
+        e.preventDefault()
+        setOverlay('admin')
+        return
+      }
+      if (mod && e.shiftKey && key === 'b') {
+        e.preventDefault()
+        setOverlay('bots')
+        return
+      }
+      seq = [...seq, key].slice(-KONAMI.length)
       if (seq.length === KONAMI.length && KONAMI.every((k, i) => seq[i] === k)) {
         useStore.getState().toast('Пасхалка активирована! Ня~ 🎀', '🕹️')
         seq = []
@@ -225,6 +263,8 @@ export function AppShell() {
       <RightPanel />
       <Settings />
       <NewChatModal />
+      {overlay === 'admin' && <AdminPanel onClose={() => setOverlay(null)} />}
+      {overlay === 'bots' && <BotStudio onClose={() => setOverlay(null)} />}
       <Lightbox />
       {/*
         These banners are fixed to the bottom of the screen. On a phone that is
