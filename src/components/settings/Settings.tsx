@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Bell,
+  Bot,
   Camera,
   Database,
   Ghost,
@@ -24,12 +25,13 @@ import { Avatar } from '../ui/Avatar'
 import { EmojiGrid } from '../ui/EmojiPicker'
 import { ACCENT_PRESETS, THEME_PRESETS, WALLPAPER_PRESETS } from '../../lib/defaults'
 import { downscaleImage } from '../../lib/media'
+import { usePerks } from '../../lib/perks'
 import { classNames, normalizeUsername } from '../../lib/util'
 import { deviceInfo, deviceKey, deviceLabel, isMobileOs } from '../../lib/device'
 import { APP_VERSION } from '../../lib/version'
 import type { Audience, Message } from '../../types'
 
-type Tab = 'profile' | 'appearance' | 'privacy' | 'notifications' | 'chats' | 'language' | 'data' | 'about'
+type Tab = 'profile' | 'appearance' | 'privacy' | 'notifications' | 'chats' | 'lab' | 'language' | 'data' | 'about'
 
 const TABS: { id: Tab; label: string; icon: typeof User }[] = [
   { id: 'profile', label: 'Профиль', icon: User },
@@ -37,6 +39,7 @@ const TABS: { id: Tab; label: string; icon: typeof User }[] = [
   { id: 'privacy', label: 'Приватность', icon: ShieldCheck },
   { id: 'notifications', label: 'Уведомления', icon: Bell },
   { id: 'chats', label: 'Чаты', icon: MessageSquare },
+  { id: 'lab', label: 'Боты', icon: Bot },
   { id: 'language', label: 'Язык', icon: Globe },
   { id: 'data', label: 'Данные', icon: Database },
   { id: 'about', label: 'О приложении', icon: Sparkles },
@@ -70,6 +73,7 @@ export function Settings() {
           {tab === 'privacy' && <PrivacyTab />}
           {tab === 'notifications' && <NotificationsTab />}
           {tab === 'chats' && <ChatsTab />}
+          {tab === 'lab' && <LabTab />}
           {tab === 'language' && <LanguageTab />}
           {tab === 'data' && <DataTab />}
           {tab === 'about' && <AboutTab />}
@@ -542,6 +546,67 @@ function ChatsTab() {
         <div className="font-bold">Команды</div>
         <div className="mt-1 text-[var(--muted)]">Начни сообщение с <code className="rich-code">/</code> — доступны <b>/me</b>, <b>/shrug</b>, <b>/roll</b>, <b>/flip</b>, <b>/8ball</b>, <b>/love</b>, <b>/hug</b> и другие.</div>
       </div>
+    </div>
+  )
+}
+
+// ── Bots & admin ──
+/**
+ * Both panels live in the shell, above everything else, because they cover the
+ * whole app rather than a settings pane. Settings only points at them — and it
+ * points with an event rather than an import, so the shell can keep importing
+ * Settings without the two files importing each other in a circle.
+ *
+ * The admin card is simply absent for everyone else: an admin button that
+ * always fails is worse than no button at all.
+ */
+function LabTab() {
+  const perks = usePerks()
+  const setOpen = useStore((st) => st.setSettingsOpen)
+
+  function open(panel: 'admin' | 'bots') {
+    setOpen(false)
+    window.dispatchEvent(new CustomEvent('fc:open-panel', { detail: panel }))
+  }
+
+  return (
+    <div className="space-y-3">
+      <button
+        onClick={() => open('bots')}
+        className="flex w-full items-center gap-3 rounded-2xl border border-[var(--border)] bg-[var(--panel-2)] p-3 text-left transition hover:bg-[var(--panel-hover)]"
+      >
+        <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl accent-gradient text-white">
+          <Bot size={19} />
+        </span>
+        <span className="min-w-0">
+          <span className="block text-sm font-bold">Свои боты</span>
+          <span className="block text-xs text-[var(--muted)]">
+            {perks.can_create_bots
+              ? `Персонаж из пары фраз — и с ним можно переписываться. Лимит: ${perks.max_bots}`
+              : 'Доступ выдаёт администратор'}
+          </span>
+        </span>
+      </button>
+
+      {perks.is_admin && (
+        <button
+          onClick={() => open('admin')}
+          className="flex w-full items-center gap-3 rounded-2xl border border-[var(--border)] bg-[var(--panel-2)] p-3 text-left transition hover:bg-[var(--panel-hover)]"
+        >
+          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[var(--panel)] text-[var(--accent)]">
+            <ShieldCheck size={19} />
+          </span>
+          <span className="min-w-0">
+            <span className="block text-sm font-bold">Админка мессенджера</span>
+            <span className="block text-xs text-[var(--muted)]">Премиум, галочки, право на ботов и лимиты</span>
+          </span>
+        </button>
+      )}
+
+      <p className="text-xs text-[var(--muted)]">
+        Бот — обычный собеседник: его можно найти в поиске, открыть с ним чат и писать как человеку. Характер можно поменять в любой момент.
+      </p>
+      <p className="text-xs text-[var(--muted)]">Горячие клавиши: Ctrl/⌘ + Shift + B — боты, Ctrl/⌘ + Shift + A — админка.</p>
     </div>
   )
 }
