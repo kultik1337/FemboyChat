@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Check, CheckCheck, Clock, CornerUpLeft, Download, Eye, FileText, MessageCircle, MoreHorizontal, Quote, Smile } from 'lucide-react'
+import { Check, CheckCheck, Clock, CornerUpLeft, Download, Eye, FileText, ListChecks, MessageCircle, MoreHorizontal, Quote, Smile } from 'lucide-react'
 import type { Attachment, Chat, Message } from '../../types'
 import { classNames, renderPost, renderRich, timeShort } from '../../lib/util'
 import { attachmentLabel, prettySize } from '../../lib/media'
@@ -25,6 +25,12 @@ const SWIPE_SLOP = 12
 /** Longest fragment worth quoting; the store trims to the same length. */
 const MAX_QUOTE_LEN = 280
 
+/** Touch device: no hover strip, no mouse selection, long press instead. */
+function isCoarsePointer(): boolean {
+  if (typeof window === 'undefined' || !window.matchMedia) return false
+  return window.matchMedia('(pointer: coarse)').matches
+}
+
 export function MessageBubble({
   message,
   chat,
@@ -41,6 +47,7 @@ export function MessageBubble({
   onJump,
   onOpenComments,
   commentCount,
+  onSelect,
 }: {
   message: Message
   chat: Chat
@@ -59,10 +66,13 @@ export function MessageBubble({
   onOpenComments?: (message: Message) => void
   /** Overrides the stored counter once the thread has been opened. */
   commentCount?: number
+  /** Enters multi-select mode with this message already ticked. */
+  onSelect?: (message: Message) => void
 }) {
   const react = useStore((s) => s.react)
   const vote = useStore((s) => s.vote)
   const account = useStore((s) => s.account)
+  const toast = useStore((s) => s.toast)
   const setProfileUid = useStore((s) => s.setProfileUid)
   const setComposeReply = useStore((s) => s.setComposeReply)
   const setComposeQuoteReply = useStore((s) => s.setComposeQuoteReply)
@@ -76,6 +86,15 @@ export function MessageBubble({
   // Text highlighted inside THIS message, offered as a quote.
   const [selText, setSelText] = useState('')
   const rootRef = useRef<HTMLDivElement>(null)
+  const [coarse] = useState(isCoarsePointer)
+  /*
+    On a phone the native long press grabbed the text and popped up the system
+    «Copy / Look Up» bubble, which is exactly what you do NOT want when the same
+    gesture is supposed to open our own menu. Text selection is therefore off by
+    default on touch and switched on for one message at a time, on request.
+  */
+  const [textSelectable, setTextSelectable] = useState(false)
+  const selectionOff = coarse && !textSelectable
 
   /**
    * Remember the highlighted fragment when, and only when, both ends of the
@@ -109,11 +128,24 @@ export function MessageBubble({
     setComposeQuoteReply(message, selText)
     window.getSelection()?.removeAllRanges()
     setSelText('')
+    setTextSelectable(false)
+  }
+
+  /** Hand this one bubble back to the browser so a fragment can be grabbed. */
+  function enableTextSelection() {
+    setTextSelectable(true)
+    toast('Выдели кусок текста — появится кнопка «Цитировать»', '✏️')
   }
 
   function openMenu(e: React.MouseEvent) {
     const { items, reactions } = messageMenu(message)
-    openContextMenu(e, items, { reactions })
+    const extra = []
+    if (onSelect) extra.push({ label: 'Выделить', icon: <ListChecks size={15} />, onClick: () => onSelect(message) })
+    // Only touch needs this: with a mouse you just drag across the text.
+    if (coarse && !message.deleted && !message.sticker && message.text) {
+      extra.push({ label: 'Выделить текст', icon: <Quote size={15} />, onClick: enableTextSelection })
+    }
+    openContextMenu(e, extra.length ? [...extra, { kind: 'divider' as const }, ...items] : items, { reactions })
   }
 
   function quickReact() {
@@ -188,7 +220,7 @@ export function MessageBubble({
     setPull(0)
     // A long-press selection is only final once the browser has finished with
     // the gesture, so the read happens on the next tick.
-    if (!s?.active) setTimeout(readSelection, 0)
+    if (!s?.active && !selectionOff) setTimeout(readSelection, 0)
   }
 
   const swiping = !!swipe.current?.active
@@ -341,7 +373,11 @@ export function MessageBubble({
         touchAction: 'pan-y',
         transform: pull ? `translateX(-${pull}px)` : undefined,
         transition: swiping ? 'none' : 'transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1)',
-      }}
+        // Touch only: no accidental text grabbing, no system «Copy» bubble.
+        WebkitUserSelect: selectionOff ? 'none' : undefined,
+        userSelect: selectionOff ? 'none' : undefined,
+        WebkitTouchCallout: coarse ? 'none' : undefined,
+      } as React.CSSProperties}
     >
       {pull > 0 && (
         <span
