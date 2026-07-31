@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowDown, ArrowLeft, ChevronDown, ChevronUp, Eye, Info, MessageCircle, Paperclip, Pin, Search, Send, X } from 'lucide-react'
+import { ArrowDown, ArrowLeft, Check, ChevronDown, ChevronUp, Copy, Eye, Info, ListChecks, MessageCircle, Paperclip, Pin, Search, Send, Trash2, X } from 'lucide-react'
 import { useStore } from '../../store/useStore'
 import { Avatar } from '../ui/Avatar'
 import { Logo } from '../ui/Logo'
@@ -29,6 +29,8 @@ export function ChatView() {
   const setRightPanel = useStore((s) => s.setRightPanel)
   const setProfileUid = useStore((s) => s.setProfileUid)
   const openChat = useStore((s) => s.openChat)
+  const removeMsg = useStore((s) => s.remove)
+  const toast = useStore((s) => s.toast)
   const { resolve } = usePeople()
   const { chatMenu, personMenu } = useActions()
 
@@ -53,6 +55,10 @@ export function ChatView() {
   const [commentsForId, setCommentsForId] = useState<string | null>(null)
   /** Comment counts corrected by an opened thread (the row's is a snapshot). */
   const [commentCounts, setCommentCounts] = useState<Record<string, number>>({})
+  /** Multi-select: off by default, cleared whenever the chat changes. */
+  const [selectMode, setSelectMode] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<string[]>([])
+  const [busy, setBusy] = useState(false)
   // «Новые сообщения» divider: freeze the first-unread timestamp per chat visit.
   const unreadMark = useRef<{ chatId: string; ts: number | null }>({ chatId: '', ts: null })
   const wallpaper = account.settings.wallpaper
@@ -65,6 +71,8 @@ export function ChatView() {
     viewedRef.current = new Set()
     setCommentsForId(null)
     setCommentCounts({})
+    setSelectMode(false)
+    setSelectedIds([])
     const el = scroller.current
     if (el) el.scrollTop = el.scrollHeight
     atBottomRef.current = true
@@ -106,6 +114,19 @@ export function ChatView() {
     window.addEventListener('fc:jump', onJump)
     return () => window.removeEventListener('fc:jump', onJump)
   }, [activeChatId])
+
+  /** Escape leaves selection mode before it does anything else. */
+  useEffect(() => {
+    if (!selectMode) return
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') {
+        e.stopPropagation()
+        exitSelect()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [selectMode])
 
   // Count a post as seen once it is actually on screen. Runs after layout, so
   // the freshly rendered bubbles already have their geometry.
@@ -195,11 +216,24 @@ export function ChatView() {
     if (t) t.classList.toggle('revealed')
   }
 
+  function toggleSelect(id: string) {
+    setSelectedIds((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]))
+  }
+
+  function exitSelect() {
+    setSelectMode(false)
+    setSelectedIds([])
+  }
+
   const visibleMsgs = useMemo(
     () => msgs.filter((m) => !(m.ttl && now > m.ts + m.ttl * 1000 && m.senderUid !== account.uid) || !m.ttl),
     [msgs, now, account.uid],
   )
   const pinned = useMemo(() => msgs.filter((m) => m.pinned && !m.deleted), [msgs])
+
+  /** Selected messages in reading order, whatever order they were tapped in. */
+  const picked = useMemo(() => visibleMsgs.filter((m) => selectedIds.includes(m.id)), [visibleMsgs, selectedIds])
+  const allMine = picked.length > 0 && picked.every((m) => m.senderUid === account.uid && !m.deleted)
 
   const matches = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -212,6 +246,35 @@ export function ChatView() {
     const idx = Math.min(matchIdx, matches.length - 1)
     jumpTo(matches[matches.length - 1 - idx])
   }, [matches, matchIdx])
+
+  /** Copy as a readable transcript: «who · when», then the text. */
+  function copySelected() {
+    if (!picked.length) return
+    const text = picked
+      .map((m) => `${resolve(m.senderUid).name} · ${timeShort(m.ts)}\n${m.sticker ?? plainText(m.text) ?? ''}`.trim())
+      .join('\n\n')
+    navigator.clipboard?.writeText(text)
+    toast(picked.length === 1 ? 'Скопировано' : `Скопировано сообщений: ${picked.length}`, '📋')
+    exitSelect()
+  }
+
+  /**
+   * Bulk delete. Only own messages can go — the server would refuse the rest
+   * anyway, so the button stays disabled instead of failing halfway.
+   */
+  async function deleteSelected() {
+    if (!picked.length || !allMine || busy) return
+    if (!confirm(picked.length === 1 ? 'Удалить сообщение?' : `Удалить сообщений: ${picked.length}?`)) return
+    setBusy(true)
+    try {
+      for (const m of picked) await removeMsg(m.id)
+      exitSelect()
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Не всё удалось удалить', '⚠️')
+    } finally {
+      setBusy(false)
+    }
+  }
 
   if (!chat) return <EmptyState />
 
@@ -311,6 +374,13 @@ export function ChatView() {
             <div className={classNames('truncate text-xs', sub.accent ? 'text-[var(--accent)]' : 'text-[var(--muted)]')}>{sub.text}</div>
           </div>
         </button>
+        <button
+          onClick={() => (selectMode ? exitSelect() : setSelectMode(true))}
+          className={classNames('grid h-9 w-9 shrink-0 place-items-center rounded-full hover:bg-[var(--panel-hover)]', selectMode ? 'text-[var(--accent)]' : 'text-[var(--muted)]')}
+          title={selectMode ? 'Выйти из выделения' : 'Выбрать сообщения'}
+        >
+          <ListChecks size={19} />
+        </button>
         <button onClick={() => setSearchOpen((v) => !v)} className={classNames('grid h-9 w-9 shrink-0 place-items-center rounded-full hover:bg-[var(--panel-hover)]', searchOpen ? 'text-[var(--accent)]' : 'text-[var(--muted)]')} title="Поиск по чату">
           <Search size={19} />
         </button>
@@ -382,6 +452,7 @@ export function ChatView() {
               !next || next.senderUid !== m.senderUid || next.ts - m.ts >= win || !!next.system || dayLabel(next.ts) !== dayLabel(m.ts)
             const sender = resolve(m.senderUid)
             const replied = m.replyToId ? msgs.find((x) => x.id === m.replyToId) : undefined
+            const isPicked = selectedIds.includes(m.id)
             return (
               <div key={m.id} className={classNames('min-w-0', m.pending && 'opacity-60 transition-opacity', m.failed && 'opacity-80')}>
                 {newDay && (
@@ -396,25 +467,53 @@ export function ChatView() {
                     <span className="h-px flex-1 bg-[var(--accent)]/40" />
                   </div>
                 )}
-                <MessageBubble
-                  message={m}
-                  chat={chat}
-                  /* A channel post belongs to the channel, not to whoever pressed
-                     publish — so it always renders on the left, like in Telegram. */
-                  isMine={!isChannel && m.senderUid === account.uid}
-                  sender={sender}
-                  firstOfGroup={firstOfGroup}
-                  showAvatar={lastOfGroup}
-                  repliedMessage={replied}
-                  repliedSender={replied ? resolve(replied.senderUid) : undefined}
-                  now={now}
-                  bigEmoji={account.settings.bigEmoji}
-                  otherUid={counterpartUid}
-                  fresh={account.settings.animations && m.ts > openedAt.current}
-                  onJump={jumpTo}
-                  onOpenComments={isChannel && backend?.listComments ? (msg) => setCommentsForId(msg.id) : undefined}
-                  commentCount={commentCounts[m.id]}
-                />
+                <div className={classNames('relative min-w-0', isPicked && 'msg-selected')}>
+                  <MessageBubble
+                    message={m}
+                    chat={chat}
+                    /* A channel post belongs to the channel, not to whoever pressed
+                       publish — so it always renders on the left, like in Telegram. */
+                    isMine={!isChannel && m.senderUid === account.uid}
+                    sender={sender}
+                    firstOfGroup={firstOfGroup}
+                    showAvatar={lastOfGroup}
+                    repliedMessage={replied}
+                    repliedSender={replied ? resolve(replied.senderUid) : undefined}
+                    now={now}
+                    bigEmoji={account.settings.bigEmoji}
+                    otherUid={counterpartUid}
+                    fresh={account.settings.animations && m.ts > openedAt.current}
+                    onJump={jumpTo}
+                    onOpenComments={isChannel && backend?.listComments ? (msg) => setCommentsForId(msg.id) : undefined}
+                    commentCount={commentCounts[m.id]}
+                  />
+                  {/*
+                    In selection mode a hit area covers the whole row, so a tap
+                    anywhere — on a link, a photo, a reaction — picks the message
+                    instead of doing its usual thing. Touch events stop here too,
+                    otherwise the swipe-to-reply handler underneath would fire.
+                  */}
+                  {selectMode && !m.system && (
+                    <button
+                      onClick={() => toggleSelect(m.id)}
+                      onTouchStart={(e) => e.stopPropagation()}
+                      onTouchMove={(e) => e.stopPropagation()}
+                      onTouchEnd={(e) => e.stopPropagation()}
+                      className="absolute inset-0 z-[6] flex items-center px-2 sm:px-3"
+                      aria-pressed={isPicked}
+                      aria-label={isPicked ? 'Снять выделение' : 'Выделить сообщение'}
+                    >
+                      <span
+                        className={classNames(
+                          'grid h-6 w-6 shrink-0 place-items-center rounded-full border-2 shadow-sm transition',
+                          isPicked ? 'accent-gradient border-transparent text-white' : 'border-[var(--border)] bg-[var(--panel)] text-transparent',
+                        )}
+                      >
+                        <Check size={14} />
+                      </span>
+                    </button>
+                  )}
+                </div>
                 {m.failed && (
                   <div className="px-4 pb-1 text-right text-[11px] font-semibold text-[#ff6b6b]">Не отправлено · проверь связь</div>
                 )}
@@ -443,8 +542,34 @@ export function ChatView() {
         )}
       </div>
 
-      {/* composer / notice */}
-      {canPost ? (
+      {/* selection bar / composer / notice */}
+      {selectMode ? (
+        <div className="flex min-w-0 items-center gap-2 border-t border-[var(--border)] bg-[var(--panel)] px-3 py-2.5">
+          <button onClick={exitSelect} className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-[var(--muted)] hover:bg-[var(--panel-hover)]" title="Отмена">
+            <X size={19} />
+          </button>
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-sm font-bold">{picked.length ? `Выбрано: ${picked.length}` : 'Выбери сообщения'}</div>
+            <div className="truncate text-[11px] text-[var(--muted)]">{picked.length && !allMine ? 'Удалять можно только свои сообщения' : 'Нажимай на сообщения, чтобы отметить их'}</div>
+          </div>
+          <button
+            onClick={copySelected}
+            disabled={!picked.length}
+            className="flex shrink-0 items-center gap-1.5 rounded-xl px-3 py-2 text-sm font-semibold text-[var(--muted)] transition enabled:hover:bg-[var(--panel-hover)] enabled:hover:text-[var(--text)] disabled:opacity-40"
+            title="Копировать"
+          >
+            <Copy size={17} /> <span className="hidden sm:inline">Копировать</span>
+          </button>
+          <button
+            onClick={deleteSelected}
+            disabled={!picked.length || !allMine || busy}
+            className="flex shrink-0 items-center gap-1.5 rounded-xl px-3 py-2 text-sm font-semibold text-rose-500 transition enabled:hover:bg-rose-500/10 disabled:opacity-40"
+            title="Удалить"
+          >
+            <Trash2 size={17} /> <span className="hidden sm:inline">{busy ? 'Удаляем…' : 'Удалить'}</span>
+          </button>
+        </div>
+      ) : canPost ? (
         <Composer />
       ) : (
         <div className="border-t border-[var(--border)] bg-[var(--panel)] px-4 py-4 text-center text-sm text-[var(--muted)]">
