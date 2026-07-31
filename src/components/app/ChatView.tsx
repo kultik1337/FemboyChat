@@ -264,6 +264,17 @@ export function ChatView() {
     setSelectedIds((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]))
   }
 
+  /**
+   * Enter selection mode from a long press, with that message already ticked.
+   * On a phone this is the only comfortable way in — the header button asks for
+   * a second, deliberate tap before anything is chosen.
+   */
+  function startSelect(m: Message) {
+    setSelectMode(true)
+    setSelectedIds([m.id])
+    navigator.vibrate?.(8)
+  }
+
   function exitSelect() {
     setSelectMode(false)
     setSelectedIds([])
@@ -530,6 +541,7 @@ export function ChatView() {
                     onJump={jumpTo}
                     onOpenComments={isChannel && backend?.listComments ? (msg) => setCommentsForId(msg.id) : undefined}
                     commentCount={commentCounts[m.id]}
+                    onSelect={m.system ? undefined : startSelect}
                   />
                   {/*
                     In selection mode a hit area covers the whole row, so a tap
