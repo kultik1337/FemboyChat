@@ -1,5 +1,5 @@
-import { useRef, useState } from 'react'
-import { Check, CheckCheck, Clock, CornerUpLeft, Download, Eye, FileText, MessageCircle, MoreHorizontal, Smile } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { Check, CheckCheck, Clock, CornerUpLeft, Download, Eye, FileText, MessageCircle, MoreHorizontal, Quote, Smile } from 'lucide-react'
 import type { Attachment, Chat, Message } from '../../types'
 import { classNames, renderPost, renderRich, timeShort } from '../../lib/util'
 import { attachmentLabel, prettySize } from '../../lib/media'
@@ -21,6 +21,9 @@ const SWIPE_MAX = 84
 const SWIPE_TRIGGER = 52
 /** Below this the gesture is still undecided — it may turn out to be a scroll. */
 const SWIPE_SLOP = 12
+
+/** Longest fragment worth quoting; the store trims to the same length. */
+const MAX_QUOTE_LEN = 280
 
 export function MessageBubble({
   message,
@@ -62,6 +65,7 @@ export function MessageBubble({
   const account = useStore((s) => s.account)
   const setProfileUid = useStore((s) => s.setProfileUid)
   const setComposeReply = useStore((s) => s.setComposeReply)
+  const setComposeQuoteReply = useStore((s) => s.setComposeQuoteReply)
   const { messageMenu } = useActions()
   // Forwarded messages name whoever actually wrote them.
   const { resolve } = usePeople()
@@ -69,6 +73,43 @@ export function MessageBubble({
   // Swipe-to-reply: how far the row is currently pulled, and the live gesture.
   const [pull, setPull] = useState(0)
   const swipe = useRef<{ x: number; y: number; active: boolean } | null>(null)
+  // Text highlighted inside THIS message, offered as a quote.
+  const [selText, setSelText] = useState('')
+  const rootRef = useRef<HTMLDivElement>(null)
+
+  /**
+   * Remember the highlighted fragment when, and only when, both ends of the
+   * selection sit inside this message. Selecting across several bubbles has no
+   * single message to quote, so nothing is offered.
+   */
+  function readSelection() {
+    const root = rootRef.current
+    const sel = typeof window === 'undefined' ? null : window.getSelection()
+    if (!root || !sel || sel.isCollapsed) {
+      setSelText('')
+      return
+    }
+    const inside = sel.anchorNode && sel.focusNode && root.contains(sel.anchorNode) && root.contains(sel.focusNode)
+    const text = sel.toString().trim()
+    setSelText(inside && text ? text.slice(0, MAX_QUOTE_LEN) : '')
+  }
+
+  // A collapsed selection means the person clicked elsewhere — drop the offer.
+  useEffect(() => {
+    function onSelectionChange() {
+      const sel = window.getSelection()
+      if (!sel || sel.isCollapsed) setSelText('')
+    }
+    document.addEventListener('selectionchange', onSelectionChange)
+    return () => document.removeEventListener('selectionchange', onSelectionChange)
+  }, [])
+
+  function quoteSelection() {
+    if (!selText) return
+    setComposeQuoteReply(message, selText)
+    window.getSelection()?.removeAllRanges()
+    setSelText('')
+  }
 
   function openMenu(e: React.MouseEvent) {
     const { items, reactions } = messageMenu(message)
@@ -145,6 +186,9 @@ export function MessageBubble({
       navigator.vibrate?.(8)
     }
     setPull(0)
+    // A long-press selection is only final once the browser has finished with
+    // the gesture, so the read happens on the next tick.
+    if (!s?.active) setTimeout(readSelection, 0)
   }
 
   const swiping = !!swipe.current?.active
@@ -163,7 +207,7 @@ export function MessageBubble({
 
   const buildHeader = (withName: boolean) => {
     const showNameHere = withName && showName
-    if (!showNameHere && !message.forwardedFrom && !repliedMessage) return null
+    if (!showNameHere && !message.forwardedFrom && !repliedMessage && !message.quote) return null
     return (
       <>
         {showNameHere && (
@@ -186,9 +230,40 @@ export function MessageBubble({
             className="mb-1 block w-full min-w-0 border-l-2 pl-2 text-left text-[0.8rem] opacity-90 transition hover:opacity-100"
             style={{ borderColor: isMine ? 'rgba(255,255,255,0.7)' : 'var(--accent)' }}
           >
-            <div className="truncate font-semibold">{repliedSender?.name ?? 'Сообщение'}</div>
-            <div className="truncate opacity-80">{repliedMessage.deleted ? 'сообщение удалено' : repliedMessage.sticker ? 'стикер' : repliedMessage.attachment ? attachmentLabel(repliedMessage.attachment) : repliedMessage.text}</div>
+            <div className="flex min-w-0 items-center gap-1 font-semibold">
+              {message.quote && <Quote size={11} className="shrink-0 opacity-80" />}
+              <span className="truncate">{repliedSender?.name ?? 'Сообщение'}</span>
+            </div>
+            {/*
+              A quote-reply shows only the fragment its author highlighted; an
+              ordinary reply keeps showing the start of the whole message.
+            */}
+            <div className="truncate opacity-80">
+              {message.quote
+                ? message.quote
+                : repliedMessage.deleted
+                  ? 'сообщение удалено'
+                  : repliedMessage.sticker
+                    ? 'стикер'
+                    : repliedMessage.attachment
+                      ? attachmentLabel(repliedMessage.attachment)
+                      : repliedMessage.text}
+            </div>
           </button>
+        )}
+        {/* The quoted message may live on a page of history that is not loaded
+            (or is gone entirely) — the fragment itself still makes sense. */}
+        {!repliedMessage && message.quote && (
+          <div
+            className="mb-1 block w-full min-w-0 border-l-2 pl-2 text-left text-[0.8rem] opacity-90"
+            style={{ borderColor: isMine ? 'rgba(255,255,255,0.7)' : 'var(--accent)' }}
+          >
+            <div className="flex min-w-0 items-center gap-1 font-semibold">
+              <Quote size={11} className="shrink-0 opacity-80" />
+              <span className="truncate">Цитата</span>
+            </div>
+            <div className="truncate opacity-80">{message.quote}</div>
+          </div>
         )}
       </>
     )
@@ -253,9 +328,11 @@ export function MessageBubble({
   return (
     <div
       id={`msg-${message.id}`}
+      ref={rootRef}
       className={classNames('group relative flex min-w-0 gap-2 px-3 sm:px-4', isMine ? 'flex-row-reverse' : 'flex-row', firstOfGroup ? 'mt-4' : 'mt-1', fresh && 'animate-fade-in')}
       onContextMenu={message.deleted ? undefined : openMenu}
       onDoubleClick={quickReact}
+      onMouseUp={message.deleted ? undefined : readSelection}
       onTouchStart={onTouchStart}
       onTouchMove={onTouchMove}
       onTouchEnd={onTouchEnd}
@@ -297,6 +374,22 @@ export function MessageBubble({
       */}
       <div className={classNames('relative min-w-0', isPost ? 'w-full max-w-[min(100%,640px)]' : 'max-w-[76%] sm:max-w-[68%]', isMine ? 'items-end' : 'items-start')}>
         {pop && <span className="heart-pop">❤️</span>}
+
+        {/* Highlight a piece of a message and answer that piece specifically. */}
+        {selText && !message.deleted && (
+          <button
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={quoteSelection}
+            className={classNames(
+              'absolute -top-3 z-[7] flex items-center gap-1 rounded-full accent-gradient px-2.5 py-1 text-[11px] font-bold text-white shadow-md animate-pop-in',
+              isMine ? 'right-1' : 'left-1',
+            )}
+            title="Ответить на выделенный текст"
+          >
+            <Quote size={12} /> Цитировать
+          </button>
+        )}
+
         {message.sticker ? (
           <div className={classNames('flex', isMine ? 'justify-end' : 'justify-start')}>
             <Sticker emoji={message.sticker} size={124} />

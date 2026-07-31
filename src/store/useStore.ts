@@ -34,6 +34,12 @@ interface StoreState {
   unread: Record<string, number>
   now: number
   composeReply: Message | null
+  /**
+   * The fragment highlighted inside the message being replied to. Lives beside
+   * `composeReply` because it only ever makes sense together with it, and is
+   * dropped whenever the reply is dropped.
+   */
+  composeQuote: string | null
   composeEdit: Message | null
   /** Files dropped/pasted into the chat, waiting in the composer. */
   pendingFiles: File[]
@@ -77,13 +83,15 @@ interface StoreState {
     memberUids?: string[]
   }) => Promise<void>
 
-  send: (input: { text: string; replyToId?: string; sticker?: string; poll?: Poll; ttl?: number; forwardedFrom?: string; attachment?: Attachment }) => Promise<void>
+  send: (input: { text: string; replyToId?: string; quote?: string; sticker?: string; poll?: Poll; ttl?: number; forwardedFrom?: string; attachment?: Attachment }) => Promise<void>
   edit: (id: string, text: string) => Promise<void>
   remove: (id: string) => Promise<void>
   react: (id: string, emoji: string) => Promise<void>
   vote: (id: string, optionIndex: number) => Promise<void>
   pin: (id: string) => Promise<void>
   setComposeReply: (m: Message | null) => void
+  /** Reply to a message quoting only the highlighted fragment of it. */
+  setComposeQuoteReply: (m: Message, quote: string) => void
   setComposeEdit: (m: Message | null) => void
   addPendingFiles: (files: File[]) => void
   removePendingFile: (index: number) => void
@@ -106,6 +114,9 @@ interface StoreState {
 let typingThrottle = 0
 /** How many messages one page of history holds. Must match the backend. */
 const PAGE_SIZE = 50
+
+/** Longest quoted fragment worth storing; anything past this is cut. */
+const MAX_QUOTE_LEN = 280
 
 /**
  * Presence heartbeat. Without this `last_seen` was only ever written at
@@ -147,6 +158,7 @@ export const useStore = create<StoreState>((set, get) => ({
   unread: {},
   now: Date.now(),
   composeReply: null,
+  composeQuote: null,
   composeEdit: null,
   pendingFiles: [],
   hasMore: {},
@@ -340,6 +352,7 @@ export const useStore = create<StoreState>((set, get) => ({
       searchQuery: '',
       searchResults: [],
       composeReply: null,
+      composeQuote: null,
       composeEdit: null,
       pendingFiles: [],
       // Only show a skeleton when there is nothing to show yet; a revisit keeps
@@ -412,6 +425,8 @@ export const useStore = create<StoreState>((set, get) => ({
 
     const chatId = activeChatId
     const tempId = `tmp-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    // A quote without a reply target has nothing to point at, so it is dropped.
+    const quote = input.replyToId ? input.quote?.trim().slice(0, MAX_QUOTE_LEN) || undefined : undefined
     const optimistic: Message = {
       id: tempId,
       chatId,
@@ -421,6 +436,7 @@ export const useStore = create<StoreState>((set, get) => ({
       reactions: [],
       readByUids: [],
       replyToId: input.replyToId,
+      quote,
       sticker: input.sticker,
       poll: input.poll,
       ttl: input.ttl,
@@ -444,6 +460,7 @@ export const useStore = create<StoreState>((set, get) => ({
         senderUid: account.uid,
         text,
         replyToId: input.replyToId,
+        quote,
         sticker: input.sticker,
         poll: input.poll,
         ttl: input.ttl,
@@ -500,10 +517,16 @@ export const useStore = create<StoreState>((set, get) => ({
   },
 
   setComposeReply(m) {
-    set({ composeReply: m, composeEdit: null })
+    // An ordinary reply quotes the whole message, so any leftover fragment from
+    // a previous quote-reply has to go with it.
+    set({ composeReply: m, composeQuote: null, composeEdit: null })
+  },
+  setComposeQuoteReply(m, quote) {
+    const trimmed = quote.trim().slice(0, MAX_QUOTE_LEN)
+    set({ composeReply: m, composeQuote: trimmed || null, composeEdit: null })
   },
   setComposeEdit(m) {
-    set({ composeEdit: m, composeReply: null })
+    set({ composeEdit: m, composeReply: null, composeQuote: null })
   },
 
   addPendingFiles(files) {
