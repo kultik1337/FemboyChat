@@ -1,10 +1,11 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useStore } from './store/useStore'
 import { applyAppearance } from './lib/appearance'
 import { defaultSettings } from './lib/defaults'
 import { Landing } from './components/landing/Landing'
 import { Auth } from './components/auth/Auth'
 import { AppShell } from './components/app/AppShell'
+import { Welcome, welcomeSeen } from './components/app/Welcome'
 import { Toasts } from './components/ui/Toasts'
 import { ContextMenu } from './components/ui/ContextMenu'
 import { Effects } from './components/ui/Effects'
@@ -17,7 +18,10 @@ export default function App() {
   const ready = useStore((s) => s.ready)
   const route = useStore((s) => s.route)
   const boot = useStore((s) => s.boot)
+  const account = useStore((s) => s.account)
   const settings = useStore((s) => s.account?.settings)
+  /** Set when the greeting is dismissed in this session, so it never flashes back. */
+  const [greeted, setGreeted] = useState(false)
 
   useEffect(() => {
     let settled = false
@@ -84,11 +88,19 @@ export default function App() {
     )
   }
 
+  /*
+    The greeting sits on top of the app rather than replacing it: the chat list
+    is already loading behind the card, so closing the last step drops straight
+    into a working messenger instead of a second loading screen.
+  */
+  const showWelcome = route === 'app' && !!account && !greeted && !welcomeSeen(account.uid)
+
   return (
     <>
       {route === 'landing' && <Landing />}
       {route === 'auth' && <Auth />}
       {route === 'app' && <AppShell />}
+      {showWelcome && <Welcome onDone={() => setGreeted(true)} />}
       <Toasts />
       <ContextMenu />
       <Effects />
