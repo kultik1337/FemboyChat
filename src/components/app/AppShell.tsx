@@ -9,12 +9,14 @@ import { AdminPanel } from './AdminPanel'
 import { BotStudio } from './BotStudio'
 import { AiAssist } from './AiAssist'
 import { Lightbox } from '../ui/Lightbox'
+import { LockScreen } from '../ui/LockScreen'
 import { InstallPrompt } from '../ui/InstallPrompt'
 import { PushPrompt } from '../ui/PushPrompt'
 // Our own icons, not lucide's: see src/components/ui/icons.tsx.
 import { X } from '../ui/icons'
 import { classNames } from '../../lib/util'
 import { deviceInfo, deviceKey } from '../../lib/device'
+import { lockEnabled, shouldLock, touchLock } from '../../lib/lock'
 import { initPwa } from '../../lib/pwa'
 import { refreshPush } from '../../lib/push'
 import './motion.css'
@@ -47,6 +49,9 @@ export function AppShell() {
   const showTip = mode === 'local' && !tipHidden
   const animations = account?.settings.animations ?? true
   const [overlay, setOverlay] = useState<Overlay>(null)
+  // Код-пароль спрашивается до первого кадра, а не после эффекта: иначе
+  // переписка мелькнёт на экране до того, как её закроют.
+  const [locked, setLocked] = useState(() => shouldLock())
 
   /*
     Edge-swipe back. A finger that starts within a few pixels of the left edge
@@ -105,6 +110,36 @@ export function AppShell() {
   // Manifest, service worker and the install banner's state.
   useEffect(() => {
     initPwa()
+  }, [])
+
+  /**
+   * Автоблокировка. Пока окно активно — отмечаем активность; когда возвращаемся
+   * на вкладку — спрашиваем, не пора ли снова закрыться.
+   */
+  useEffect(() => {
+    if (!lockEnabled()) return
+    const onVisible = () => {
+      if (document.visibilityState === 'hidden') {
+        touchLock()
+        return
+      }
+      if (shouldLock()) setLocked(true)
+    }
+    const timer = setInterval(() => {
+      if (document.visibilityState === 'visible' && !locked) touchLock()
+    }, 30_000)
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible)
+      clearInterval(timer)
+    }
+  }, [locked])
+
+  /** Настройки могут попросить закрыть приложение прямо сейчас. */
+  useEffect(() => {
+    const onLock = () => setLocked(true)
+    window.addEventListener('fc:lock', onLock)
+    return () => window.removeEventListener('fc:lock', onLock)
   }, [])
 
   /** Any part of the app may ask for one of the big panels. */
@@ -178,7 +213,8 @@ export function AppShell() {
   }, [account?.uid, backend])
 
   // ⌘/Ctrl+K → focus search · ⌘/Ctrl+Shift+A → admin · ⌘/Ctrl+Shift+B → bots
-  // · ⌘/Ctrl+Shift+I → ИИ-помощник · Konami code → easter egg
+  // · ⌘/Ctrl+Shift+I → ИИ-помощник · ⌘/Ctrl+Shift+L → закрыть приложение
+  // · Konami code → easter egg
   useEffect(() => {
     const KONAMI = ['arrowup', 'arrowup', 'arrowdown', 'arrowdown', 'arrowleft', 'arrowright', 'arrowleft', 'arrowright', 'b', 'a']
     let seq: string[] = []
@@ -203,6 +239,11 @@ export function AppShell() {
       if (mod && e.shiftKey && key === 'i') {
         e.preventDefault()
         setOverlay('assist')
+        return
+      }
+      if (mod && e.shiftKey && key === 'l' && lockEnabled()) {
+        e.preventDefault()
+        window.dispatchEvent(new Event('fc:lock'))
         return
       }
       seq = [...seq, key].slice(-KONAMI.length)
@@ -284,6 +325,7 @@ export function AppShell() {
         <InstallPrompt />
         <PushPrompt />
       </div>
+      {locked && <LockScreen onUnlock={() => setLocked(false)} />}
     </div>
   )
 }
