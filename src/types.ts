@@ -1,14 +1,45 @@
-// ─────────────────────── Domain types ───────────────────────
+// ────────────────────── Domain types ──────────────────────
 
 export type EntityKind = 'user' | 'group' | 'channel' | 'bot'
 
 /** Who may see a given piece of profile activity. */
 export type Audience = 'everyone' | 'contacts' | 'nobody'
 
+/**
+ * Every palette the app ships with. `auto` follows the operating system and
+ * resolves to `light` or `dark`.
+ *
+ * The names are stored in each account's settings, so a value may only ever be
+ * ADDED to this union — renaming one would leave existing accounts pointing at
+ * a theme that no longer exists.
+ */
+export type ThemeName =
+  | 'light'
+  | 'dark'
+  | 'midnight'
+  | 'graphite'
+  | 'ocean'
+  | 'forest'
+  | 'sunset'
+  | 'lavender'
+  | 'auto'
+
+/** Chat backgrounds. Same append-only rule as themes. */
+export type WallpaperName =
+  | 'aurora'
+  | 'dots'
+  | 'plain'
+  | 'hearts'
+  | 'mesh'
+  | 'grid'
+  | 'waves'
+  | 'stars'
+  | 'glow'
+
 export interface UserSettings {
-  theme: 'light' | 'dark' | 'midnight' | 'auto'
+  theme: ThemeName
   accent: string // hex
-  wallpaper: 'aurora' | 'dots' | 'plain' | 'hearts'
+  wallpaper: WallpaperName
   fontScale: number // 0.9 .. 1.2
   bubbleRadius: number // px
   enterToSend: boolean
@@ -135,6 +166,11 @@ export interface Message {
   editedTs?: number
   replyToId?: string
   forwardedFrom?: string
+  /**
+   * The exact fragment of the replied-to message the author highlighted before
+   * hitting reply. Empty when the whole message was quoted.
+   */
+  quote?: string
   reactions: Reaction[]
   pinned?: boolean
   system?: boolean
@@ -171,7 +207,7 @@ export interface LinkPreview {
   siteName: string
 }
 
-// ─────────────────────── Realtime events ───────────────────────
+// ────────────────────── Realtime events ──────────────────────
 
 export type RealtimeEvent =
   | { type: 'message'; message: Message }
