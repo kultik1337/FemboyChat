@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Ban, Bell, BellOff, Copy, LogOut, MessageCircle, Pencil, Pin, Shield, ShieldOff, UserMinus, UserPlus, X } from 'lucide-react'
 import { useStore } from '../../store/useStore'
 import { Avatar } from '../ui/Avatar'
+import { Verified } from '../ui/Verified'
 import { chatCounterpart, usePeople } from './people'
 import { useActions } from './useActions'
 import { openContextMenu, type MenuItem } from '../ui/ContextMenu'
@@ -148,7 +149,7 @@ export function RightPanel() {
           <div className="px-5 pb-8">
             <div className="flex flex-col items-center text-center">
               <Avatar emoji={chat.emoji} color={chat.color} src={chat.avatarUrl} size={92} />
-              <div className="mt-3 flex items-center gap-1 text-xl font-black">{chat.title} {chat.verified && <span className="text-[var(--accent)]">✔</span>}</div>
+              <div className="mt-3 flex items-center gap-1.5 text-xl font-black">{chat.title} {chat.verified && <Verified size={19} />}</div>
               {chat.username && <div className="text-sm text-[var(--muted)]">@{chat.username}</div>}
               <div className="mt-1 text-sm text-[var(--muted)]">
                 {chat.type === 'channel' ? `${(chat.memberCount ?? 0).toLocaleString('ru-RU')} подписчиков` : `${chat.memberCount ?? chat.memberUids.length} участников`}
@@ -246,7 +247,7 @@ function ProfileBody({ uid, onMessage }: { uid: string; onMessage: () => void })
     <div className="px-5 pb-8">
       <div className="flex flex-col items-center text-center">
         <Avatar emoji={p.emoji} color={p.color} src={p.avatarUrl} size={100} online={p2?.online} />
-        <div className="mt-3 flex items-center gap-1 text-xl font-black">{p.name} {p.verified && <span className="text-[var(--accent)]">✔</span>}</div>
+        <div className="mt-3 flex items-center gap-1.5 text-xl font-black">{p.name} {p.verified && <Verified size={19} />}</div>
         <div className="text-sm text-[var(--muted)]">@{p.username}{p.numId ? ` · #${p.numId}` : ''}</div>
         {p2 && <div className={classNames('mt-0.5 text-xs', p2.online ? 'text-emerald-500' : 'text-[var(--muted)]')}>{p.isBot ? 'бот' : lastSeenLabel(p2.lastSeen, p2.online)}</div>}
       </div>

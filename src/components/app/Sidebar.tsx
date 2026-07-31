@@ -7,6 +7,7 @@ import { SearchResults } from './SearchResults'
 import { useActions } from './useActions'
 import { openContextMenu } from '../ui/ContextMenu'
 import { Logo } from '../ui/Logo'
+import { Verified } from '../ui/Verified'
 import { attachmentLabel } from '../../lib/media'
 import { classNames, plainText, timeShort } from '../../lib/util'
 import type { Chat } from '../../types'
@@ -120,7 +121,7 @@ export function Sidebar() {
             id="sidebar-search"
             value={searchQuery}
             onChange={(e) => search(e.target.value)}
-            placeholder="Поиск: люди, каналы, боты…  (⌘K)"
+            placeholder="Поиск: люди, чаты, сообщения…  (⌘K)"
             className="w-full rounded-full border border-[var(--border)] bg-[var(--panel-2)] py-2.5 pl-9 pr-3 text-sm outline-none focus:ring-2 focus:ring-[var(--ring)]"
           />
         </div>
@@ -177,7 +178,7 @@ export function Sidebar() {
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1">
                       <span className="truncate font-semibold">{c.type === 'saved' ? 'Избранное' : v.title}</span>
-                      {v.verified && <span className="text-[var(--accent)]" title="verified">✔</span>}
+                      {v.verified && <Verified size={15} />}
                       {c.pinned && <Pin size={12} className="text-[var(--muted)]" />}
                       {c.muted && <VolumeX size={12} className="text-[var(--muted)]" />}
                       <span className="ml-auto shrink-0 text-[11px] text-[var(--muted)]">
