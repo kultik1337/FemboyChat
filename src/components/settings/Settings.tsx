@@ -6,6 +6,7 @@ import {
   Database,
   Ghost,
   Globe,
+  Lock,
   LogOut,
   MessageSquare,
   Monitor,
@@ -28,6 +29,19 @@ import { downscaleImage } from '../../lib/media'
 import { usePerks } from '../../lib/perks'
 import { classNames, normalizeUsername } from '../../lib/util'
 import { deviceInfo, deviceKey, deviceLabel, isMobileOs } from '../../lib/device'
+import {
+  clearLock,
+  getLock,
+  otpauthUri,
+  randomTotpSecret,
+  relock,
+  setAutoLock,
+  setPin,
+  setTotpSecret,
+  verifyPin,
+  verifyTotp,
+  type LockConfig,
+} from '../../lib/lock'
 import { APP_VERSION } from '../../lib/version'
 import type { Audience, Message } from '../../types'
 
@@ -424,6 +438,8 @@ function PrivacyTab() {
         </div>
       </div>
 
+      <LockCard />
+
       {hasSessions ? (
         <div className="rounded-2xl border border-[var(--border)] p-4">
           <div className="flex items-center justify-between gap-2">
@@ -509,6 +525,217 @@ function PrivacyTab() {
   )
 }
 
+// ── Код-пароль и двухфакторка ──
+const AUTO_LOCK_OPTIONS = [
+  { min: 0, label: 'Сразу' },
+  { min: 1, label: '1 мин' },
+  { min: 5, label: '5 мин' },
+  { min: 15, label: '15 мин' },
+  { min: 60, label: '1 час' },
+]
+
+/**
+ * Замок на приложение. Специально написано честно, что это защита
+ * устройства, а не аккаунта: обещать больше, чем делаешь, в безопасности
+ * хуже, чем не делать вообще.
+ */
+function LockCard() {
+  const account = useStore((st) => st.account)!
+  const toast = useStore((st) => st.toast)
+  const [cfg, setCfg] = useState<LockConfig | null>(() => getLock())
+  const [stage, setStage] = useState<'idle' | 'new' | 'off' | 'totp'>('idle')
+  const [pin1, setPin1] = useState('')
+  const [pin2, setPin2] = useState('')
+  const [check, setCheck] = useState('')
+  const [secret, setSecret] = useState('')
+  const [code, setCode] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  function reset() {
+    setStage('idle')
+    setPin1('')
+    setPin2('')
+    setCheck('')
+    setSecret('')
+    setCode('')
+  }
+
+  const digits = (v: string) => v.replace(/\D/g, '').slice(0, 8)
+
+  async function savePin() {
+    if (pin1.length < 4) return toast('Код — от 4 до 8 цифр', '🔢')
+    if (pin1 !== pin2) return toast('Коды не совпадают', '⚠️')
+    setBusy(true)
+    try {
+      await setPin(pin1)
+      setCfg(getLock())
+      reset()
+      toast('Код-пароль включён', '🔒')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function disable() {
+    setBusy(true)
+    try {
+      if (!(await verifyPin(check))) {
+        toast('Неверный код', '⚠️')
+        return
+      }
+      clearLock()
+      setCfg(null)
+      reset()
+      toast('Код-пароль выключен', '🔓')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function confirmTotp() {
+    setBusy(true)
+    try {
+      if (!(await verifyTotp(secret, code))) {
+        toast('Код не подошёл — проверь время на устройстве', '⚠️')
+        return
+      }
+      setTotpSecret(secret)
+      setCfg(getLock())
+      reset()
+      toast('Двухфакторка включена', '🛡️')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="rounded-2xl border border-[var(--border)] p-4">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-[var(--panel-2)] text-[var(--accent)]">
+            <Lock size={17} />
+          </span>
+          <div>
+            <div className="text-sm font-bold">Код-пароль на вход</div>
+            <div className="text-xs text-[var(--muted)]">{cfg ? 'Включён на этом устройстве' : 'Приложение открывается без кода'}</div>
+          </div>
+        </div>
+        {cfg && stage === 'idle' && <span className="chip shrink-0">{cfg.totp ? 'PIN + 2FA' : 'PIN'}</span>}
+      </div>
+
+      {stage === 'idle' && (
+        <div className="mt-3 space-y-2">
+          {!cfg ? (
+            <button onClick={() => setStage('new')} className="btn-primary w-full !py-2 text-sm">Включить код-пароль</button>
+          ) : (
+            <>
+              <div>
+                <div className="mb-1.5 text-xs font-bold text-[var(--muted)]">СПРАШИВАТЬ КОД ПОСЛЕ БЕЗДЕЙСТВИЯ</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {AUTO_LOCK_OPTIONS.map((o) => (
+                    <button
+                      key={o.min}
+                      onClick={() => { setAutoLock(o.min); setCfg(getLock()); }}
+                      className={classNames(
+                        'rounded-xl border px-3 py-1.5 text-xs font-semibold transition',
+                        cfg.autoLockMin === o.min ? 'border-[var(--accent)] accent-text' : 'border-[var(--border)] text-[var(--muted)]',
+                      )}
+                    >
+                      {o.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between gap-3 rounded-xl bg-[var(--panel-2)] p-2.5">
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold">Двухфакторка (TOTP)</div>
+                  <div className="text-xs text-[var(--muted)]">{cfg.totp ? 'После кода-пароля спрашивается код из аутентификатора' : 'Google Authenticator, Aegis, 1Password — любой'}</div>
+                </div>
+                {cfg.totp ? (
+                  <button
+                    onClick={() => { setTotpSecret(null); setCfg(getLock()); toast('Двухфакторка выключена', '🔓') }}
+                    className="shrink-0 rounded-lg px-2 py-1 text-xs font-bold text-rose-500 hover:bg-rose-500/10"
+                  >
+                    Выключить
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => { setSecret(randomTotpSecret()); setStage('totp') }}
+                    className="shrink-0 rounded-lg px-2 py-1 text-xs font-bold accent-text hover:bg-[var(--panel-hover)]"
+                  >
+                    Включить
+                  </button>
+                )}
+              </div>
+
+              <div className="flex gap-2">
+                <button onClick={() => setStage('new')} className="btn-ghost flex-1 !py-2 text-sm">Сменить код</button>
+                <button
+                  onClick={() => { relock(); window.dispatchEvent(new Event('fc:lock')) }}
+                  className="btn-ghost flex-1 !py-2 text-sm"
+                >
+                  Закрыть сейчас
+                </button>
+              </div>
+              <button onClick={() => setStage('off')} className="w-full rounded-xl border border-rose-300/40 py-2 text-sm font-semibold text-rose-500 hover:bg-rose-500/10">
+                Выключить код-пароль
+              </button>
+            </>
+          )}
+          <p className="text-xs text-[var(--muted)]">
+            Это замок на приложение на этом устройстве: он прячет переписку от того, кто взял в руки твой телефон, но не заменяет пароль от аккаунта.
+          </p>
+        </div>
+      )}
+
+      {stage === 'new' && (
+        <div className="mt-3 space-y-2">
+          <input value={pin1} onChange={(e) => setPin1(digits(e.target.value))} inputMode="numeric" type="password" placeholder="Новый код (4–8 цифр)" className="input tracking-[0.3em]" />
+          <input value={pin2} onChange={(e) => setPin2(digits(e.target.value))} inputMode="numeric" type="password" placeholder="Повторите код" className="input tracking-[0.3em]" />
+          <div className="flex gap-2">
+            <button onClick={reset} className="btn-ghost flex-1 !py-2 text-sm">Отмена</button>
+            <button onClick={savePin} disabled={busy} className="btn-primary flex-1 !py-2 text-sm disabled:opacity-50">{busy ? '…' : 'Сохранить'}</button>
+          </div>
+        </div>
+      )}
+
+      {stage === 'off' && (
+        <div className="mt-3 space-y-2">
+          <input value={check} onChange={(e) => setCheck(digits(e.target.value))} inputMode="numeric" type="password" placeholder="Текущий код" className="input tracking-[0.3em]" />
+          <div className="flex gap-2">
+            <button onClick={reset} className="btn-ghost flex-1 !py-2 text-sm">Отмена</button>
+            <button onClick={disable} disabled={busy} className="flex-1 rounded-xl bg-rose-500 py-2 text-sm font-bold text-white disabled:opacity-50">{busy ? '…' : 'Выключить'}</button>
+          </div>
+        </div>
+      )}
+
+      {stage === 'totp' && (
+        <div className="mt-3 space-y-2">
+          <p className="text-xs text-[var(--muted)]">1. Добавь секрет в аутентификатор вручную или по ссылке:</p>
+          <div className="break-all rounded-xl bg-[var(--panel-2)] p-2.5 text-center font-mono text-sm tracking-wider">{secret}</div>
+          <div className="flex gap-2">
+            <button
+              onClick={() => { navigator.clipboard.writeText(secret).then(() => toast('Секрет скопирован', '📋'), () => toast('Не удалось скопировать', '⚠️')) }}
+              className="btn-ghost flex-1 !py-2 text-xs"
+            >
+              Скопировать секрет
+            </button>
+            <a href={otpauthUri(secret, account.username)} className="btn-ghost flex-1 !py-2 text-center text-xs">Открыть в приложении</a>
+          </div>
+          <p className="text-xs text-[var(--muted)]">2. Введи шесть цифр из аутентификатора, чтобы проверить:</p>
+          <input value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} inputMode="numeric" placeholder="000000" className="input text-center tracking-[0.4em]" />
+          <div className="flex gap-2">
+            <button onClick={reset} className="btn-ghost flex-1 !py-2 text-sm">Отмена</button>
+            <button onClick={confirmTotp} disabled={busy || code.length !== 6} className="btn-primary flex-1 !py-2 text-sm disabled:opacity-50">{busy ? '…' : 'Подтвердить'}</button>
+          </div>
+          <p className="text-xs text-[var(--muted)]">Секрет хранится только на этом устройстве. Сохрани его, если планируешь повторить настройку на другом.</p>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Notifications ──
 function NotificationsTab() {
   const s = useStore((st) => st.account!.settings)
@@ -564,7 +791,7 @@ function LabTab() {
   const perks = usePerks()
   const setOpen = useStore((st) => st.setSettingsOpen)
 
-  function open(panel: 'admin' | 'bots') {
+  function open(panel: 'admin' | 'bots' | 'assist') {
     setOpen(false)
     window.dispatchEvent(new CustomEvent('fc:open-panel', { detail: panel }))
   }
@@ -588,6 +815,19 @@ function LabTab() {
         </span>
       </button>
 
+      <button
+        onClick={() => open('assist')}
+        className="flex w-full items-center gap-3 rounded-2xl border border-[var(--border)] bg-[var(--panel-2)] p-3 text-left transition hover:bg-[var(--panel-hover)]"
+      >
+        <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[var(--panel)] text-[var(--accent)]">
+          <Sparkles size={19} />
+        </span>
+        <span className="min-w-0">
+          <span className="block text-sm font-bold">ИИ-помощник по переписке</span>
+          <span className="block text-xs text-[var(--muted)]">Саммари непрочитанного, быстрые ответы и вопросы по чату</span>
+        </span>
+      </button>
+
       {perks.is_admin && (
         <button
           onClick={() => open('admin')}
@@ -606,7 +846,7 @@ function LabTab() {
       <p className="text-xs text-[var(--muted)]">
         Бот — обычный собеседник: его можно найти в поиске, открыть с ним чат и писать как человеку. Характер можно поменять в любой момент.
       </p>
-      <p className="text-xs text-[var(--muted)]">Горячие клавиши: Ctrl/⌘ + Shift + B — боты, Ctrl/⌘ + Shift + A — админка.</p>
+      <p className="text-xs text-[var(--muted)]">Горячие клавиши: Ctrl/⌘ + Shift + B — боты, Ctrl/⌘ + Shift + I — ИИ-помощник, Ctrl/⌘ + Shift + A — админка, Ctrl/⌘ + Shift + L — закрыть приложение кодом.</p>
     </div>
   )
 }
