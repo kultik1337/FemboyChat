@@ -12,6 +12,7 @@ import {
   Music,
   Paperclip,
   Plus,
+  Quote,
   Send,
   Smile,
   Sticker as StickerIcon,
@@ -68,6 +69,8 @@ export function Composer() {
   const messages = useStore((s) => s.messages)
   const toast = useStore((s) => s.toast)
   const replyTo = useStore((s) => s.composeReply)
+  /** Set when the reply was started from a highlighted piece of the message. */
+  const quote = useStore((s) => s.composeQuote)
   const editing = useStore((s) => s.composeEdit)
   const setReply = useStore((s) => s.setComposeReply)
   const setEdit = useStore((s) => s.setComposeEdit)
@@ -134,7 +137,7 @@ export function Composer() {
   useEffect(() => {
     if (replyTo) focusInput()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [replyTo?.id])
+  }, [replyTo?.id, quote])
 
   useEffect(() => {
     if (editing) {
@@ -228,6 +231,7 @@ export function Composer() {
 
   function afterSend() {
     if (settings.sendSound) beep()
+    // Clearing the reply also clears the quoted fragment attached to it.
     setReply(null)
     setText('')
     localStorage.removeItem(draftKey(chatId))
@@ -259,6 +263,7 @@ export function Composer() {
           text: i === 0 ? caption : '',
           attachment,
           replyToId: i === 0 ? replyTo?.id : undefined,
+          quote: i === 0 ? quote ?? undefined : undefined,
           ttl: ttl || undefined,
         })
       }
@@ -274,7 +279,7 @@ export function Composer() {
 
   async function sendGif(g: GifResult) {
     setGifs(false)
-    await send({ text: '', attachment: { kind: 'gif', url: g.url, name: g.anime }, replyToId: replyTo?.id })
+    await send({ text: '', attachment: { kind: 'gif', url: g.url, name: g.anime }, replyToId: replyTo?.id, quote: quote ?? undefined })
     setReply(null)
     if (settings.sendSound) beep()
   }
@@ -306,10 +311,11 @@ export function Composer() {
     const cmd = runCommand(t, account.name)
     if (cmd) {
       if (cmd.toast) toast(cmd.toast.text, cmd.toast.emoji)
-      if (cmd.text || cmd.sticker) send({ text: cmd.text ?? '', sticker: cmd.sticker, replyToId: replyTo?.id, ttl: ttl || undefined })
+      if (cmd.text || cmd.sticker)
+        send({ text: cmd.text ?? '', sticker: cmd.sticker, replyToId: replyTo?.id, quote: quote ?? undefined, ttl: ttl || undefined })
     } else {
       const body = settings.emoticons ? applyEmoticons(t) : t
-      send({ text: body, replyToId: replyTo?.id, ttl: ttl || undefined })
+      send({ text: body, replyToId: replyTo?.id, quote: quote ?? undefined, ttl: ttl || undefined })
     }
     afterSend()
   }
@@ -465,12 +471,22 @@ export function Composer() {
 
       {(replyTo || editing) && (
         <div className="mb-2 flex items-center gap-2 rounded-xl bg-[var(--panel-2)] px-3 py-2 text-sm">
-          <CornerUpLeft size={16} className="text-[var(--accent)]" />
+          {quote && !editing ? <Quote size={16} className="shrink-0 text-[var(--accent)]" /> : <CornerUpLeft size={16} className="shrink-0 text-[var(--accent)]" />}
           <div className="min-w-0 flex-1">
-            <div className="font-semibold text-[var(--accent)]">{editing ? 'Редактирование' : `Ответ · ${replyTo ? resolve(replyTo.senderUid).name : ''}`}</div>
-            <div className="truncate text-[var(--muted)]">{editing ? editing.text : replyTo?.sticker ? 'стикер' : replyTo?.attachment ? attachmentChipLabel(replyTo.attachment) : replyTo?.text}</div>
+            <div className="font-semibold text-[var(--accent)]">
+              {editing ? 'Редактирование' : `${quote ? 'Цитата' : 'Ответ'} · ${replyTo ? resolve(replyTo.senderUid).name : ''}`}
+            </div>
+            {/*
+              A quote-reply shows the highlighted fragment instead of the whole
+              message — that is the entire point of picking it.
+            */}
+            {quote && !editing ? (
+              <div className="quote-mark truncate text-[var(--muted)]">{quote}</div>
+            ) : (
+              <div className="truncate text-[var(--muted)]">{editing ? editing.text : replyTo?.sticker ? 'стикер' : replyTo?.attachment ? attachmentChipLabel(replyTo.attachment) : replyTo?.text}</div>
+            )}
           </div>
-          <button onClick={() => { setReply(null); setEdit(null); setText('') }} className="grid h-7 w-7 place-items-center rounded-full hover:bg-[var(--panel-hover)]">
+          <button onClick={() => { setReply(null); setEdit(null); setText('') }} className="grid h-7 w-7 shrink-0 place-items-center rounded-full hover:bg-[var(--panel-hover)]">
             <X size={15} />
           </button>
         </div>
@@ -587,6 +603,7 @@ export function Composer() {
                 text: '',
                 attachment: { kind: 'voice', url, size: blob.size, mime: blob.type, durationSec },
                 replyToId: replyTo?.id,
+                quote: quote ?? undefined,
               })
               afterSend()
             } catch (e) {
