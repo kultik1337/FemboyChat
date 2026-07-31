@@ -23,7 +23,12 @@ type NavigatorUAData = {
 }
 
 const HIDE_KEY = 'fc:hideInstall'
-const RELOADED_KEY = 'fc:swReloaded'
+const RELOAD_AT_KEY = 'fc:swReloadAt'
+
+/** How often an open tab asks whether a newer build has been deployed. */
+const UPDATE_EVERY_MS = 60_000
+/** Two refreshes closer together than this are a loop, not an update. */
+const RELOAD_GUARD_MS = 30_000
 
 let deferredPrompt: BeforeInstallPromptEvent | null = null
 let started = false
@@ -138,11 +143,57 @@ function injectManifest(): void {
 	addMeta('apple-mobile-web-app-status-bar-style', 'default')
 }
 
+/** True while the caret is in a field — refreshing now would eat what is typed. */
+function isBusy(): boolean {
+	const el = document.activeElement
+	if (!el) return false
+	const tag = el.tagName
+	if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true
+	return el instanceof HTMLElement && el.isContentEditable
+}
+
+/**
+ * Swap in the new build. Waiting for a calm moment is the whole point: the
+ * refresh is invisible when nobody is mid-sentence, and infuriating when it
+ * happens on the second half of a message.
+ */
+function refreshWhenSafe(): void {
+	const last = Number(sessionStorage.getItem(RELOAD_AT_KEY) ?? 0)
+	if (Date.now() - last < RELOAD_GUARD_MS) return
+
+	const go = (): void => {
+		sessionStorage.setItem(RELOAD_AT_KEY, String(Date.now()))
+		window.location.reload()
+	}
+
+	if (!isBusy()) {
+		go()
+		return
+	}
+
+	const onIdle = (): void => {
+		if (isBusy()) return
+		window.removeEventListener('focusout', onIdle)
+		document.removeEventListener('visibilitychange', onIdle)
+		go()
+	}
+	window.addEventListener('focusout', onIdle)
+	document.addEventListener('visibilitychange', onIdle)
+}
+
+/**
+ * A service worker only looks for a new version when the page loads, which is
+ * why a fresh deploy used to need a manual refresh: a tab left open all day
+ * never asked again. Now it asks every minute, whenever the tab is brought
+ * back to the front, and whenever the connection returns — and when the answer
+ * is "yes", the new worker is told to take over immediately instead of waiting
+ * for every tab to close.
+ */
 function registerServiceWorker(): void {
 	if (!('serviceWorker' in navigator)) return
 
 	// Whether this page was already controlled decides if a controller swap means
-	// "a new build arrived" (reload) or just "first ever install" (do nothing).
+	// "a new build arrived" (refresh) or just "first ever install" (do nothing).
 	const hadController = navigator.serviceWorker.controller !== null
 
 	const takeOver = (worker: ServiceWorker | null): void => {
@@ -161,16 +212,23 @@ function registerServiceWorker(): void {
 						if (installing.state === 'installed' && hadController) takeOver(registration.waiting)
 					})
 				})
+
+				const check = (): void => {
+					// Asking while hidden wakes the radio for nothing; the tab is
+					// checked again the moment it comes back anyway.
+					if (document.visibilityState !== 'visible') return
+					registration.update().catch(() => undefined)
+				}
+				window.setInterval(check, UPDATE_EVERY_MS)
+				window.addEventListener('focus', check)
+				window.addEventListener('online', check)
+				document.addEventListener('visibilitychange', check)
 			})
 			.catch(() => undefined)
 
-		// A fresh Cloudflare build should land without the user hunting for
-		// Ctrl+Shift+R. sessionStorage guards against a reload loop.
 		navigator.serviceWorker.addEventListener('controllerchange', () => {
 			if (!hadController) return
-			if (sessionStorage.getItem(RELOADED_KEY) === '1') return
-			sessionStorage.setItem(RELOADED_KEY, '1')
-			window.location.reload()
+			refreshWhenSafe()
 		})
 	}
 
