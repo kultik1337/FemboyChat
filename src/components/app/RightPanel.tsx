@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Ban, Bell, BellOff, Copy, ImagePlus, LogOut, MessageCircle, Pencil, Pin, Shield, ShieldOff, Trash2, UserMinus, UserPlus, X } from 'lucide-react'
+import { Ban, Bell, BellOff, Copy, ImagePlus, Link2, LogOut, MessageCircle, Pencil, Pin, Shield, ShieldOff, Trash2, UserMinus, UserPlus, X } from 'lucide-react'
 import { useStore } from '../../store/useStore'
 import { Avatar } from '../ui/Avatar'
 import { Verified } from '../ui/Verified'
@@ -9,6 +9,7 @@ import { openContextMenu, type MenuItem } from '../ui/ContextMenu'
 import { downscaleImage } from '../../lib/media'
 import { classNames, lastSeenLabel } from '../../lib/util'
 import { GroupEditModal } from './GroupEditModal'
+import { InviteManager } from './InviteManager'
 
 export function RightPanel() {
   const open = useStore((s) => s.rightPanelOpen)
@@ -28,6 +29,7 @@ export function RightPanel() {
   const { resolve } = usePeople()
   const { personMenu } = useActions()
   const [editOpen, setEditOpen] = useState(false)
+  const [invitesOpen, setInvitesOpen] = useState(false)
   const [adding, setAdding] = useState(false)
   const [addQuery, setAddQuery] = useState('')
 
@@ -50,19 +52,6 @@ export function RightPanel() {
   }
   const isAdmin = !!chat && (chat.adminUids.includes(account.uid) || chat.ownerUid === account.uid)
   const inviteLink = chat?.inviteCode ? `${location.origin}/#join=${chat.inviteCode}` : ''
-
-  async function makeInvite() {
-    if (!chat || !updateChatState) return
-    try {
-      const code = crypto.randomUUID().replace(/-/g, '').slice(0, 12)
-      await updateChatState.updateChat(chat.id, { inviteCode: code })
-      await refreshChats()
-      await navigator.clipboard.writeText(`${location.origin}/#join=${code}`).catch(() => {})
-      toast('Инвайт-ссылка создана и скопирована', '💌')
-    } catch (e) {
-      toast(e instanceof Error ? e.message : 'Не получилось', '⚠️')
-    }
-  }
 
   function copyInvite() {
     navigator.clipboard.writeText(inviteLink).then(
@@ -167,11 +156,11 @@ export function RightPanel() {
               )}
               <Row onClick={mute} icon={chat.muted ? <BellOff size={18} /> : <Bell size={18} />} label={chat.muted ? 'Включить уведомления' : 'Выключить уведомления'} />
               <Row onClick={pinChat} icon={<Pin size={18} />} label={chat.pinned ? 'Открепить чат' : 'Закрепить чат'} />
-              {(chat.type === 'group' || chat.type === 'channel') && chat.inviteCode && (
-                <Row onClick={copyInvite} icon={<Copy size={18} />} label="Скопировать инвайт-ссылку" />
+              {(chat.type === 'group' || chat.type === 'channel') && isAdmin && (
+                <Row onClick={() => setInvitesOpen(true)} icon={<Link2 size={18} />} label="Приглашения" />
               )}
-              {(chat.type === 'group' || chat.type === 'channel') && !chat.inviteCode && isAdmin && (
-                <Row onClick={makeInvite} icon={<Copy size={18} />} label="Создать инвайт-ссылку" />
+              {(chat.type === 'group' || chat.type === 'channel') && !isAdmin && chat.inviteCode && (
+                <Row onClick={copyInvite} icon={<Copy size={18} />} label="Скопировать инвайт-ссылку" />
               )}
             </div>
 
@@ -230,6 +219,7 @@ export function RightPanel() {
         ) : null}
       </div>
       {chat && editOpen && <GroupEditModal key={chat.id} chat={chat} open={editOpen} onClose={() => setEditOpen(false)} />}
+      {chat && invitesOpen && <InviteManager chatId={chat.id} open={invitesOpen} onClose={() => setInvitesOpen(false)} />}
     </div>
   )
 }
