@@ -13,6 +13,16 @@ const PAGE_SIZE = 50
  */
 const TYPING_CHANNEL_LIMIT = 12
 
+/**
+ * How many chats may have a live message subscription at once.
+ *
+ * Every joined chat gets one, because the sidebar has to light up for chats
+ * that are not on screen. The cap keeps an account with hundreds of
+ * conversations from opening hundreds of socket topics; the chat list arrives
+ * newest-first, so the ones that get dropped are the least active.
+ */
+const MESSAGE_CHANNEL_LIMIT = 40
+
 /** Buckets. Avatars stay public; everything people send each other does not. */
 const AVATAR_BUCKET = 'avatars'
 const ATTACHMENT_BUCKET = 'attachments'
@@ -77,6 +87,8 @@ export class SupabaseBackend implements Backend {
   private viewed = new Set<string>()
   /** Joined typing channels, keyed by chat id. Insertion order = age. */
   private typingChannels = new Map<string, any>()
+  /** Joined message channels, keyed by chat id. Insertion order = age. */
+  private messageChannels = new Map<string, any>()
   /** Signed attachment links, keyed by storage path, with their expiry. */
   private signedUrls = new Map<string, { url: string; exp: number }>()
   /** Profile lookups in flight, so a burst of messages asks only once. */
@@ -90,36 +102,29 @@ export class SupabaseBackend implements Backend {
       auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
     })
     // Preload the public directory so @-name resolution works immediately
-    // (otherwise peers render as "Кто-то" until something refreshes it).
+    // (otherwise peers render as "someone" until something refreshes it).
     try {
       const { data } = await this.client.from('directory').select('*')
       this.directoryCache = (data ?? []).map(rowToDirectory)
     } catch {
       /* best effort */
     }
-    // Global realtime: any new message row fans out to subscribers.
-    // RLS applies to the replication stream too, so this only delivers rows
-    // from chats the signed-in user is actually a member of.
-    //
-    // Comments on channel posts are stored in this very table, distinguished
-    // only by comment_of. They must never reach the feed subscribers: a comment
-    // is not a chat message, and letting one through would both render it as a
-    // standalone post and pop a notification for it.
-    this.client
-      .channel('fc-messages')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, (p: any) => {
-        if (p.new?.comment_of) return
-        void this.emitMessage('message', rowToMessage(p.new))
-      })
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'messages' }, (p: any) => {
-        if (p.new?.comment_of) return
-        void this.emitMessage('message:update', rowToMessage(p.new))
-      })
-      .subscribe()
+
+    // Messages are NOT subscribed to globally. One unfiltered subscription on
+    // public.messages asks the server to evaluate this account's RLS policies
+    // against every single message written anywhere in the service — that is
+    // the first thing to hit a free-tier limit, and it grows with other
+    // people's traffic rather than with our own. Subscriptions are opened per
+    // chat instead, in watchMessages(), from the chat list and from opening a
+    // conversation.
 
     // Chats are just as live as messages. Someone leaving a group, a new member
     // joining, a renamed channel or a fresh avatar all rewrite this row — and
     // without listening for it the only way to notice was reloading the page.
+    //
+    // This one stays global on purpose: the table is small, it changes rarely,
+    // and it is what tells us about a brand-new conversation whose message
+    // channel does not exist yet.
     this.client
       .channel('fc-chats')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'chats' }, (p: any) => {
@@ -131,6 +136,76 @@ export class SupabaseBackend implements Backend {
       .subscribe()
   }
 
+  // ── message subscriptions ──
+
+  /**
+   * Join (or reuse) the realtime channel carrying one chat's messages.
+   *
+   * The server-side filter is the whole point: without it the socket delivers
+   * a policy check for every message in the database.
+   *
+   * Comments on channel posts are stored in this very table, distinguished only
+   * by comment_of. They must never reach the feed subscribers: a comment is not
+   * a chat message, and letting one through would both render it as a
+   * standalone post and pop a notification for it.
+   */
+  private watchMessages(chatId: string) {
+    if (!this.client || !chatId) return
+    const existing = this.messageChannels.get(chatId)
+    if (existing) return existing
+
+    const filter = `chat_id=eq.${chatId}`
+    const channel = this.client
+      .channel(`fc-msg-${chatId}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter }, (p: any) => {
+        if (p.new?.comment_of) return
+        void this.emitMessage('message', rowToMessage(p.new))
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'messages', filter }, (p: any) => {
+        if (p.new?.comment_of) return
+        void this.emitMessage('message:update', rowToMessage(p.new))
+      })
+      .subscribe()
+
+    this.messageChannels.set(chatId, channel)
+    // Map iteration order is insertion order, so the first key is the oldest.
+    while (this.messageChannels.size > MESSAGE_CHANNEL_LIMIT) {
+      const oldest = this.messageChannels.keys().next().value as string | undefined
+      if (!oldest || oldest === chatId) break
+      this.unwatchMessages(oldest)
+    }
+    return channel
+  }
+
+  private unwatchMessages(chatId: string) {
+    const channel = this.messageChannels.get(chatId)
+    if (!channel) return
+    this.messageChannels.delete(chatId)
+    try {
+      this.client?.removeChannel(channel)
+    } catch {
+      /* the socket may already be gone */
+    }
+  }
+
+  /**
+   * Bring the set of joined message channels in line with the chat list: join
+   * the new ones, and leave the chats this account is no longer part of. The
+   * second half matters — being removed from a group used to leave its channel
+   * open until the tab was closed.
+   */
+  private syncMessageChannels(chats: Chat[]) {
+    const wanted = new Set(chats.map((c) => c.id))
+    for (const id of [...this.messageChannels.keys()]) {
+      if (!wanted.has(id)) this.unwatchMessages(id)
+    }
+    for (const c of chats) this.watchMessages(c.id)
+  }
+
+  private dropMessageChannels() {
+    for (const chatId of [...this.messageChannels.keys()]) this.unwatchMessages(chatId)
+  }
+
   /**
    * Fan a message out to subscribers, giving its attachment a usable link
    * first. An arriving row carries whatever URL was stored months ago, which
@@ -138,7 +213,7 @@ export class SupabaseBackend implements Backend {
    *
    * The sender is looked up at the same time: someone who registered after this
    * tab loaded is missing from the directory, and the bubble would otherwise be
-   * signed "Кто-то" until a reload. That lookup is deliberately not awaited —
+   * signed "someone" until a reload. That lookup is deliberately not awaited —
    * the message must not wait for a name.
    */
   private async emitMessage(type: 'message' | 'message:update', message: Message) {
@@ -301,6 +376,7 @@ export class SupabaseBackend implements Backend {
 
   async logout() {
     this.dropTypingChannels()
+    this.dropMessageChannels()
     // Signed links are tied to the session that asked for them; a different
     // account must never inherit them from the previous one.
     this.signedUrls.clear()
@@ -352,6 +428,9 @@ export class SupabaseBackend implements Backend {
     // chat list. Broadcast is send-only until a client joins the channel, which
     // is exactly why the indicator never used to appear.
     this.watchTyping(chats)
+    // Same reason for messages: this is where we learn which chats deserve a
+    // filtered subscription, and which ones no longer do.
+    this.syncMessageChannels(chats)
     // Everyone the user shares a private chat with must have a name ready
     // before the sidebar draws them.
     for (const c of chats) {
@@ -444,6 +523,7 @@ export class SupabaseBackend implements Backend {
   async leaveChat(id: string) {
     await this.client.rpc('leave_chat', { chat: id })
     this.unwatchTyping(id)
+    this.unwatchMessages(id)
   }
 
   /**
@@ -454,6 +534,10 @@ export class SupabaseBackend implements Backend {
    * same table and are fetched separately by the comment view.
    */
   async listMessages(chatId: string, page?: MessagePage): Promise<Message[]> {
+    // Opening a conversation is the other moment a live subscription is needed:
+    // a chat joined through an invite link is on screen before the refreshed
+    // chat list comes back.
+    this.watchMessages(chatId)
     let q = this.client
       .from('messages')
       .select('*')
