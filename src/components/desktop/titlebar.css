@@ -1,0 +1,137 @@
+/*
+ * Верхняя плашка десктопного приложения.
+ *
+ * Системная рамка выключена (decorations: false), поэтому шапка — часть
+ * интерфейса и живёт в той же палитре, что и всё остальное: меняется
+ * тема — меняется и она.
+ *
+ * Высота забирается через padding у <body>, а не оберткой вокруг #root:
+ * весь мессенджер считает свою высоту от 100% и любая лишняя
+ * обёртка ломает скролл списка сообщений.
+ */
+
+html.is-desktop {
+  --titlebar-h: 38px;
+}
+
+html.is-desktop body {
+  box-sizing: border-box;
+  padding-top: var(--titlebar-h);
+  height: 100vh;
+  overflow: hidden;
+}
+
+html.is-desktop #root {
+  height: 100%;
+}
+
+.fc-titlebar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: var(--titlebar-h, 38px);
+  padding: 0 0 0 12px;
+  user-select: none;
+  -webkit-user-select: none;
+  color: var(--text);
+  background:
+    linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--accent) 16%, transparent),
+      color-mix(in srgb, var(--accent-2) 12%, transparent) 45%,
+      transparent 85%
+    ),
+    color-mix(in srgb, var(--panel) 92%, transparent);
+  backdrop-filter: blur(14px) saturate(140%);
+}
+
+/* Тонкая акцентная линия внизу — единственное, что отделяет шапку
+   от приложения. Полноценная граница выглядит как чужой элемент. */
+.fc-titlebar::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--accent) 70%, transparent),
+    color-mix(in srgb, var(--accent-2) 60%, transparent) 40%,
+    var(--border) 100%
+  );
+  opacity: 0.7;
+}
+
+.fc-titlebar__mark {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 7px;
+  font-size: 12px;
+  line-height: 1;
+  color: #fff;
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  box-shadow: 0 2px 8px -2px color-mix(in srgb, var(--accent) 70%, transparent);
+}
+
+.fc-titlebar__name {
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+}
+
+.fc-titlebar__sub {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+/* Всё пустое место плашки — зона перетаскивания окна. */
+.fc-titlebar__drag {
+  flex: 1;
+  align-self: stretch;
+}
+
+.fc-titlebar__controls {
+  display: flex;
+  align-items: stretch;
+  height: 100%;
+}
+
+.fc-titlebar__btn {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.fc-titlebar__btn:hover {
+  background: var(--panel-hover);
+  color: var(--text);
+}
+
+.fc-titlebar__btn:active {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+/* Закрытие краснеет — единственное место, где привычка из Windows
+   важнее фирменной палитры. */
+.fc-titlebar__btn--close:hover {
+  background: #e5484d;
+  color: #fff;
+}
+
+.fc-titlebar__btn--close:active {
+  background: #c93b40;
+  color: #fff;
+}
