@@ -4,8 +4,8 @@
 
 /*
   В приложении своя верхняя плашка вместо системной (decorations: false).
-  Место под неᄅ выделяется паддингом body: высота окна (--app-h) пишется
-  инлайном на <html> из viewport.ts, и перебить еᄅ из CSS нельзя.
+  Место под нее выделяется паддингом body: высота окна (--app-h) пишется
+  инлайном на <html> из viewport.ts, и перебить ее из CSS нельзя.
 */
 html.is-desktop body {
   box-sizing: border-box;
@@ -13,7 +13,7 @@ html.is-desktop body {
 }
 
 /*
-  В окне приложения мессенджер занимает всё до краᄅв: рамка и тень нужны
+  В окне приложения мессенджер занимает все до краев: рамка и тень нужны
   карточке, которая плавает на градиенте сайта, а у окна свои границы.
   Ограничение по ширине тоже снимается — на широком мониторе полосы по бокам
   выглядят как недогрузившийся сайт, а не как программа.
@@ -39,7 +39,7 @@ html.is-desktop .fc-frame {
   padding-left: 12px;
   user-select: none;
   color: var(--text);
-  /* Акцентный подсвет слева и стекло поверх тᄅмной панели. */
+  /* Акцентный подсвет слева и стекло поверх темной панели. */
   background:
     radial-gradient(120% 300% at 0% 0%, color-mix(in srgb, var(--accent) 26%, transparent), transparent 60%),
     linear-gradient(180deg, color-mix(in srgb, var(--panel) 92%, transparent), var(--panel));
@@ -66,6 +66,7 @@ html.is-desktop .fc-frame {
   width: 22px;
   height: 22px;
   border-radius: 7px;
+  object-fit: cover;
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent), 0 2px 8px rgb(0 0 0 / 0.35);
 }
 
@@ -86,7 +87,7 @@ html.is-desktop .fc-frame {
   color: var(--muted);
 }
 
-/* Счᄅтчик непрочитанного прямо в плашке: окно часто свᄅрнуто в угол. */
+/* Счетчик непрочитанного прямо в плашке: окно часто свернуто в угол. */
 .fc-titlebar__badge {
   margin-left: 10px;
   min-width: 20px;
@@ -131,10 +132,4 @@ html.is-desktop .fc-frame {
 .fc-titlebar__btn--close:hover {
   background: #e5484d;
   color: #fff;
-}
-
-/* Свᄅрнутое окно — плашка гаснет вместе с остальным интерфейсом. */
-.fc-titlebar--blur .fc-titlebar__name,
-.fc-titlebar--blur .fc-titlebar__sub {
-  opacity: 0.55;
 }
