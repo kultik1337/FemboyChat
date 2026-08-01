@@ -3,9 +3,16 @@
 
   Стандартный шаблон Tauri — это MUI2: серая шапка, рамка, четыре
   страницы и кнопки внизу. Как его ни крась картинками, это остаётся
-  мастер из девяностых. Здесь шаблон собирается целиком свой: вся
-  стандартная обвязка прячется, диалог растягивается на всё окно, кнопки
-  нарисованы сами: один экран, одна кнопка, прогресс, автозапуск.
+  мастер из девяностых. Здесь шаблон свой целиком: один экран, две
+  колонки, свои кнопки, прогресс и автозапуск.
+
+  Своя рамка. Системная шапка убирается совсем: именно она тянет весь
+  вид назад в прошлое — толстая рамка, чужой заголовок, три кнопки
+  управления. Вместо неё свой крестик в углу. Расплата честная: окно
+  нельзя таскать мышкой — подпись узнаёт о нажатии только после того,
+  как кнопку отпустили, а значит перетаскивания не получится в принципе.
+  Окно всё равно открывается по центру экрана и живёт меньше минуты.
+  Escape работает: родная кнопка отмены не удалена, а только скрыта.
 
   Важно про OutFile. Бандлер Tauri запускает makensis из своей временной
   папки (target/release/nsis/x64) и сразу после этого переносит оттуда
@@ -17,26 +24,29 @@
 
   Про обратный слэш. В первой версии пути писались прямо в строках, и
   уровни экранирования разъехались: в готовом .nsi оказалось по два слэша
-  подряд, отчего установщик показывал "AppData\\Local\\FemboyChat", а ветки
+  подряд, отчего установщик показывал путь с двойным слэшем, а ветки
   реестра создавались не там, где нужно. Теперь в тексте сценария вместо
   слэша стоит знак ^, и он заменяется на настоящий слэш ровно один раз,
   уже при записи файла. Ставить в этом файле ^ где-то ещё нельзя.
 
-  Урок первой попытки: большой фон-картинки больше нет. NSIS показывает
-  BMP без масштабирования, а в Windows созданный раньше контрол лежит выше
-  остальных — картинка одновременно обрезалась и закрывала собой весь
-  текст. Теперь фон — ровная заливка самого диалога, а все подписи идут
-  с таким же тёмным фоном: прозрачность у подписей берёт цвет родителя, а не
-  соседней картинки, и на неё полагаться нельзя.
+  Два правила раскладки, оба оплачены кривыми сборками.
+
+  Первое: созданный раньше контрол лежит ВЫШЕ созданного позже. Поэтому
+  всё, что работает фоном (левая колонка, подложка поля), создаётся ПОСЛЕ
+  своего содержимого, иначе оно его просто закроет.
+
+  Второе: у подписи нет настоящей прозрачности: режим transparent берёт
+  цвет родительского диалога, а не соседней картинки и не подложки под
+  ней. Поэтому каждой подписи цвет фона задаётся вручную и ровно тот,
+  над чем она лежит. По той же причине тут нет ни градиентов, ни
+  скруглённых кнопок: поверх картинки текст ляжет цветным прямоугольником.
+  Честная плоская геометрия и крупная типографика выглядят лучше, чем
+  попытка изобразить скругления там, где их не бывает.
 
   Кнопки — это подписи со стилем SS_CENTER|SS_CENTERIMAGE|SS_NOTIFY, то
   есть текст стоит по центру и по горизонтали, и по вертикали. Родные
   кнопки Windows не умеют ни своего цвета, ни своего шрифта без полной
   отрисовки владельцем, поэтому в таком экране их нет вовсе.
-
-  Верхнюю системную плашку красим через DWM: она часть окна, а не
-  диалога, и без этого белая полоса торчит над тёмным экраном. На
-  старых сборках Windows эти вызовы просто ничего не делают.
 
   Почему генератор, а не готовый .nsi в репозитории: часть путей внутри
   абсолютные, а версия берётся из package.json.
@@ -90,37 +100,46 @@ const NSI = [
   '',
   '; Палитра та же, что у мессенджера. SetCtlColors ждёт RRGGBB без 0x.',
   '!define C_TEXT FFFFFF',
-  '!define C_MUTED 9AA3BD',
+  '!define C_MUTED 8E97B3',
   '!define C_ACCENT 7C9CFF',
   '!define C_DARK 0F1017',
-  '!define C_FIELD 171A24',
-  '!define C_LINE 232637',
+  '; C_RAIL обязан совпадать с BG в scripts/installer-art.mjs.',
+  '!define C_RAIL 151827',
+  '!define C_FIELD 1B1F2C',
   '',
-  '; Размер окна установщика в пикселях.',
-  '!define WIN_W 600',
-  '!define WIN_H 430',
+  '; Размер окна установщика и ширина левой колонки.',
+  '!define WIN_W 680',
+  '!define WIN_H 470',
   '',
   '; Стиль подписи, работающей как кнопка: текст по центру по обеим осям.',
   '!define BTN_STYLE 0x00000301',
+  '; Текст по центру по горизонтали и текст по середине по высоте.',
+  '!define TXT_CENTER 0x00000001',
+  '!define TXT_MIDDLE 0x00000200',
   '',
   'Var Dialog',
   'Var LogoCtl',
   'Var LogoImg',
-  'Var LblTitle',
+  'Var Rail',
+  'Var RailName',
+  'Var RailVer',
+  'Var RailFoot',
+  'Var BtnClose',
+  'Var LblHead',
   'Var LblSub',
-  'Var LblLine',
   'Var LblDirCap',
   'Var LblDirBox',
   'Var LblDir',
   'Var LnkDir',
   'Var ChkDesktop',
-  'Var LblHint',
   'Var BtnGo',
   'Var BtnCancel',
   'Var FontH1',
+  'Var FontH2',
   'Var FontText',
   'Var FontSmall',
   'Var FontBtn',
+  'Var FontClose',
   'Var MakeDesktop',
   '',
   'Page custom fcWelcome',
@@ -183,21 +202,27 @@ const NSI = [
   '  ${EndIf}',
   'FunctionEnd',
   '',
-  '; Окно: свой размер по центру экрана и тёмная системная плашка.',
+  '; Окно: без системной шапки, своего размера, по центру экрана.',
   'Function .onGUIInit',
+  '  ; Снимаем WS_CAPTION, WS_SYSMENU и WS_THICKFRAME — это 0x00CC0000.',
+  '  System::Call "user32::GetWindowLongW(p $HWNDPARENT, i -16) i .r4"',
+  '  IntOp $5 0x00CC0000 ~',
+  '  IntOp $4 $4 & $5',
+  '  System::Call "user32::SetWindowLongW(p $HWNDPARENT, i -16, i r4)"',
+  '',
   '  System::Call "user32::GetSystemMetrics(i 0) i .r0"',
   '  System::Call "user32::GetSystemMetrics(i 1) i .r1"',
   '  IntOp $2 $0 - ${WIN_W}',
   '  IntOp $2 $2 / 2',
   '  IntOp $3 $1 - ${WIN_H}',
   '  IntOp $3 $3 / 2',
-  '  System::Call "user32::SetWindowPos(i $HWNDPARENT, i 0, i r2, i r3, i ${WIN_W}, i ${WIN_H}, i 0x4)"',
+  '  ; 0x24 = не менять порядок окон + применить новую рамку.',
+  '  System::Call "user32::SetWindowPos(i $HWNDPARENT, i 0, i r2, i r3, i ${WIN_W}, i ${WIN_H}, i 0x24)"',
   '',
-  '  ; DWMWA_USE_IMMERSIVE_DARK_MODE = 20, дальше цвета плашки (Windows 11).',
+  '  ; Скруглённые углы и тонкая рамка (Windows 11; на 10 просто ничего).',
+  '  System::Call "dwmapi::DwmSetWindowAttribute(p $HWNDPARENT, i 33, *i 2, i 4)"',
+  '  System::Call "dwmapi::DwmSetWindowAttribute(p $HWNDPARENT, i 34, *i 0x002C2721, i 4)"',
   '  System::Call "dwmapi::DwmSetWindowAttribute(p $HWNDPARENT, i 20, *i 1, i 4)"',
-  '  System::Call "dwmapi::DwmSetWindowAttribute(p $HWNDPARENT, i 35, *i 0x0017100F, i 4)"',
-  '  System::Call "dwmapi::DwmSetWindowAttribute(p $HWNDPARENT, i 36, *i 0x00BDA39A, i 4)"',
-  '  System::Call "dwmapi::DwmSetWindowAttribute(p $HWNDPARENT, i 34, *i 0x0037263B, i 4)"',
   'FunctionEnd',
   '',
   'Function fcWelcome',
@@ -212,77 +237,101 @@ const NSI = [
   '  Call fcFillClient',
   '  SetCtlColors $Dialog ${C_TEXT} ${C_DARK}',
   '',
-  '  CreateFont $FontH1 "Segoe UI Semibold" 21 600',
+  '  CreateFont $FontH1 "Segoe UI Semibold" 19 600',
+  '  CreateFont $FontH2 "Segoe UI Semibold" 16 600',
   '  CreateFont $FontText "Segoe UI" 10 400',
   '  CreateFont $FontSmall "Segoe UI" 9 400',
   '  CreateFont $FontBtn "Segoe UI Semibold" 11 600',
+  '  CreateFont $FontClose "Segoe UI" 12 400',
   '',
-  '  ${NSD_CreateBitmap} 44 40 64 64 ""',
+  '  ; ── левая колонка: сначала содержимое, фон — в самом конце ──',
+  '  ${NSD_CreateBitmap} 69 78 112 112 ""',
   '  Pop $LogoCtl',
   '  ${NSD_SetImage} $LogoCtl "$PLUGINSDIR^logo.bmp" $LogoImg',
   '',
-  '  ${NSD_CreateLabel} 124 44 380 32 "FemboyChat"',
-  '  Pop $LblTitle',
-  '  SetCtlColors $LblTitle ${C_TEXT} ${C_DARK}',
-  '  SendMessage $LblTitle ${WM_SETFONT} $FontH1 1',
+  '  ${NSD_CreateLabel} 0 212 250 26 "FemboyChat"',
+  '  Pop $RailName',
+  '  SetCtlColors $RailName ${C_TEXT} ${C_RAIL}',
+  '  SendMessage $RailName ${WM_SETFONT} $FontH2 1',
+  '  ${NSD_AddStyle} $RailName ${TXT_CENTER}',
   '',
-  '  ${NSD_CreateLabel} 126 80 380 18 "Тёплый мессенджер для ПК · версия ${APP_VER}"',
+  '  ${NSD_CreateLabel} 0 240 250 18 "версия ${APP_VER}"',
+  '  Pop $RailVer',
+  '  SetCtlColors $RailVer ${C_MUTED} ${C_RAIL}',
+  '  SendMessage $RailVer ${WM_SETFONT} $FontSmall 1',
+  '  ${NSD_AddStyle} $RailVer ${TXT_CENTER}',
+  '',
+  '  ${NSD_CreateLabel} 0 424 250 18 "уютно · быстро · своё"',
+  '  Pop $RailFoot',
+  '  SetCtlColors $RailFoot ${C_MUTED} ${C_RAIL}',
+  '  SendMessage $RailFoot ${WM_SETFONT} $FontSmall 1',
+  '  ${NSD_AddStyle} $RailFoot ${TXT_CENTER}',
+  '',
+  '  ; ── правая часть ──',
+  '  ${NSD_CreateLabel} 640 14 26 26 "✕"',
+  '  Pop $BtnClose',
+  '  SetCtlColors $BtnClose ${C_MUTED} ${C_DARK}',
+  '  SendMessage $BtnClose ${WM_SETFONT} $FontClose 1',
+  '  ${NSD_AddStyle} $BtnClose ${BTN_STYLE}',
+  '  ${NSD_OnClick} $BtnClose fcOnCancel',
+  '',
+  '  ${NSD_CreateLabel} 292 76 340 30 "Установка"',
+  '  Pop $LblHead',
+  '  SetCtlColors $LblHead ${C_TEXT} ${C_DARK}',
+  '  SendMessage $LblHead ${WM_SETFONT} $FontH1 1',
+  '',
+  '  ${NSD_CreateLabel} 292 114 348 36 "Займёт пару секунд и не потребует прав администратора. Мессенджер откроется сразу после."',
   '  Pop $LblSub',
   '  SetCtlColors $LblSub ${C_MUTED} ${C_DARK}',
   '  SendMessage $LblSub ${WM_SETFONT} $FontSmall 1',
   '',
-  '  ; Тонкая линия — это пустая подпись высотой в один пиксель.',
-  '  ${NSD_CreateLabel} 44 130 512 1 ""',
-  '  Pop $LblLine',
-  '  SetCtlColors $LblLine ${C_LINE} ${C_LINE}',
-  '',
-  '  ${NSD_CreateLabel} 44 156 300 16 "КУДА УСТАНОВИТЬ"',
+  '  ${NSD_CreateLabel} 292 180 300 16 "КУДА УСТАНОВИТЬ"',
   '  Pop $LblDirCap',
   '  SetCtlColors $LblDirCap ${C_MUTED} ${C_DARK}',
   '  SendMessage $LblDirCap ${WM_SETFONT} $FontSmall 1',
   '',
-  '  ; Подложка поля: подпись во всю ширину со своим фоном.',
-  '  ${NSD_CreateLabel} 44 178 512 38 ""',
-  '  Pop $LblDirBox',
-  '  SetCtlColors $LblDirBox ${C_FIELD} ${C_FIELD}',
-  '',
-  '  ${NSD_CreateLabel} 58 178 400 38 "$INSTDIR"',
+  '  ; Сначала содержимое поля, подложка — сразу после него.',
+  '  ${NSD_CreateLabel} 306 200 232 42 "$INSTDIR"',
   '  Pop $LblDir',
   '  SetCtlColors $LblDir ${C_TEXT} ${C_FIELD}',
   '  SendMessage $LblDir ${WM_SETFONT} $FontText 1',
-  '  ${NSD_AddStyle} $LblDir 0x00000200',
+  '  ${NSD_AddStyle} $LblDir ${TXT_MIDDLE}',
   '',
-  '  ${NSD_CreateLabel} 462 178 84 38 "Изменить"',
+  '  ${NSD_CreateLabel} 546 200 92 42 "Изменить"',
   '  Pop $LnkDir',
   '  SetCtlColors $LnkDir ${C_ACCENT} ${C_FIELD}',
-  '  SendMessage $LnkDir ${WM_SETFONT} $FontSmall 1',
+  '  SendMessage $LnkDir ${WM_SETFONT} $FontText 1',
   '  ${NSD_AddStyle} $LnkDir ${BTN_STYLE}',
   '  ${NSD_OnClick} $LnkDir fcOnBrowse',
   '',
-  '  ${NSD_CreateCheckbox} 44 236 320 22 "Ярлык на рабочем столе"',
+  '  ${NSD_CreateLabel} 292 200 346 42 ""',
+  '  Pop $LblDirBox',
+  '  SetCtlColors $LblDirBox ${C_FIELD} ${C_FIELD}',
+  '',
+  '  ${NSD_CreateCheckbox} 292 262 330 22 "Создать ярлык на рабочем столе"',
   '  Pop $ChkDesktop',
   '  SetCtlColors $ChkDesktop ${C_MUTED} ${C_DARK}',
-  '  SendMessage $ChkDesktop ${WM_SETFONT} $FontSmall 1',
+  '  SendMessage $ChkDesktop ${WM_SETFONT} $FontText 1',
   '  ${NSD_Check} $ChkDesktop',
   '',
-  '  ${NSD_CreateLabel} 44 266 460 16 "Установка займёт пару секунд и не требует прав администратора."',
-  '  Pop $LblHint',
-  '  SetCtlColors $LblHint ${C_MUTED} ${C_DARK}',
-  '  SendMessage $LblHint ${WM_SETFONT} $FontSmall 1',
-  '',
-  '  ${NSD_CreateLabel} 44 308 232 48 "Установить"',
+  '  ${NSD_CreateLabel} 292 384 222 50 "Установить"',
   '  Pop $BtnGo',
   '  SetCtlColors $BtnGo ${C_DARK} ${C_ACCENT}',
   '  SendMessage $BtnGo ${WM_SETFONT} $FontBtn 1',
   '  ${NSD_AddStyle} $BtnGo ${BTN_STYLE}',
   '  ${NSD_OnClick} $BtnGo fcOnInstall',
   '',
-  '  ${NSD_CreateLabel} 292 308 148 48 "Отмена"',
+  '  ${NSD_CreateLabel} 526 384 112 50 "Отмена"',
   '  Pop $BtnCancel',
   '  SetCtlColors $BtnCancel ${C_MUTED} ${C_FIELD}',
   '  SendMessage $BtnCancel ${WM_SETFONT} $FontText 1',
   '  ${NSD_AddStyle} $BtnCancel ${BTN_STYLE}',
   '  ${NSD_OnClick} $BtnCancel fcOnCancel',
+  '',
+  '  ; Фон левой колонки — самым последним, чтобы оказаться под всем.',
+  '  ${NSD_CreateLabel} 0 0 250 ${WIN_H} ""',
+  '  Pop $Rail',
+  '  SetCtlColors $Rail ${C_RAIL} ${C_RAIL}',
   '',
   '  nsDialogs::Show',
   '  ${NSD_FreeImage} $LogoImg',
@@ -321,10 +370,10 @@ const NSI = [
   '',
   '  GetDlgItem $0 $1 1006',
   '  SetCtlColors $0 ${C_MUTED} ${C_DARK}',
-  '  System::Call "user32::SetWindowPos(i r0, i 0, i 44, i 176, i 512, i 20, i 0x14)"',
+  '  System::Call "user32::SetWindowPos(i r0, i 0, i 240, i 216, i 300, i 20, i 0x14)"',
   '',
   '  GetDlgItem $0 $1 1004',
-  '  System::Call "user32::SetWindowPos(i r0, i 0, i 44, i 208, i 512, i 10, i 0x14)"',
+  '  System::Call "user32::SetWindowPos(i r0, i 0, i 240, i 246, i 300, i 8, i 0x14)"',
   'FunctionEnd',
   '',
   'Section "FemboyChat"',
