@@ -1,0 +1,16 @@
+{
+  "identifier": "default",
+  "description": "Права, которые нужны кастомной верхней плашке: свернуть, развернуть, закрыть и таскать окно за шапку. Ничего лишнего веб-части не выдано.",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-minimize",
+    "core:window:allow-unminimize",
+    "core:window:allow-maximize",
+    "core:window:allow-unmaximize",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-is-maximized",
+    "core:window:allow-close",
+    "core:window:allow-start-dragging"
+  ]
+}
