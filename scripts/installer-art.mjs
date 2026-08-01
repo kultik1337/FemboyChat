@@ -3,15 +3,22 @@
  *
  * ПОЧЕМУ ВСЁ ОДНОЙ КАРТИНКОЙ.
  * NSIS не умеет ни скруглений, ни градиентов, ни теней, ни прозрачного текста:
- * любая подпись поверх картинки закрашивает прямоугольник своим фоном. Поэтому
- * весь экран (фон, свечения, логотип, поля, кнопки И ВЕСЬ СТАТИЧНЫЙ ТЕКСТ)
- * рисуется здесь в один bmp, а в самом установщике сверху лежат только
- * невидимые области нажатия. Единственная живая подпись - путь установки,
- * поэтому подложка поля залита ПЛОСКИМ цветом FIELD_FILL: ровно его же ставит
- * себе фоном подпись, и стыка не видно.
+ * любая подпись поверх картинки закрашивает свой прямоугольник фоном. Поэтому
+ * весь экран рисуется здесь в один bmp, а в самом установщике живых элемента два:
+ * подпись с путём и маленькая картинка галочки.
  *
- * Координаты отсюда обязаны совпадать с installer-nsi.mjs (см. LAYOUT).
- * Выходные файлы: bg.bmp (весь экран), chk-on.bmp / chk-off.bmp (галочка).
+ * ПОЧЕМУ НЕСКОЛЬКО МАСШТАБОВ.
+ * NSIS показывает bmp как есть, без масштабирования. Если у человека масштаб
+ * экрана 125% или 150%, то либо окно растянет сама Windows (и всё становится
+ * мылом), либо окно остаётся крошечным. Поэтому каждый экран рисуется сразу
+ * в четырёх размерах, а установщик выбирает нужный по текущему DPI.
+ *
+ * ВСЕ ЧИСЛА В LAYOUT КРАТНЫ 4. Масштаб 125% умножает координаты на 1.25, и
+ * только кратные 4 числа дают целые пиксели на всех четырёх масштабах.
+ * В установщике та же арифметика целыми числами (x * масштаб / 100), иначе
+ * области нажатия уедут от рисунка на полпикселя.
+ *
+ * Выходные файлы на каждый масштаб: bg-<масштаб>.bmp и две галочки.
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
@@ -21,20 +28,41 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const outDir = resolve(root, 'src-tauri', 'installer')
 const iconPath = resolve(root, 'icon.png')
 
+/** Логический размер экрана при 100%. */
 const W = 680
 const H = 460
 
-/** Плоский цвет подложки поля пути. Тот же самый ставится подписи в NSIS. */
+/** Масштабы в процентах — тот же список обязан быть в installer-nsi.mjs. */
+const SCALES = [100, 125, 150, 200]
+
+/** Плоский цвет подложки поля пути. Тот же ставится фоном подписи в NSIS. */
 const FIELD_FILL = '#161A26'
 
+/** Фон страницы установки и цвет, в который сводится прозрачность. */
+const PAGE_DARK = '#0A0B12'
+
 const LAYOUT = {
-	logo: { x: 66, y: 136, s: 118, r: 28 },
-	field: { x: 296, y: 256, w: 344, h: 50, r: 13 },
-	browse: { x: 540, y: 264, w: 92, h: 34, r: 9 },
-	check: { x: 296, y: 336, s: 20, r: 7 },
-	install: { x: 296, y: 388, w: 212, h: 52, r: 14 },
-	cancel: { x: 520, y: 388, w: 120, h: 52, r: 14 },
+	logo: { x: 64, y: 136, s: 120, r: 28 },
+	field: { x: 296, y: 248, w: 344, h: 48, r: 12 },
+	browse: { x: 548, y: 256, w: 84, h: 32, r: 8 },
+	path: { x: 312, y: 252, w: 228, h: 40 },
+	check: { x: 296, y: 324, s: 20, r: 6 },
+	checkHit: { x: 296, y: 320, w: 252, h: 28 },
+	install: { x: 296, y: 376, w: 212, h: 52, r: 14 },
+	cancel: { x: 520, y: 376, w: 120, h: 52, r: 14 },
 	close: { x: 632, y: 16, s: 32 },
+}
+
+// Гарантия целых пикселей на масштабе 125%.
+for (const [name, rect] of Object.entries(LAYOUT)) {
+	for (const [key, value] of Object.entries(rect)) {
+		// r — только радиус скругления, в расстановке контролов он не участвует.
+		if (key === 'r') continue
+		if (value % 4 !== 0) {
+			console.error(`\u2716 LAYOUT.${name}.${key} = ${value} не кратно 4`)
+			process.exit(1)
+		}
+	}
 }
 
 let sharp
@@ -54,21 +82,24 @@ const version = JSON.parse(
 	readFileSync(resolve(root, 'package.json'), 'utf8'),
 ).version
 
-const FONT = "Segoe UI, Noto Sans, DejaVu Sans, sans-serif"
+const FONT = 'Segoe UI, Noto Sans, DejaVu Sans, sans-serif'
 
-/** Весь экран в svg. checked - в каком состоянии нарисована галочка. */
-function screen(checked) {
+/**
+ * Весь экран в svg. Координаты всегда логические (viewBox), а реальный
+ * размер задаётся атрибутами width/height — текст от этого остаётся чётким.
+ */
+function screen(checked, pxW, pxH) {
 	const L = LAYOUT
 	const box = checked
 		? `<rect x="${L.check.x}" y="${L.check.y}" width="${L.check.s}" height="${L.check.s}" rx="${L.check.r}" fill="url(#chk)"/>
 		<path d="M${L.check.x + 5.5} ${L.check.y + 10.2} l3 3 l6 -6.6" fill="none" stroke="#0B0D14" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>`
 		: `<rect x="${L.check.x}" y="${L.check.y}" width="${L.check.s}" height="${L.check.s}" rx="${L.check.r}" fill="#FFFFFF" fill-opacity="0.05" stroke="#FFFFFF" stroke-opacity="0.18"/>`
 
-	return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
+	return `<svg xmlns="http://www.w3.org/2000/svg" width="${pxW}" height="${pxH}" viewBox="0 0 ${W} ${H}">
 	<defs>
 		<linearGradient id="base" x1="0" y1="0" x2="0.45" y2="1">
 			<stop offset="0" stop-color="#10121C"/>
-			<stop offset="1" stop-color="#0A0B12"/>
+			<stop offset="1" stop-color="${PAGE_DARK}"/>
 		</linearGradient>
 		<radialGradient id="glowA" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(82 0) scale(620 420)">
 			<stop offset="0" stop-color="#C98CFF" stop-opacity="0.22"/>
@@ -78,15 +109,7 @@ function screen(checked) {
 			<stop offset="0" stop-color="#7C9CFF" stop-opacity="0.22"/>
 			<stop offset="0.62" stop-color="#7C9CFF" stop-opacity="0"/>
 		</radialGradient>
-		<radialGradient id="logoGlow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(125 195) scale(88 88)">
-			<stop offset="0.35" stop-color="#C98CFF" stop-opacity="0.40"/>
-			<stop offset="1" stop-color="#C98CFF" stop-opacity="0"/>
-		</radialGradient>
-		<radialGradient id="btnGlow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(402 434) scale(132 48)">
-			<stop offset="0" stop-color="#8C8CFF" stop-opacity="0.34"/>
-			<stop offset="1" stop-color="#8C8CFF" stop-opacity="0"/>
-		</radialGradient>
-		<linearGradient id="btn" gradientUnits="userSpaceOnUse" x1="296" y1="388" x2="508" y2="440">
+		<linearGradient id="btn" gradientUnits="userSpaceOnUse" x1="${L.install.x}" y1="${L.install.y}" x2="${L.install.x + L.install.w}" y2="${L.install.y + L.install.h}">
 			<stop offset="0" stop-color="#8FB0FF"/>
 			<stop offset="0.52" stop-color="#A78CFF"/>
 			<stop offset="1" stop-color="#FF9ECB"/>
@@ -95,16 +118,26 @@ function screen(checked) {
 			<stop offset="0" stop-color="#7C9CFF"/>
 			<stop offset="1" stop-color="#C98CFF"/>
 		</linearGradient>
+		<!-- Область фильтра с большим запасом: если её не хватит на радиус размытия,
+		     свечение обрежется и по краю появится заметная прямая граница. -->
+		<filter id="soft" x="-150%" y="-150%" width="400%" height="400%">
+			<feGaussianBlur stdDeviation="26"/>
+		</filter>
+		<filter id="softBtn" x="-150%" y="-150%" width="400%" height="400%">
+			<feGaussianBlur stdDeviation="16"/>
+		</filter>
 	</defs>
 
 	<rect width="${W}" height="${H}" fill="url(#base)"/>
 	<rect width="${W}" height="${H}" fill="url(#glowA)"/>
 	<rect width="${W}" height="${H}" fill="url(#glowB)"/>
-	<rect width="${W}" height="${H}" fill="url(#logoGlow)"/>
+
+	<!-- ореол повторяет форму логотипа, а не круг -->
+	<rect x="${L.logo.x}" y="${L.logo.y}" width="${L.logo.s}" height="${L.logo.s}" rx="${L.logo.r}" fill="#C98CFF" fill-opacity="0.42" filter="url(#soft)"/>
 
 	<g font-family="${FONT}" fill="#FFFFFF">
-		<text x="125" y="302" font-size="19" font-weight="600" text-anchor="middle">FemboyChat</text>
-		<text x="125" y="325" font-size="12.5" fill="#8C93AD" text-anchor="middle">версия ${version}</text>
+		<text x="${L.logo.x + L.logo.s / 2}" y="302" font-size="19" font-weight="600" text-anchor="middle">FemboyChat</text>
+		<text x="${L.logo.x + L.logo.s / 2}" y="325" font-size="12.5" fill="#8C93AD" text-anchor="middle">версия ${version}</text>
 
 		<text x="296" y="116" font-size="29" font-weight="600">Почти готово</text>
 		<g font-size="13.5" fill="#8C93AD">
@@ -112,17 +145,17 @@ function screen(checked) {
 			<text x="296" y="174">администратора. Мессенджер откроется сразу</text>
 			<text x="296" y="196">после установки.</text>
 		</g>
-		<text x="296" y="240" font-size="11" fill="#6F7590" letter-spacing="1.8">КУДА УСТАНОВИТЬ</text>
+		<text x="296" y="232" font-size="11" fill="#6F7590" letter-spacing="1.8">КУДА УСТАНОВИТЬ</text>
 	</g>
 
 	<rect x="${L.field.x}" y="${L.field.y}" width="${L.field.w}" height="${L.field.h}" rx="${L.field.r}" fill="${FIELD_FILL}" stroke="#FFFFFF" stroke-opacity="0.09"/>
 	<rect x="${L.browse.x}" y="${L.browse.y}" width="${L.browse.w}" height="${L.browse.h}" rx="${L.browse.r}" fill="#7C9CFF" fill-opacity="0.14"/>
-	<text x="${L.browse.x + L.browse.w / 2}" y="${L.browse.y + 22}" font-family="${FONT}" font-size="13" fill="#93AEFF" text-anchor="middle">Изменить</text>
+	<text x="${L.browse.x + L.browse.w / 2}" y="${L.browse.y + 21}" font-family="${FONT}" font-size="13" fill="#93AEFF" text-anchor="middle">Изменить</text>
 
 	${box}
-	<text x="327" y="351" font-family="${FONT}" font-size="13.5" fill="#C3C9DD">Создать ярлык на рабочем столе</text>
+	<text x="${L.check.x + 31}" y="${L.check.y + 15}" font-family="${FONT}" font-size="13.5" fill="#C3C9DD">Создать ярлык на рабочем столе</text>
 
-	<rect width="${W}" height="${H}" fill="url(#btnGlow)"/>
+	<rect x="${L.install.x + 10}" y="${L.install.y + 14}" width="${L.install.w - 20}" height="${L.install.h}" rx="${L.install.r}" fill="#8C8CFF" fill-opacity="0.45" filter="url(#softBtn)"/>
 	<rect x="${L.install.x}" y="${L.install.y}" width="${L.install.w}" height="${L.install.h}" rx="${L.install.r}" fill="url(#btn)"/>
 	<rect x="${L.install.x + 3}" y="${L.install.y + 1}" width="${L.install.w - 6}" height="1" rx="0.5" fill="#FFFFFF" fill-opacity="0.35"/>
 	<text x="${L.install.x + L.install.w / 2}" y="${L.install.y + 33}" font-family="${FONT}" font-size="15" font-weight="600" fill="#0A0C14" text-anchor="middle">Установить</text>
@@ -130,29 +163,56 @@ function screen(checked) {
 	<rect x="${L.cancel.x}" y="${L.cancel.y}" width="${L.cancel.w}" height="${L.cancel.h}" rx="${L.cancel.r}" fill="#FFFFFF" fill-opacity="0.05" stroke="#FFFFFF" stroke-opacity="0.09"/>
 	<text x="${L.cancel.x + L.cancel.w / 2}" y="${L.cancel.y + 33}" font-family="${FONT}" font-size="15" fill="#AAB1C8" text-anchor="middle">Отмена</text>
 
-	<path d="M642.5 26.5 l11 11 M653.5 26.5 l-11 11" stroke="#8C93AD" stroke-width="1.6" stroke-linecap="round"/>
+	<path d="M${L.close.x + 10.5} ${L.close.y + 10.5} l11 11 M${L.close.x + 21.5} ${L.close.y + 10.5} l-11 11" stroke="#8C93AD" stroke-width="1.6" stroke-linecap="round"/>
 </svg>`
 }
 
-/** svg -> плоский RGB без альфы. */
-async function raster(svgText) {
-	const { data, info } = await sharp(Buffer.from(svgText))
-		.flatten({ background: '#0A0B12' })
+/** Собирает экран нужного масштаба вместе с логотипом. */
+async function render(scale, checked) {
+	const k = scale / 100
+	const pxW = Math.round(W * k)
+	const pxH = Math.round(H * k)
+	const logoS = Math.round(LAYOUT.logo.s * k)
+	const logoR = Math.round(LAYOUT.logo.r * k)
+
+	const mask = Buffer.from(
+		`<svg xmlns="http://www.w3.org/2000/svg" width="${logoS}" height="${logoS}"><rect width="${logoS}" height="${logoS}" rx="${logoR}" fill="#fff"/></svg>`,
+	)
+	const logo = await sharp(iconPath)
+		.resize(logoS, logoS, { fit: 'cover' })
+		.composite([{ input: mask, blend: 'dest-in' }])
+		.png()
+		.toBuffer()
+
+	const base = await sharp(Buffer.from(screen(checked, pxW, pxH))).png().toBuffer()
+	const { data, info } = await sharp(base)
+		.composite([
+			{
+				input: logo,
+				left: Math.round(LAYOUT.logo.x * k),
+				top: Math.round(LAYOUT.logo.y * k),
+			},
+		])
+		.flatten({ background: PAGE_DARK })
 		.removeAlpha()
 		.raw()
 		.toBuffer({ resolveWithObject: true })
+
 	return { data, w: info.width, h: info.height }
 }
 
 /**
  * Проверяем, что текст действительно нарисовался: если рисовалка не нашла
- * шрифтов, подписи молча пропадают и пользователь получает пустое окно.
- * Лучше уронить сборку с понятным сообщением.
+ * шрифтов, подписи молча пропадают и человек получает пустое окно.
  */
-function assertText(img, rect, wantBright, name) {
+function assertText(img, rect, k, wantBright, name) {
+	const x0 = Math.round(rect.x * k)
+	const y0 = Math.round(rect.y * k)
+	const x1 = Math.round((rect.x + rect.w) * k)
+	const y1 = Math.round((rect.y + rect.h) * k)
 	let hit = 0
-	for (let y = rect.y; y < rect.y + rect.h; y++) {
-		for (let x = rect.x; x < rect.x + rect.w; x++) {
+	for (let y = y0; y < y1; y++) {
+		for (let x = x0; x < x1; x++) {
 			const i = (y * img.w + x) * 3
 			const lum = (img.data[i] * 299 + img.data[i + 1] * 587 + img.data[i + 2] * 114) / 1000
 			if (wantBright ? lum > 140 : lum < 90) hit++
@@ -163,7 +223,6 @@ function assertText(img, rect, wantBright, name) {
 		console.error('  Похоже, рисовалка svg не нашла системных шрифтов.')
 		process.exit(1)
 	}
-	return hit
 }
 
 /** 24-битный bmp снизу вверх, строки кратны 4 байтам. */
@@ -194,7 +253,7 @@ function encodeBmp24(img) {
 	return Buffer.concat([header, pixels])
 }
 
-/** Вырезает кусок из уже готового RGB. */
+/** Вырезает кусок из готового RGB. */
 function crop(img, x, y, w, h) {
 	const data = Buffer.alloc(w * h * 3)
 	for (let row = 0; row < h; row++) {
@@ -205,42 +264,31 @@ function crop(img, x, y, w, h) {
 
 mkdirSync(outDir, { recursive: true })
 
-const L = LAYOUT
-const mask = Buffer.from(
-	`<svg xmlns="http://www.w3.org/2000/svg" width="${L.logo.s}" height="${L.logo.s}"><rect width="${L.logo.s}" height="${L.logo.s}" rx="${L.logo.r}" fill="#fff"/></svg>`,
-)
-const logo = await sharp(iconPath)
-	.resize(L.logo.s, L.logo.s, { fit: 'cover' })
-	.composite([{ input: mask, blend: 'dest-in' }])
-	.png()
-	.toBuffer()
+let total = 0
+for (const scale of SCALES) {
+	const k = scale / 100
+	const on = await render(scale, true)
+	const off = await render(scale, false)
 
-async function withLogo(svgText) {
-	const png = await sharp(Buffer.from(svgText)).png().toBuffer()
-	const { data, info } = await sharp(png)
-		.composite([{ input: logo, left: L.logo.x, top: L.logo.y }])
-		.flatten({ background: '#0A0B12' })
-		.removeAlpha()
-		.raw()
-		.toBuffer({ resolveWithObject: true })
-	return { data, w: info.width, h: info.height }
+	assertText(on, { x: 296, y: 90, w: 300, h: 28 }, k, true, `Почти готово @${scale}`)
+	assertText(on, { x: 330, y: 392, w: 150, h: 22 }, k, false, `Установить @${scale}`)
+
+	const cx = Math.round(LAYOUT.check.x * k)
+	const cy = Math.round(LAYOUT.check.y * k)
+	const cs = Math.round(LAYOUT.check.s * k)
+
+	const files = [
+		[`bg-${scale}.bmp`, on],
+		[`chk-on-${scale}.bmp`, crop(on, cx, cy, cs, cs)],
+		[`chk-off-${scale}.bmp`, crop(off, cx, cy, cs, cs)],
+	]
+
+	for (const [name, img] of files) {
+		const bmp = encodeBmp24(img)
+		total += bmp.length
+		writeFileSync(resolve(outDir, name), bmp)
+	}
+	console.log(`  ${scale}%  ${on.w}x${on.h}`)
 }
 
-const on = await withLogo(screen(true))
-const off = await withLogo(screen(false))
-
-assertText(on, { x: 296, y: 90, w: 300, h: 28 }, true, 'Почти готово')
-assertText(on, { x: 330, y: 404, w: 150, h: 22 }, false, 'Установить')
-
-const files = [
-	['bg.bmp', on],
-	['chk-on.bmp', crop(on, L.check.x, L.check.y, L.check.s, L.check.s)],
-	['chk-off.bmp', crop(off, L.check.x, L.check.y, L.check.s, L.check.s)],
-]
-
-for (const [name, img] of files) {
-	const bmp = encodeBmp24(img)
-	writeFileSync(resolve(outDir, name), bmp)
-	console.log(`  ${name}  ${img.w}x${img.h}  ${(bmp.length / 1024).toFixed(0)} КБ`)
-}
-console.log('\u2713 Графика установщика готова')
+console.log(`\u2713 Графика установщика готова (${(total / 1024 / 1024).toFixed(1)} МБ до сжатия)`)
