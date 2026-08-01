@@ -62,6 +62,8 @@ function attachmentObjectPath(url?: string): string | null {
  * e-mail, and after confirming they can log in from any device. Realtime
  * message streams come from Supabase.
  *
+ * What arrives over the socket, and why, is written down in live-notes.md.
+ *
  * The SQL schema this expects lives in supabase/schema.sql.
  */
 export class SupabaseBackend implements Backend {
@@ -77,6 +79,8 @@ export class SupabaseBackend implements Backend {
   private typingChannels = new Map<string, any>()
   /** Signed attachment links, keyed by storage path, with their expiry. */
   private signedUrls = new Map<string, { url: string; exp: number }>()
+  /** Profile lookups in flight, so a burst of messages asks only once. */
+  private pendingLookups = new Set<string>()
 
   constructor(private url: string, private key: string) {}
 
@@ -112,16 +116,59 @@ export class SupabaseBackend implements Backend {
         void this.emitMessage('message:update', rowToMessage(p.new))
       })
       .subscribe()
+
+    // Chats are just as live as messages. Someone leaving a group, a new member
+    // joining, a renamed channel or a fresh avatar all rewrite this row — and
+    // without listening for it the only way to notice was reloading the page.
+    this.client
+      .channel('fc-chats')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'chats' }, (p: any) => {
+        const row = p.new && Object.keys(p.new).length > 0 ? p.new : p.old
+        if (!row?.id) return
+        const chat = rowToChat(row)
+        this.subs.forEach((cb) => cb({ type: 'chat:update', chat } as RealtimeEvent))
+      })
+      .subscribe()
   }
 
   /**
    * Fan a message out to subscribers, giving its attachment a usable link
    * first. An arriving row carries whatever URL was stored months ago, which
    * for a private bucket is not something the browser can load.
+   *
+   * The sender is looked up at the same time: someone who registered after this
+   * tab loaded is missing from the directory, and the bubble would otherwise be
+   * signed "Кто-то" until a reload. That lookup is deliberately not awaited —
+   * the message must not wait for a name.
    */
   private async emitMessage(type: 'message' | 'message:update', message: Message) {
+    void this.ensureKnown(message.senderUid)
     const ready = await this.withSignedAttachment(message)
     this.subs.forEach((cb) => cb({ type, message: ready } as RealtimeEvent))
+  }
+
+  /**
+   * Make sure a uid has a name, an avatar and a @nick before the interface has
+   * to draw it. Known people cost nothing, and one uid is never asked for twice
+   * at the same time.
+   */
+  private async ensureKnown(uid: string) {
+    if (!uid || !this.client) return
+    if (uid === this.account?.uid) return
+    if (this.directoryCache.some((d) => d.uid === uid)) return
+    if (this.pendingLookups.has(uid)) return
+    this.pendingLookups.add(uid)
+    try {
+      const { data } = await this.client.from('directory').select('*').eq('uid', uid).maybeSingle()
+      if (!data) return
+      const entry = rowToDirectory(data)
+      this.directoryCache = [entry, ...this.directoryCache.filter((d) => d.uid !== entry.uid)]
+      this.subs.forEach((cb) => cb({ type: 'directory', entry } as RealtimeEvent))
+    } catch {
+      /* a name is not worth an error — the previous one stays */
+    } finally {
+      this.pendingLookups.delete(uid)
+    }
   }
 
   private async refreshDirectory() {
@@ -305,6 +352,12 @@ export class SupabaseBackend implements Backend {
     // chat list. Broadcast is send-only until a client joins the channel, which
     // is exactly why the indicator never used to appear.
     this.watchTyping(chats)
+    // Everyone the user shares a private chat with must have a name ready
+    // before the sidebar draws them.
+    for (const c of chats) {
+      if (c.type !== 'dm' && c.type !== 'bot') continue
+      for (const u of c.memberUids) void this.ensureKnown(u)
+    }
     return chats
   }
 
@@ -410,8 +463,11 @@ export class SupabaseBackend implements Backend {
       .limit(page?.limit ?? PAGE_SIZE)
     if (page?.before) q = q.lt('ts', new Date(page.before).toISOString())
     const { data } = await q
+    const messages = (data ?? []).map(rowToMessage)
+    // A history page can easily contain people who joined after this tab did.
+    for (const uid of new Set(messages.map((m: Message) => m.senderUid))) void this.ensureKnown(uid as string)
     // One signing request covers every attachment on the page.
-    return this.withSignedAttachments((data ?? []).map(rowToMessage).reverse())
+    return this.withSignedAttachments(messages.reverse())
   }
   async send(input: Omit<Message, 'id' | 'ts' | 'reactions' | 'readByUids'>): Promise<Message> {
     const { data } = await this.client
@@ -497,7 +553,9 @@ export class SupabaseBackend implements Backend {
       .select('*')
       .eq('comment_of', postId)
       .order('ts', { ascending: true })
-    return this.withSignedAttachments((data ?? []).map(rowToMessage))
+    const messages = (data ?? []).map(rowToMessage)
+    for (const uid of new Set(messages.map((m: Message) => m.senderUid))) void this.ensureKnown(uid as string)
+    return this.withSignedAttachments(messages)
   }
 
   // ── attachment links ──
@@ -631,6 +689,7 @@ export class SupabaseBackend implements Backend {
       .on('broadcast', { event: 'typing' }, (p: any) => {
         const uid = p?.payload?.uid
         if (!uid || uid === this.account?.uid) return
+        void this.ensureKnown(uid)
         this.subs.forEach((cb) =>
           cb({ type: 'typing', chatId: p?.payload?.chatId ?? chatId, uid, name: p?.payload?.name ?? '' }),
         )
