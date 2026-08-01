@@ -1,15 +1,22 @@
-:root {
+html.is-desktop {
   --titlebar-h: 40px;
 }
 
 /*
   В приложении своя верхняя плашка вместо системной (decorations: false).
-  Место под нее выделяется паддингом body: высота окна (--app-h) пишется
-  инлайном на <html> из viewport.ts, и перебить ее из CSS нельзя.
+  Место под нее выделяется паддингом body, а не оберткой вокруг #root:
+  весь мессенджер считает высоту от 100%, и любая лишняя обертка ломает
+  скролл списка сообщений.
 */
 html.is-desktop body {
   box-sizing: border-box;
   padding-top: var(--titlebar-h);
+  height: 100vh;
+  overflow: hidden;
+}
+
+html.is-desktop #root {
+  height: 100%;
 }
 
 /*
@@ -32,19 +39,20 @@ html.is-desktop .fc-frame {
 .fc-titlebar {
   position: fixed;
   inset: 0 0 auto 0;
-  z-index: 100;
+  z-index: 200;
   display: flex;
   align-items: center;
-  height: var(--titlebar-h);
+  height: var(--titlebar-h, 40px);
   padding-left: 12px;
   user-select: none;
+  -webkit-user-select: none;
   color: var(--text);
   /* Акцентный подсвет слева и стекло поверх темной панели. */
   background:
     radial-gradient(120% 300% at 0% 0%, color-mix(in srgb, var(--accent) 26%, transparent), transparent 60%),
     linear-gradient(180deg, color-mix(in srgb, var(--panel) 92%, transparent), var(--panel));
-  backdrop-filter: blur(14px) saturate(1.2);
-  -webkit-backdrop-filter: blur(14px) saturate(1.2);
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
 }
 
 /* Тонкая светящаяся линия снизу — граница между плашкой и приложением. */
@@ -129,7 +137,17 @@ html.is-desktop .fc-frame {
   color: var(--text);
 }
 
+.fc-titlebar__btn:active {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+/* Закрытие краснеет — привычка из Windows важнее фирменной палитры. */
 .fc-titlebar__btn--close:hover {
   background: #e5484d;
+  color: #fff;
+}
+
+.fc-titlebar__btn--close:active {
+  background: #c93b40;
   color: #fff;
 }
