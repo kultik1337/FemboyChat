@@ -1,59 +1,51 @@
 /*
-  Собственный сценарий установщика (NSIS).
+  Собственный сценарий установщика (NSIS), макет "Aurora".
 
-  Стандартный шаблон Tauri — это MUI2: серая шапка, рамка, четыре
-  страницы и кнопки внизу. Как его ни крась картинками, это остаётся
-  мастер из девяностых. Здесь шаблон свой целиком: один экран, две
-  колонки, свои кнопки, прогресс и автозапуск.
+  ГЛАВНОЕ РЕШЕНИЕ: весь экран — одна картинка.
+  Предыдущие версии собирались из родных контролов Windows, и потолок там
+  низкий: нет ни скруглений, ни градиентов, ни теней, а любая подпись поверх
+  картинки закрашивает свой прямоугольник фоном (режим transparent берёт цвет
+  родительского диалога, а не соседней картинки). Поэтому теперь
+  scripts/installer-art.mjs рисует весь экран сразу — фон, свечения, логотип,
+  поле, кнопки со скруглениями и весь статичный текст, — а здесь сверху
+  лежат только пустые прозрачные подписи-области нажатия. Они ничего не
+  рисуют, поэтому картинка под ними остаётся видна.
 
-  Своя рамка. Системная шапка убирается совсем: именно она тянет весь
-  вид назад в прошлое — толстая рамка, чужой заголовок, три кнопки
-  управления. Вместо неё свой крестик в углу. Расплата честная: окно
-  нельзя таскать мышкой — подпись узнаёт о нажатии только после того,
-  как кнопку отпустили, а значит перетаскивания не получится в принципе.
-  Окно всё равно открывается по центру экрана и живёт меньше минуты.
-  Escape работает: родная кнопка отмены не удалена, а только скрыта.
+  Живых элемента всего два:
+    1. Путь установки — обычная подпись. Её фон ровно C_FIELD, а внутренность
+  поля на картинке залита тем же плоским цветом, поэтому стыка не видно.
+  Подпись нарочно уже самого поля, чтобы не затереть его скруглённую границу.
+    2. Галочка — картинка 20x20, которая меняется между chk-on.bmp и
+  chk-off.bmp. Оба кусочка вырезаны из того же фона, так что края совпадают точно.
 
-  Важно про OutFile. Бандлер Tauri запускает makensis из своей временной
-  папки (target/release/nsis/x64) и сразу после этого переносит оттуда
-  файл с жёстко заданным именем nsis-output.exe в bundle/nsis. Если писать
-  установщик по своему абсолютному пути, переносить будет нечего и сборка
-  падает на ровном месте: `не удается найти указанный файл (os error 2)`.
-  Поэтому имя тут именно такое и без пути — итоговое имя с версией
-  подставит сам бандлер.
+  ПОРЯДОК СОЗДАНИЯ. Созданный раньше контрол лежит ВЫШЕ созданного позже.
+  Поэтому фоновая картинка создаётся САМОЙ ПОСЛЕДНЕЙ, иначе она закроет собой
+  всё остальное. Это уже ломало сборку раньше — не менять порядок.
 
-  Про обратный слэш. В первой версии пути писались прямо в строках, и
-  уровни экранирования разъехались: в готовом .nsi оказалось по два слэша
-  подряд, отчего установщик показывал путь с двойным слэшем, а ветки
-  реестра создавались не там, где нужно. Теперь в тексте сценария вместо
-  слэша стоит знак ^, и он заменяется на настоящий слэш ровно один раз,
-  уже при записи файла. Ставить в этом файле ^ где-то ещё нельзя.
+  КООРДИНАТЫ В ПИКСЕЛЯХ. nsDialogs расставляет контролы в единицах диалога,
+  которые зависят от шрифта и масштаба системы, а картинка задана в пикселях.
+  Чтобы области нажатия не уехали от рисунка, каждый контрол создаётся
+  где угодно, а потом ставится на место через ${FcPlace} в настоящих пикселях.
+  Все числа ниже обязаны совпадать с LAYOUT в scripts/installer-art.mjs.
 
-  Два правила раскладки, оба оплачены кривыми сборками.
+  СВОЯ РАМКА. Системная шапка снимается совсем: именно она тянет вид назад
+  в прошлое. Вместо неё свой крестик. Расплата честная: окно нельзя таскать
+  мышкой — подпись узнаёт о нажатии только после того, как кнопку отпустили.
+  Окно открывается по центру экрана и живёт меньше минуты. Escape работает:
+  родная кнопка отмены не удалена, а только скрыта.
 
-  Первое: созданный раньше контрол лежит ВЫШЕ созданного позже. Поэтому
-  всё, что работает фоном (левая колонка, подложка поля), создаётся ПОСЛЕ
-  своего содержимого, иначе оно его просто закроет.
+  ПРО OutFile. Бандлер Tauri запускает makensis из своей временной папки и сразу
+  после этого переносит оттуда файл с жёстко заданным именем nsis-output.exe.
+  Если писать установщик по своему абсолютному пути, переносить будет нечего
+  и сборка падает: `не удается найти указанный файл (os error 2)`.
 
-  Второе: у подписи нет настоящей прозрачности: режим transparent берёт
-  цвет родительского диалога, а не соседней картинки и не подложки под
-  ней. Поэтому каждой подписи цвет фона задаётся вручную и ровно тот,
-  над чем она лежит. По той же причине тут нет ни градиентов, ни
-  скруглённых кнопок: поверх картинки текст ляжет цветным прямоугольником.
-  Честная плоская геометрия и крупная типографика выглядят лучше, чем
-  попытка изобразить скругления там, где их не бывает.
+  ПРО ОБРАТНЫЙ СЛЭШ. В тексте сценария вместо слэша стоит знак ^, и он
+  заменяется на настоящий слэш ровно один раз, уже при записи файла. Раньше
+  уровни экранирования разъехались и путь показывался с двойным слэшем.
+  Ставить в этом файле ^ где-то ещё нельзя.
 
-  Кнопки — это подписи со стилем SS_CENTER|SS_CENTERIMAGE|SS_NOTIFY, то
-  есть текст стоит по центру и по горизонтали, и по вертикали. Родные
-  кнопки Windows не умеют ни своего цвета, ни своего шрифта без полной
-  отрисовки владельцем, поэтому в таком экране их нет вовсе.
-
-  Почему генератор, а не готовый .nsi в репозитории: часть путей внутри
-  абсолютные, а версия берётся из package.json.
-
-  В тексте сценария море конструкций вида ${If}, поэтому он собран из
-  массива обычных строк, а не шаблонной строки: иначе JS попытается
-  подставить туда свои переменные.
+  Сценарий собран из массива обычных строк, а не шаблонной строки: в нём море
+  конструкций вида ${If}, и JS попытался бы подставить туда свои переменные.
 */
 
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
@@ -68,7 +60,9 @@ const outDir = resolve(root, 'src-tauri', 'installer')
 
 const paths = {
   icon: resolve(root, 'src-tauri', 'icons', 'icon.ico'),
-  logo: resolve(outDir, 'logo.bmp'),
+  bg: resolve(outDir, 'bg.bmp'),
+  chkOn: resolve(outDir, 'chk-on.bmp'),
+  chkOff: resolve(outDir, 'chk-off.bmp'),
   exe: resolve(root, 'src-tauri', 'target', 'release', 'femboychat.exe'),
 }
 
@@ -98,48 +92,41 @@ const NSI = [
   '!define APP_VER "@VERSION@"',
   '!define UNINST_KEY "Software^Microsoft^Windows^CurrentVersion^Uninstall^FemboyChat"',
   '',
-  '; Палитра та же, что у мессенджера. SetCtlColors ждёт RRGGBB без 0x.',
-  '!define C_TEXT FFFFFF',
-  '!define C_MUTED 8E97B3',
-  '!define C_ACCENT 7C9CFF',
-  '!define C_DARK 0F1017',
-  '; C_RAIL обязан совпадать с BG в scripts/installer-art.mjs.',
-  '!define C_RAIL 151827',
-  '!define C_FIELD 1B1F2C',
-  '',
-  '; Размер окна установщика и ширина левой колонки.',
+  '; Размер окна ровно равен размеру картинки bg.bmp.',
   '!define WIN_W 680',
-  '!define WIN_H 470',
+  '!define WIN_H 460',
   '',
-  '; Стиль подписи, работающей как кнопка: текст по центру по обеим осям.',
-  '!define BTN_STYLE 0x00000301',
-  '; Текст по центру по горизонтали и текст по середине по высоте.',
-  '!define TXT_CENTER 0x00000001',
-  '!define TXT_MIDDLE 0x00000200',
+  '; SetCtlColors ждёт RRGGBB без 0x.',
+  '; C_FIELD обязан совпадать с FIELD_FILL в scripts/installer-art.mjs.',
+  '!define C_FIELD 161A26',
+  '!define C_PATH DFE4F2',
+  '!define C_MUTED 8E97B3',
+  '; Цвет страницы установки: нижний тон фона с картинки.',
+  '!define C_DARK 0A0B12',
+  '',
+  '; SS_NOTIFY — без него подпись не сообщает о нажатии.',
+  '!define HOT_STYLE 0x00000100',
+  '; Текст по середине по высоте + обрезать длинный путь многоточием.',
+  '!define PATH_STYLE 0x00004200',
+  '',
+  '; Поставить контрол в настоящих пикселях (0x14 = не менять порядок окон).',
+  '!macro FCPLACE ctl x y w h',
+  '  System::Call "user32::SetWindowPos(i ${ctl}, i 0, i ${x}, i ${y}, i ${w}, i ${h}, i 0x14)"',
+  '!macroend',
+  '!define FcPlace "!insertmacro FCPLACE"',
   '',
   'Var Dialog',
-  'Var LogoCtl',
-  'Var LogoImg',
-  'Var Rail',
-  'Var RailName',
-  'Var RailVer',
-  'Var RailFoot',
-  'Var BtnClose',
-  'Var LblHead',
-  'Var LblSub',
-  'Var LblDirCap',
-  'Var LblDirBox',
+  'Var BgCtl',
+  'Var BgImg',
+  'Var ChkCtl',
+  'Var ChkImg',
   'Var LblDir',
-  'Var LnkDir',
-  'Var ChkDesktop',
-  'Var BtnGo',
-  'Var BtnCancel',
-  'Var FontH1',
-  'Var FontH2',
+  'Var HsClose',
+  'Var HsBrowse',
+  'Var HsCheck',
+  'Var HsGo',
+  'Var HsCancel',
   'Var FontText',
-  'Var FontSmall',
-  'Var FontBtn',
-  'Var FontClose',
   'Var MakeDesktop',
   '',
   'Page custom fcWelcome',
@@ -187,7 +174,9 @@ const NSI = [
   '',
   'Function .onInit',
   '  InitPluginsDir',
-  '  File "/oname=$PLUGINSDIR^logo.bmp" "@LOGO@"',
+  '  File "/oname=$PLUGINSDIR^bg.bmp" "@BG@"',
+  '  File "/oname=$PLUGINSDIR^chk-on.bmp" "@CHKON@"',
+  '  File "/oname=$PLUGINSDIR^chk-off.bmp" "@CHKOFF@"',
   '  StrCpy $MakeDesktop 1',
   '',
   '  ; Без WebView2 окно приложения будет пустым, лучше сказать сразу.',
@@ -221,7 +210,7 @@ const NSI = [
   '',
   '  ; Скруглённые углы и тонкая рамка (Windows 11; на 10 просто ничего).',
   '  System::Call "dwmapi::DwmSetWindowAttribute(p $HWNDPARENT, i 33, *i 2, i 4)"',
-  '  System::Call "dwmapi::DwmSetWindowAttribute(p $HWNDPARENT, i 34, *i 0x002C2721, i 4)"',
+  '  System::Call "dwmapi::DwmSetWindowAttribute(p $HWNDPARENT, i 34, *i 0x00231A12, i 4)"',
   '  System::Call "dwmapi::DwmSetWindowAttribute(p $HWNDPARENT, i 20, *i 1, i 4)"',
   'FunctionEnd',
   '',
@@ -235,106 +224,71 @@ const NSI = [
   '  Call fcHideChrome',
   '  StrCpy $1 $Dialog',
   '  Call fcFillClient',
-  '  SetCtlColors $Dialog ${C_TEXT} ${C_DARK}',
+  '  SetCtlColors $Dialog ${C_PATH} ${C_DARK}',
   '',
-  '  CreateFont $FontH1 "Segoe UI Semibold" 19 600',
-  '  CreateFont $FontH2 "Segoe UI Semibold" 16 600',
   '  CreateFont $FontText "Segoe UI" 10 400',
-  '  CreateFont $FontSmall "Segoe UI" 9 400',
-  '  CreateFont $FontBtn "Segoe UI Semibold" 11 600',
-  '  CreateFont $FontClose "Segoe UI" 12 400',
   '',
-  '  ; ── левая колонка: сначала содержимое, фон — в самом конце ──',
-  '  ${NSD_CreateBitmap} 69 78 112 112 ""',
-  '  Pop $LogoCtl',
-  '  ${NSD_SetImage} $LogoCtl "$PLUGINSDIR^logo.bmp" $LogoImg',
+  '  ; ── сначала всё, что лежит ПОВЕРХ картинки ──',
   '',
-  '  ${NSD_CreateLabel} 0 212 250 26 "FemboyChat"',
-  '  Pop $RailName',
-  '  SetCtlColors $RailName ${C_TEXT} ${C_RAIL}',
-  '  SendMessage $RailName ${WM_SETFONT} $FontH2 1',
-  '  ${NSD_AddStyle} $RailName ${TXT_CENTER}',
-  '',
-  '  ${NSD_CreateLabel} 0 240 250 18 "версия ${APP_VER}"',
-  '  Pop $RailVer',
-  '  SetCtlColors $RailVer ${C_MUTED} ${C_RAIL}',
-  '  SendMessage $RailVer ${WM_SETFONT} $FontSmall 1',
-  '  ${NSD_AddStyle} $RailVer ${TXT_CENTER}',
-  '',
-  '  ${NSD_CreateLabel} 0 424 250 18 "уютно · быстро · своё"',
-  '  Pop $RailFoot',
-  '  SetCtlColors $RailFoot ${C_MUTED} ${C_RAIL}',
-  '  SendMessage $RailFoot ${WM_SETFONT} $FontSmall 1',
-  '  ${NSD_AddStyle} $RailFoot ${TXT_CENTER}',
-  '',
-  '  ; ── правая часть ──',
-  '  ${NSD_CreateLabel} 640 14 26 26 "✕"',
-  '  Pop $BtnClose',
-  '  SetCtlColors $BtnClose ${C_MUTED} ${C_DARK}',
-  '  SendMessage $BtnClose ${WM_SETFONT} $FontClose 1',
-  '  ${NSD_AddStyle} $BtnClose ${BTN_STYLE}',
-  '  ${NSD_OnClick} $BtnClose fcOnCancel',
-  '',
-  '  ${NSD_CreateLabel} 292 76 340 30 "Установка"',
-  '  Pop $LblHead',
-  '  SetCtlColors $LblHead ${C_TEXT} ${C_DARK}',
-  '  SendMessage $LblHead ${WM_SETFONT} $FontH1 1',
-  '',
-  '  ${NSD_CreateLabel} 292 114 348 36 "Займёт пару секунд и не потребует прав администратора. Мессенджер откроется сразу после."',
-  '  Pop $LblSub',
-  '  SetCtlColors $LblSub ${C_MUTED} ${C_DARK}',
-  '  SendMessage $LblSub ${WM_SETFONT} $FontSmall 1',
-  '',
-  '  ${NSD_CreateLabel} 292 180 300 16 "КУДА УСТАНОВИТЬ"',
-  '  Pop $LblDirCap',
-  '  SetCtlColors $LblDirCap ${C_MUTED} ${C_DARK}',
-  '  SendMessage $LblDirCap ${WM_SETFONT} $FontSmall 1',
-  '',
-  '  ; Сначала содержимое поля, подложка — сразу после него.',
-  '  ${NSD_CreateLabel} 306 200 232 42 "$INSTDIR"',
+  '  ; Путь установки. Стоит внутри поля с отступом, чтобы не затереть рамку.',
+  '  ${NSD_CreateLabel} 0 0 10 10 "$INSTDIR"',
   '  Pop $LblDir',
-  '  SetCtlColors $LblDir ${C_TEXT} ${C_FIELD}',
+  '  SetCtlColors $LblDir ${C_PATH} ${C_FIELD}',
   '  SendMessage $LblDir ${WM_SETFONT} $FontText 1',
-  '  ${NSD_AddStyle} $LblDir ${TXT_MIDDLE}',
+  '  ${NSD_AddStyle} $LblDir ${PATH_STYLE}',
+  '  ${FcPlace} $LblDir 310 260 220 42',
   '',
-  '  ${NSD_CreateLabel} 546 200 92 42 "Изменить"',
-  '  Pop $LnkDir',
-  '  SetCtlColors $LnkDir ${C_ACCENT} ${C_FIELD}',
-  '  SendMessage $LnkDir ${WM_SETFONT} $FontText 1',
-  '  ${NSD_AddStyle} $LnkDir ${BTN_STYLE}',
-  '  ${NSD_OnClick} $LnkDir fcOnBrowse',
+  '  ; Области нажатия: пустые и прозрачные, всё видное — на картинке.',
+  '  ${NSD_CreateLabel} 0 0 10 10 ""',
+  '  Pop $HsClose',
+  '  SetCtlColors $HsClose 000000 transparent',
+  '  ${NSD_AddStyle} $HsClose ${HOT_STYLE}',
+  '  ${NSD_OnClick} $HsClose fcOnCancel',
+  '  ${FcPlace} $HsClose 632 16 32 32',
   '',
-  '  ${NSD_CreateLabel} 292 200 346 42 ""',
-  '  Pop $LblDirBox',
-  '  SetCtlColors $LblDirBox ${C_FIELD} ${C_FIELD}',
+  '  ${NSD_CreateLabel} 0 0 10 10 ""',
+  '  Pop $HsBrowse',
+  '  SetCtlColors $HsBrowse 000000 transparent',
+  '  ${NSD_AddStyle} $HsBrowse ${HOT_STYLE}',
+  '  ${NSD_OnClick} $HsBrowse fcOnBrowse',
+  '  ${FcPlace} $HsBrowse 540 264 92 34',
   '',
-  '  ${NSD_CreateCheckbox} 292 262 330 22 "Создать ярлык на рабочем столе"',
-  '  Pop $ChkDesktop',
-  '  SetCtlColors $ChkDesktop ${C_MUTED} ${C_DARK}',
-  '  SendMessage $ChkDesktop ${WM_SETFONT} $FontText 1',
-  '  ${NSD_Check} $ChkDesktop',
+  '  ${NSD_CreateLabel} 0 0 10 10 ""',
+  '  Pop $HsCheck',
+  '  SetCtlColors $HsCheck 000000 transparent',
+  '  ${NSD_AddStyle} $HsCheck ${HOT_STYLE}',
+  '  ${NSD_OnClick} $HsCheck fcOnCheck',
+  '  ${FcPlace} $HsCheck 296 334 250 24',
   '',
-  '  ${NSD_CreateLabel} 292 384 222 50 "Установить"',
-  '  Pop $BtnGo',
-  '  SetCtlColors $BtnGo ${C_DARK} ${C_ACCENT}',
-  '  SendMessage $BtnGo ${WM_SETFONT} $FontBtn 1',
-  '  ${NSD_AddStyle} $BtnGo ${BTN_STYLE}',
-  '  ${NSD_OnClick} $BtnGo fcOnInstall',
+  '  ${NSD_CreateLabel} 0 0 10 10 ""',
+  '  Pop $HsGo',
+  '  SetCtlColors $HsGo 000000 transparent',
+  '  ${NSD_AddStyle} $HsGo ${HOT_STYLE}',
+  '  ${NSD_OnClick} $HsGo fcOnInstall',
+  '  ${FcPlace} $HsGo 296 388 212 52',
   '',
-  '  ${NSD_CreateLabel} 526 384 112 50 "Отмена"',
-  '  Pop $BtnCancel',
-  '  SetCtlColors $BtnCancel ${C_MUTED} ${C_FIELD}',
-  '  SendMessage $BtnCancel ${WM_SETFONT} $FontText 1',
-  '  ${NSD_AddStyle} $BtnCancel ${BTN_STYLE}',
-  '  ${NSD_OnClick} $BtnCancel fcOnCancel',
+  '  ${NSD_CreateLabel} 0 0 10 10 ""',
+  '  Pop $HsCancel',
+  '  SetCtlColors $HsCancel 000000 transparent',
+  '  ${NSD_AddStyle} $HsCancel ${HOT_STYLE}',
+  '  ${NSD_OnClick} $HsCancel fcOnCancel',
+  '  ${FcPlace} $HsCancel 520 388 120 52',
   '',
-  '  ; Фон левой колонки — самым последним, чтобы оказаться под всем.',
-  '  ${NSD_CreateLabel} 0 0 250 ${WIN_H} ""',
-  '  Pop $Rail',
-  '  SetCtlColors $Rail ${C_RAIL} ${C_RAIL}',
+  '  ; Галочка — картинка под областью нажатия, но над фоном.',
+  '  ${NSD_CreateBitmap} 0 0 10 10 ""',
+  '  Pop $ChkCtl',
+  '  ${FcPlace} $ChkCtl 296 336 20 20',
+  '  ${NSD_SetImage} $ChkCtl "$PLUGINSDIR^chk-on.bmp" $ChkImg',
+  '',
+  '  ; ── фон — САМЫМ ПОСЛЕДНИМ, иначе закроет всё остальное ──',
+  '  ${NSD_CreateBitmap} 0 0 10 10 ""',
+  '  Pop $BgCtl',
+  '  ${FcPlace} $BgCtl 0 0 ${WIN_W} ${WIN_H}',
+  '  ${NSD_SetImage} $BgCtl "$PLUGINSDIR^bg.bmp" $BgImg',
   '',
   '  nsDialogs::Show',
-  '  ${NSD_FreeImage} $LogoImg',
+  '  ${NSD_FreeImage} $BgImg',
+  '  ${NSD_FreeImage} $ChkImg',
   'FunctionEnd',
   '',
   'Function fcOnBrowse',
@@ -347,9 +301,21 @@ const NSI = [
   '  ${EndIf}',
   'FunctionEnd',
   '',
+  '; Галочка переключается подменой картинки.',
+  'Function fcOnCheck',
+  '  Pop $0',
+  '  ${NSD_FreeImage} $ChkImg',
+  '  ${If} $MakeDesktop == 1',
+  '    StrCpy $MakeDesktop 0',
+  '    ${NSD_SetImage} $ChkCtl "$PLUGINSDIR^chk-off.bmp" $ChkImg',
+  '  ${Else}',
+  '    StrCpy $MakeDesktop 1',
+  '    ${NSD_SetImage} $ChkCtl "$PLUGINSDIR^chk-on.bmp" $ChkImg',
+  '  ${EndIf}',
+  'FunctionEnd',
+  '',
   'Function fcOnInstall',
   '  Pop $0',
-  '  ${NSD_GetState} $ChkDesktop $MakeDesktop',
   '  SendMessage $HWNDPARENT ${WM_COMMAND} 1 0',
   'FunctionEnd',
   '',
@@ -358,22 +324,22 @@ const NSI = [
   '  SendMessage $HWNDPARENT ${WM_CLOSE} 0 0',
   'FunctionEnd',
   '',
-  '; Страница установки: тот же тёмный фон, без списка файлов.',
+  '; Страница установки живёт меньше секунды: тот же тёмный фон, без списка файлов.',
   'Function fcInstShow',
   '  Call fcHideChrome',
   '  FindWindow $1 "#32770" "" $HWNDPARENT',
   '  Call fcFillClient',
-  '  SetCtlColors $1 ${C_TEXT} ${C_DARK}',
+  '  SetCtlColors $1 ${C_MUTED} ${C_DARK}',
   '',
   '  GetDlgItem $0 $1 1016',
   '  ShowWindow $0 ${SW_HIDE}',
   '',
   '  GetDlgItem $0 $1 1006',
   '  SetCtlColors $0 ${C_MUTED} ${C_DARK}',
-  '  System::Call "user32::SetWindowPos(i r0, i 0, i 240, i 216, i 300, i 20, i 0x14)"',
+  '  ${FcPlace} $0 190 296 300 20',
   '',
   '  GetDlgItem $0 $1 1004',
-  '  System::Call "user32::SetWindowPos(i r0, i 0, i 240, i 246, i 300, i 8, i 0x14)"',
+  '  ${FcPlace} $0 190 326 300 8',
   'FunctionEnd',
   '',
   'Section "FemboyChat"',
@@ -437,7 +403,9 @@ const nsi = NSI.split('^')
   .join(BACKSLASH)
   .replace('@ICON@', paths.icon)
   .replace('@ICON@', paths.icon)
-  .replace('@LOGO@', paths.logo)
+  .replace('@BG@', paths.bg)
+  .replace('@CHKON@', paths.chkOn)
+  .replace('@CHKOFF@', paths.chkOff)
   .replace('@EXE@', paths.exe)
   .replaceAll('@VERSION@', version)
 
