@@ -1,16 +1,19 @@
 /*
-  Картинки для установщика Windows.
+  Фон для своего установщика (см. scripts/installer-nsi.mjs).
 
-  NSIS умеет показывать только BMP без сжатия и строго заданного размера:
-  164x314 сбоку на первой и последней странице и 150x57 в шапке остальных.
-  Если картинки не подсунуть, показывается синяя заготовка из девяностых.
+  Раньше здесь рисовались две картинки для шаблона MUI — боковая и шапка.
+  Шаблона больше нет, окно рисуем целиком сами, поэтому нужен один большой
+  фон на всю клиентскую область. NSIS не умеет тянуть картинку под размер
+  контрола, поэтому рисуем с запасом и компонуем всё важное в левом верхнем
+  углу: правый край и низ спокойно обрезаются.
 
-  Держать готовые BMP в репозитории не хочется: это двоичные файлы, которые
-  невозможно прочитать в диффе и которые разъедутся с палитрой при первой
-  же смене акцента. Поэтому они рисуются здесь из SVG и логотипа перед сборкой.
+  Логотип впечатан в сам фон: BMP не умеет прозрачности, и отдельной
+  картинкой он бы выглядел тёмным прямоугольником поверх градиента.
+  Координаты логотипа здесь и координаты текста в .nsi живут в одной сетке:
+  логотип 72x72 в точке (36, 30), заголовок начинается с x = 126.
 
-  Кодировщик BMP свой ручной: sharp умеет что угодно, кроме BMP, а формат
-  настолько простой, что тащить ради него ещё одну библиотеку глупо.
+  Кодировщик BMP свой: sharp умеет всё, кроме BMP, а формат настолько
+  простой, что тащить ради него ещё одну библиотеку глупо.
 */
 
 import { mkdirSync, writeFileSync, existsSync } from 'node:fs'
@@ -21,10 +24,13 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const logoPath = resolve(root, 'icon.png')
 const outDir = resolve(root, 'src-tauri', 'installer')
 
-// Те же цвета, что у мессенджера в тёмной теме.
 const BG = '#0f1017'
 const ACCENT = '#7c9cff'
 const ACCENT_2 = '#9d8bff'
+
+// Окно установщика около 500x330, берём с запасом на крупный масштаб.
+const W = 900
+const H = 620
 
 let sharp
 try {
@@ -71,88 +77,54 @@ function encodeBmp24(rgb, width, height) {
   return buf
 }
 
-/** Логотип, вписанный в квадрат с прозрачными полями. */
-async function logo(size) {
-  return sharp(logoPath)
-    .resize(size, size, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
-    .png()
-    .toBuffer()
-}
-
-async function render(svg, width, height, overlays) {
-  const { data } = await sharp(Buffer.from(svg))
-    .composite(overlays)
-    .flatten({ background: BG })
-    .removeAlpha()
-    .raw()
-    .toBuffer({ resolveWithObject: true })
-  return encodeBmp24(data, width, height)
-}
-
-// Боковая картинка приветствия: тёмный фон, акцентное свечение и пара
-// силуэтов сообщений — сразу понятно, что ставишь мессенджер.
-const SIDEBAR_W = 164
-const SIDEBAR_H = 314
-const sidebarSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="${SIDEBAR_W}" height="${SIDEBAR_H}">
+const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}">
   <defs>
     <linearGradient id="base" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#15162099"/>
+      <stop offset="0" stop-color="#181a26"/>
+      <stop offset="0.55" stop-color="#111320"/>
       <stop offset="1" stop-color="${BG}"/>
     </linearGradient>
-    <radialGradient id="glow" cx="0.12" cy="0.05" r="0.9">
-      <stop offset="0" stop-color="${ACCENT}" stop-opacity="0.55"/>
+    <radialGradient id="glow" cx="0.06" cy="0.02" r="0.62">
+      <stop offset="0" stop-color="${ACCENT}" stop-opacity="0.42"/>
       <stop offset="1" stop-color="${ACCENT}" stop-opacity="0"/>
     </radialGradient>
-    <radialGradient id="glow2" cx="0.95" cy="1" r="0.85">
-      <stop offset="0" stop-color="${ACCENT_2}" stop-opacity="0.45"/>
+    <radialGradient id="glow2" cx="0.72" cy="0.72" r="0.55">
+      <stop offset="0" stop-color="${ACCENT_2}" stop-opacity="0.30"/>
       <stop offset="1" stop-color="${ACCENT_2}" stop-opacity="0"/>
     </radialGradient>
-    <linearGradient id="bubble" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="${ACCENT}"/>
-      <stop offset="1" stop-color="${ACCENT_2}"/>
+    <linearGradient id="hair" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="${ACCENT}" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="${ACCENT_2}" stop-opacity="0"/>
     </linearGradient>
   </defs>
+
   <rect width="100%" height="100%" fill="${BG}"/>
   <rect width="100%" height="100%" fill="url(#base)"/>
   <rect width="100%" height="100%" fill="url(#glow)"/>
   <rect width="100%" height="100%" fill="url(#glow2)"/>
-  <rect x="22" y="186" width="104" height="26" rx="13" fill="url(#bubble)" opacity="0.92"/>
-  <rect x="46" y="220" width="96" height="24" rx="12" fill="#ffffff" opacity="0.10"/>
-  <rect x="22" y="252" width="74" height="22" rx="11" fill="#ffffff" opacity="0.07"/>
-  <rect x="0" y="${SIDEBAR_H - 3}" width="100%" height="3" fill="url(#bubble)"/>
+
+  <!-- тонкая акцентная линия под шапкой -->
+  <rect x="36" y="126" width="420" height="1" fill="url(#hair)"/>
+
+  <!-- силуэты сообщений в свободном углу справа -->
+  <rect x="372" y="218" width="96" height="16" rx="8" fill="#ffffff" opacity="0.06"/>
+  <rect x="398" y="242" width="70" height="16" rx="8" fill="${ACCENT}" opacity="0.20"/>
+  <rect x="372" y="266" width="54" height="16" rx="8" fill="#ffffff" opacity="0.05"/>
 </svg>`
 
-// Шапка остальных страниц. Места мало, поэтому только значок и полоса.
-const HEADER_W = 150
-const HEADER_H = 57
-const headerSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="${HEADER_W}" height="${HEADER_H}">
-  <defs>
-    <linearGradient id="line" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0" stop-color="${ACCENT}"/>
-      <stop offset="1" stop-color="${ACCENT_2}"/>
-    </linearGradient>
-    <radialGradient id="hglow" cx="0.2" cy="0.1" r="0.9">
-      <stop offset="0" stop-color="${ACCENT}" stop-opacity="0.4"/>
-      <stop offset="1" stop-color="${ACCENT}" stop-opacity="0"/>
-    </radialGradient>
-  </defs>
-  <rect width="100%" height="100%" fill="${BG}"/>
-  <rect width="100%" height="100%" fill="url(#hglow)"/>
-  <rect x="58" y="20" width="74" height="7" rx="3.5" fill="#ffffff" opacity="0.16"/>
-  <rect x="58" y="32" width="48" height="7" rx="3.5" fill="#ffffff" opacity="0.09"/>
-  <rect x="0" y="${HEADER_H - 2}" width="100%" height="2" fill="url(#line)"/>
-</svg>`
+const logo = await sharp(logoPath)
+  .resize(72, 72, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
+  .png()
+  .toBuffer()
+
+const { data } = await sharp(Buffer.from(svg))
+  .composite([{ input: logo, top: 30, left: 36 }])
+  .flatten({ background: BG })
+  .removeAlpha()
+  .raw()
+  .toBuffer({ resolveWithObject: true })
 
 mkdirSync(outDir, { recursive: true })
+writeFileSync(resolve(outDir, 'bg.bmp'), encodeBmp24(data, W, H))
 
-const sidebar = await render(sidebarSvg, SIDEBAR_W, SIDEBAR_H, [
-  { input: await logo(96), top: 52, left: Math.round((SIDEBAR_W - 96) / 2) },
-])
-writeFileSync(resolve(outDir, 'sidebar.bmp'), sidebar)
-
-const header = await render(headerSvg, HEADER_W, HEADER_H, [
-  { input: await logo(38), top: 10, left: 12 },
-])
-writeFileSync(resolve(outDir, 'header.bmp'), header)
-
-console.log(`\u2713 графика установщика: sidebar.bmp ${SIDEBAR_W}x${SIDEBAR_H}, header.bmp ${HEADER_W}x${HEADER_H}`)
+console.log(`\u2713 фон установщика: bg.bmp ${W}x${H}`)

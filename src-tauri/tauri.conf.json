@@ -32,8 +32,8 @@
     "targets": ["nsis"],
     "publisher": "kultik1337",
     "copyright": "FemboyChat",
-    "shortDescription": "Тёплый мессенджер",
-    "longDescription": "FemboyChat — тёплый мессенджер с каналами, ботами и ИИ-помощником.",
+    "shortDescription": "Теплый мессенджер",
+    "longDescription": "FemboyChat — теплый мессенджер с каналами, ботами и ИИ-помощником.",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -43,11 +43,8 @@
     "windows": {
       "nsis": {
         "installMode": "currentUser",
-        "languages": ["Russian", "English"],
-        "displayLanguageSelector": true,
+        "template": "installer/installer.nsi",
         "installerIcon": "icons/icon.ico",
-        "headerImage": "installer/header.bmp",
-        "sidebarImage": "installer/sidebar.bmp",
         "startMenuFolder": "FemboyChat",
         "compression": "lzma"
       }

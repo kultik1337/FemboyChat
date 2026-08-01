@@ -12,10 +12,11 @@ import logoUrl from '../../../icon.png'
 import './titlebar.css'
 
 /*
-  Собственная верхняя плашка для десктопной сборки. Системная рамка
-  выключена (decorations: false), поэтому всё поведение окна живёт здесь:
-  перетаскивание даёт data-tauri-drag-region, двойной клик — разворот.
+  Верхняя плашка десктопной сборки. Системная рамка выключена
+  (decorations: false), поэтому поведение окна живёт здесь: перетаскивание
+  даёт data-tauri-drag-region, двойной клик — разворот.
 
+  Нарочно скучная: значок, название, точка непрочитанного и кнопки окна.
   В браузере компонент не рисует ничего.
 */
 export default function TitleBar() {
@@ -25,15 +26,9 @@ export default function TitleBar() {
   const total = Object.values(unread).reduce((a, b) => a + b, 0)
 
   /*
-    Отслеживание размера окна ради одной иконки: «развернуть» должна
-    меняться на «вернуть как было», даже когда окно развернули мимо нас —
-    двойным кликом или Win+↑.
-
-    ВАЖНО: onWindowResized — асинхронная и возвращает Promise. Если
-    отдать её из useEffect напрямую, React получит вместо функции очистки
-    Promise и упадёт при первом же размонтировании — а StrictMode делает
-    его сразу после монтирования. Именно это давало белый экран в приложении:
-    плашка рендерится первой, и вместе с ней падало всё дерево.
+    onWindowResized — асинхронная и возвращает Promise. Отдавать её из
+    useEffect напрямую нельзя: React ждёт функцию очистки и падает при
+    размонтировании, а StrictMode делает его сразу после монтирования.
   */
   useEffect(() => {
     if (!desktop) return
@@ -66,15 +61,12 @@ export default function TitleBar() {
       <span className="fc-titlebar__name" data-tauri-drag-region>
         FemboyChat
       </span>
-      <span className="fc-titlebar__sub" data-tauri-drag-region>
-        для Windows
-      </span>
-      {total > 0 && <span className="fc-titlebar__badge">{total > 99 ? '99+' : total}</span>}
+      {total > 0 && <span className="fc-titlebar__dot" title={`Непрочитанных: ${total}`} />}
       <div className="fc-titlebar__spacer" data-tauri-drag-region />
       <div className="fc-titlebar__controls">
         <button className="fc-titlebar__btn" title="Свернуть" aria-label="Свернуть" onClick={() => void minimizeWindow()}>
-          <svg width="11" height="11" viewBox="0 0 11 11" aria-hidden="true">
-            <rect x="1" y="5" width="9" height="1.1" rx="0.55" fill="currentColor" />
+          <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
+            <rect x="0" y="4.5" width="10" height="1" fill="currentColor" />
           </svg>
         </button>
         <button
@@ -84,13 +76,13 @@ export default function TitleBar() {
           onClick={() => void toggleMaximizeWindow()}
         >
           {maximized ? (
-            <svg width="11" height="11" viewBox="0 0 11 11" aria-hidden="true">
-              <rect x="1.2" y="3.2" width="6.6" height="6.6" rx="1.4" fill="none" stroke="currentColor" strokeWidth="1.1" />
-              <path d="M3.6 3V2.4A1.4 1.4 0 0 1 5 1h3.6A1.4 1.4 0 0 1 10 2.4V6a1.4 1.4 0 0 1-1.4 1.4H8" fill="none" stroke="currentColor" strokeWidth="1.1" />
+            <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
+              <rect x="0.5" y="2.5" width="7" height="7" fill="none" stroke="currentColor" />
+              <path d="M2.5 2.5V0.5h7v7h-2" fill="none" stroke="currentColor" />
             </svg>
           ) : (
-            <svg width="11" height="11" viewBox="0 0 11 11" aria-hidden="true">
-              <rect x="1.2" y="1.2" width="8.6" height="8.6" rx="1.6" fill="none" stroke="currentColor" strokeWidth="1.1" />
+            <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
+              <rect x="0.5" y="0.5" width="9" height="9" fill="none" stroke="currentColor" />
             </svg>
           )}
         </button>
@@ -100,8 +92,8 @@ export default function TitleBar() {
           aria-label="Закрыть"
           onClick={() => void closeWindow()}
         >
-          <svg width="11" height="11" viewBox="0 0 11 11" aria-hidden="true">
-            <path d="M1.6 1.6l7.8 7.8M9.4 1.6l-7.8 7.8" stroke="currentColor" strokeWidth="1.15" strokeLinecap="round" />
+          <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
+            <path d="M0.5 0.5l9 9M9.5 0.5l-9 9" stroke="currentColor" />
           </svg>
         </button>
       </div>

@@ -1,15 +1,23 @@
-html.is-desktop {
-  --titlebar-h: 40px;
+/*
+  Верхняя плашка десктопного окна.
+
+  Стиль — минимум: тонкая полоса в цвет интерфейса, маленький значок,
+  негромкое название и кнопки окна как в Windows 11. Никаких градиентов,
+  свечения и подписей: плашка должна исчезать из виду, а не украшать собой.
+
+  Место под неё освобождается padding у body: viewport.ts пишет высоту
+  прямо в style у <html>, и перебить её из CSS нельзя.
+*/
+
+:root {
+  --titlebar-h: 0px;
 }
 
-/*
-  В приложении своя верхняя плашка вместо системной (decorations: false).
-  Место под нее выделяется паддингом body, а не оберткой вокруг #root:
-  весь мессенджер считает высоту от 100%, и любая лишняя обертка ломает
-  скролл списка сообщений.
-*/
+html.is-desktop {
+  --titlebar-h: 36px;
+}
+
 html.is-desktop body {
-  box-sizing: border-box;
   padding-top: var(--titlebar-h);
   height: 100vh;
   overflow: hidden;
@@ -19,117 +27,81 @@ html.is-desktop #root {
   height: 100%;
 }
 
-/*
-  В окне приложения мессенджер занимает все до краев: рамка и тень нужны
-  карточке, которая плавает на градиенте сайта, а у окна свои границы.
-  Ограничение по ширине тоже снимается — на широком мониторе полосы по бокам
-  выглядят как недогрузившийся сайт, а не как программа.
-*/
+/* В приложении интерфейс занимает всё окно: без полей и закруглений. */
 html.is-desktop .fc-frame-pad {
   padding: 0 !important;
 }
 
 html.is-desktop .fc-frame {
-  max-width: none !important;
-  border: 0 !important;
-  border-radius: 0 !important;
+  max-width: none;
+  border: 0;
+  border-radius: 0;
   box-shadow: none !important;
 }
 
 .fc-titlebar {
   position: fixed;
-  inset: 0 0 auto 0;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--titlebar-h);
   z-index: 200;
   display: flex;
   align-items: center;
-  height: var(--titlebar-h, 40px);
+  gap: 8px;
   padding-left: 12px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
   user-select: none;
   -webkit-user-select: none;
-  color: var(--text);
-  /* Акцентный подсвет слева и стекло поверх темной панели. */
-  background:
-    radial-gradient(120% 300% at 0% 0%, color-mix(in srgb, var(--accent) 26%, transparent), transparent 60%),
-    linear-gradient(180deg, color-mix(in srgb, var(--panel) 92%, transparent), var(--panel));
-  backdrop-filter: blur(14px) saturate(140%);
-  -webkit-backdrop-filter: blur(14px) saturate(140%);
-}
-
-/* Тонкая светящаяся линия снизу — граница между плашкой и приложением. */
-.fc-titlebar::after {
-  content: '';
-  position: absolute;
-  inset: auto 0 0 0;
-  height: 1px;
-  background: linear-gradient(
-    90deg,
-    color-mix(in srgb, var(--accent) 70%, transparent),
-    color-mix(in srgb, var(--accent-2) 40%, transparent) 40%,
-    var(--border) 100%
-  );
-  opacity: 0.65;
 }
 
 .fc-titlebar__logo {
-  width: 22px;
-  height: 22px;
-  border-radius: 7px;
-  object-fit: cover;
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent), 0 2px 8px rgb(0 0 0 / 0.35);
+  width: 16px;
+  height: 16px;
+  border-radius: 5px;
+  opacity: 0.9;
+  pointer-events: none;
 }
 
 .fc-titlebar__name {
-  margin-left: 9px;
-  font-size: 12.5px;
-  font-weight: 700;
-  letter-spacing: 0.2px;
-  background: linear-gradient(92deg, var(--accent), var(--accent-2));
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: var(--text);
+  opacity: 0.72;
+  pointer-events: none;
 }
 
-.fc-titlebar__sub {
-  margin-left: 8px;
-  font-size: 11px;
-  color: var(--muted);
-}
-
-/* Счетчик непрочитанного прямо в плашке: окно часто свернуто в угол. */
-.fc-titlebar__badge {
-  margin-left: 10px;
-  min-width: 20px;
-  height: 18px;
-  padding: 0 6px;
-  display: grid;
-  place-items: center;
+/* Непрочитанное — одна аккуратная точка, без яркого счётчика. */
+.fc-titlebar__dot {
+  width: 6px;
+  height: 6px;
   border-radius: 999px;
-  font-size: 11px;
-  font-weight: 700;
-  color: #fff;
-  background: linear-gradient(135deg, var(--accent), var(--accent-2));
-  box-shadow: 0 2px 10px color-mix(in srgb, var(--accent) 45%, transparent);
+  background: var(--accent);
+  pointer-events: none;
 }
 
 .fc-titlebar__spacer {
   flex: 1;
-  align-self: stretch;
+  height: 100%;
 }
 
 .fc-titlebar__controls {
   display: flex;
-  align-self: stretch;
+  height: 100%;
 }
 
 .fc-titlebar__btn {
-  width: 46px;
+  width: 44px;
+  height: 100%;
   display: grid;
   place-items: center;
   border: 0;
   background: transparent;
   color: var(--muted);
   cursor: default;
-  transition: background 0.14s ease, color 0.14s ease;
+  transition: background 0.12s ease, color 0.12s ease;
 }
 
 .fc-titlebar__btn:hover {
@@ -138,10 +110,9 @@ html.is-desktop .fc-frame {
 }
 
 .fc-titlebar__btn:active {
-  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  opacity: 0.7;
 }
 
-/* Закрытие краснеет — привычка из Windows важнее фирменной палитры. */
 .fc-titlebar__btn--close:hover {
   background: #e5484d;
   color: #fff;
@@ -149,5 +120,4 @@ html.is-desktop .fc-frame {
 
 .fc-titlebar__btn--close:active {
   background: #c93b40;
-  color: #fff;
 }
