@@ -1,0 +1,59 @@
+# Сборка установщика FemboyChat для Windows.
+#
+# Запускается вручную (вкладка Actions -> Build Windows EXE -> Run workflow)
+# или автоматически при пуше тега вида v1.0.2.
+# При запуске по тегу готовый .exe прикрепляется к Release.
+name: Build Windows EXE
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      # Кеш Rust сокращает повторную сборку с десятков минут до пары.
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Установить зависимости
+        run: npm install
+
+      # Иконки, графика установщика и installer.nsi не хранятся в репозитории:
+      # они генерируются из icon.png скриптами в scripts/.
+      - name: Сгенерировать иконки и графику установщика
+        run: npm run desktop:icons
+
+      - name: Собрать приложение и установщик
+        run: npm run desktop:build
+
+      - name: Выложить артефакты
+        uses: actions/upload-artifact@v4
+        with:
+          name: FemboyChat-windows
+          path: |
+            src-tauri/target/release/bundle/nsis/*.exe
+            src-tauri/target/release/femboychat.exe
+          if-no-files-found: error
+
+      - name: Прикрепить установщик к Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: src-tauri/target/release/bundle/nsis/*.exe
+          generate_release_notes: true
