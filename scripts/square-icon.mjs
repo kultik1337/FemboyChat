@@ -4,9 +4,9 @@
 // Картинка не растягивается и не обрезается — она вписывается целиком в
 // прозрачный квадрат, иначе Астольфо будет без головы на панели задач.
 //
-// sharp не в зависимостях нарочно: он нужен один раз и только тому, кто
-// собирает десктоп, а весит десятки мегабайт на каждой сборке сайта.
-// Поэтому запуск идёт через npx -p sharp — скачается во временную папку.
+// sharp лежит в optionalDependencies: он нужен только тому, кто собирает
+// десктоп. Если его нативный бинарник не встанет на сервере сборки сайта,
+// деплой всừo равно пройдừt: в сборке сайта этот скрипт не участвует.
 
 import { existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -26,8 +26,10 @@ let sharp
 try {
   sharp = (await import('sharp')).default
 } catch {
-  console.error('\u2716 нужен sharp. Запусти так:')
-  console.error('   npx -y -p sharp node scripts/square-icon.mjs')
+  console.error('\u2716 не установлен sharp. Выполни в папке проекта:')
+  console.error('   npm install')
+  console.error('если не помогло:')
+  console.error('   npm install --include=optional sharp')
   process.exit(1)
 }
 
