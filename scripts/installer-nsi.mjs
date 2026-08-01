@@ -7,6 +7,14 @@
   стандартная обвязка прячется, диалог растягивается на всё окно, кнопки
   нарисованы сами: один экран, одна кнопка, прогресс, автозапуск.
 
+  Важно про OutFile. Бандлер Tauri запускает makensis из своей временной
+  папки (target/release/nsis/x64) и сразу после этого переносит оттуда
+  файл с жёстко заданным именем nsis-output.exe в bundle/nsis. Если писать
+  установщик по своему абсолютному пути, переносить будет нечего и сборка
+  падает на ровном месте: `не удается найти указанный файл (os error 2)`.
+  Поэтому имя тут именно такое и без пути — итоговое имя с версией
+  подставит сам бандлер.
+
   Урок первой попытки: большой фон-картинки больше нет. NSIS показывает
   BMP без масштабирования, а в Windows созданный раньше контрол лежит выше
   остальных — картинка одновременно обрезалась и закрывала собой весь
@@ -18,7 +26,7 @@
   диалога, и без этого белая полоса торчит над тёмным экраном. На
   старых сборках Windows эти вызовы просто ничего не делают.
 
-  Почему генератор, а не готовый .nsi в репозитории: все пути внутри
+  Почему генератор, а не готовый .nsi в репозитории: часть путей внутри
   абсолютные, а версия берётся из package.json.
 
   В тексте сценария море конструкций вида ${If}, поэтому он собран из
@@ -35,10 +43,8 @@ const pkg = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8'))
 const version = pkg.version
 
 const outDir = resolve(root, 'src-tauri', 'installer')
-const bundleDir = resolve(root, 'src-tauri', 'target', 'release', 'bundle', 'nsis')
 
 const paths = {
-  out: resolve(bundleDir, `FemboyChat_${version}_x64-setup.exe`),
   icon: resolve(root, 'src-tauri', 'icons', 'icon.ico'),
   logo: resolve(outDir, 'logo.bmp'),
   exe: resolve(root, 'src-tauri', 'target', 'release', 'femboychat.exe'),
@@ -49,9 +55,10 @@ const NSI = [
   'Unicode true',
   'Name "FemboyChat"',
   'Caption "FemboyChat"',
-  'OutFile "@OUT@"',
-  'InstallDir "$LOCALAPPDATA\\FemboyChat"',
-  'InstallDirRegKey HKCU "Software\\FemboyChat" "InstallDir"',
+  '; Имя обязано быть таким: бандлер Tauri ищет рядом с собой nsis-output.exe.',
+  'OutFile "nsis-output.exe"',
+  'InstallDir "$LOCALAPPDATA\\\\FemboyChat"',
+  'InstallDirRegKey HKCU "Software\\\\FemboyChat" "InstallDir"',
   'RequestExecutionLevel user',
   'SetCompressor /SOLID lzma',
   'XPStyle on',
@@ -67,7 +74,7 @@ const NSI = [
   '',
   '!define APP_EXE "femboychat.exe"',
   '!define APP_VER "@VERSION@"',
-  '!define UNINST_KEY "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\FemboyChat"',
+  '!define UNINST_KEY "Software\\\\Microsoft\\\\Windows\\\\CurrentVersion\\\\Uninstall\\\\FemboyChat"',
   '',
   '; Палитра та же, что у мессенджера. SetCtlColors ждёт RRGGBB без 0x.',
   '!define C_TEXT FFFFFF',
@@ -142,13 +149,13 @@ const NSI = [
   '',
   'Function .onInit',
   '  InitPluginsDir',
-  '  File "/oname=$PLUGINSDIR\\logo.bmp" "@LOGO@"',
+  '  File "/oname=$PLUGINSDIR\\\\logo.bmp" "@LOGO@"',
   '  StrCpy $MakeDesktop 1',
   '',
   '  ; Без WebView2 окно приложения будет пустым, лучше сказать сразу.',
-  '  ReadRegStr $0 HKLM "SOFTWARE\\WOW6432Node\\Microsoft\\EdgeUpdate\\Clients\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}" "pv"',
+  '  ReadRegStr $0 HKLM "SOFTWARE\\\\WOW6432Node\\\\Microsoft\\\\EdgeUpdate\\\\Clients\\\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}" "pv"',
   '  ${If} $0 == ""',
-  '    ReadRegStr $0 HKCU "SOFTWARE\\Microsoft\\EdgeUpdate\\Clients\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}" "pv"',
+  '    ReadRegStr $0 HKCU "SOFTWARE\\\\Microsoft\\\\EdgeUpdate\\\\Clients\\\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}" "pv"',
   '  ${EndIf}',
   '  ${If} $0 == ""',
   '    MessageBox MB_YESNO|MB_ICONQUESTION "Для FemboyChat нужен компонент Microsoft Edge WebView2. Открыть страницу загрузки?" IDNO fcSkipWv',
@@ -192,7 +199,7 @@ const NSI = [
   '',
   '  ${NSD_CreateBitmap} 40 38 64 64 ""',
   '  Pop $LogoCtl',
-  '  ${NSD_SetImage} $LogoCtl "$PLUGINSDIR\\logo.bmp" $LogoImg',
+  '  ${NSD_SetImage} $LogoCtl "$PLUGINSDIR\\\\logo.bmp" $LogoImg',
   '',
   '  ${NSD_CreateLabel} 120 46 340 30 "FemboyChat"',
   '  Pop $LblTitle',
@@ -298,21 +305,21 @@ const NSI = [
   '  Sleep 300',
   '',
   '  File "@EXE@"',
-  '  WriteUninstaller "$INSTDIR\\uninstall.exe"',
+  '  WriteUninstaller "$INSTDIR\\\\uninstall.exe"',
   '',
-  '  WriteRegStr HKCU "Software\\FemboyChat" "InstallDir" "$INSTDIR"',
+  '  WriteRegStr HKCU "Software\\\\FemboyChat" "InstallDir" "$INSTDIR"',
   '  WriteRegStr HKCU "${UNINST_KEY}" "DisplayName" "FemboyChat"',
   '  WriteRegStr HKCU "${UNINST_KEY}" "DisplayVersion" "${APP_VER}"',
   '  WriteRegStr HKCU "${UNINST_KEY}" "Publisher" "kultik1337"',
-  '  WriteRegStr HKCU "${UNINST_KEY}" "DisplayIcon" "$INSTDIR\\${APP_EXE}"',
-  '  WriteRegStr HKCU "${UNINST_KEY}" "UninstallString" "$INSTDIR\\uninstall.exe"',
+  '  WriteRegStr HKCU "${UNINST_KEY}" "DisplayIcon" "$INSTDIR\\\\${APP_EXE}"',
+  '  WriteRegStr HKCU "${UNINST_KEY}" "UninstallString" "$INSTDIR\\\\uninstall.exe"',
   '  WriteRegStr HKCU "${UNINST_KEY}" "InstallLocation" "$INSTDIR"',
   '  WriteRegDWORD HKCU "${UNINST_KEY}" "NoModify" 1',
   '  WriteRegDWORD HKCU "${UNINST_KEY}" "NoRepair" 1',
   '',
-  '  CreateShortcut "$SMPROGRAMS\\FemboyChat.lnk" "$INSTDIR\\${APP_EXE}"',
+  '  CreateShortcut "$SMPROGRAMS\\\\FemboyChat.lnk" "$INSTDIR\\\\${APP_EXE}"',
   '  ${If} $MakeDesktop == 1',
-  '    CreateShortcut "$DESKTOP\\FemboyChat.lnk" "$INSTDIR\\${APP_EXE}"',
+  '    CreateShortcut "$DESKTOP\\\\FemboyChat.lnk" "$INSTDIR\\\\${APP_EXE}"',
   '  ${EndIf}',
   '',
   '  SetAutoClose true',
@@ -320,7 +327,7 @@ const NSI = [
   '',
   '; После установки сразу открываем мессенджер — без финальной страницы.',
   'Function .onInstSuccess',
-  '  Exec "$INSTDIR\\${APP_EXE}"',
+  '  Exec "$INSTDIR\\\\${APP_EXE}"',
   'FunctionEnd',
   '',
   'Section "Uninstall"',
@@ -328,24 +335,22 @@ const NSI = [
   '  Pop $0',
   '  Sleep 300',
   '',
-  '  Delete "$INSTDIR\\${APP_EXE}"',
-  '  Delete "$INSTDIR\\uninstall.exe"',
+  '  Delete "$INSTDIR\\\\${APP_EXE}"',
+  '  Delete "$INSTDIR\\\\uninstall.exe"',
   '  RMDir "$INSTDIR"',
   '',
-  '  Delete "$SMPROGRAMS\\FemboyChat.lnk"',
-  '  Delete "$DESKTOP\\FemboyChat.lnk"',
+  '  Delete "$SMPROGRAMS\\\\FemboyChat.lnk"',
+  '  Delete "$DESKTOP\\\\FemboyChat.lnk"',
   '',
   '  DeleteRegKey HKCU "${UNINST_KEY}"',
-  '  DeleteRegKey HKCU "Software\\FemboyChat"',
+  '  DeleteRegKey HKCU "Software\\\\FemboyChat"',
   'SectionEnd',
   '',
 ].join('\n')
 
 mkdirSync(outDir, { recursive: true })
-mkdirSync(bundleDir, { recursive: true })
 
-const nsi = NSI.replace('@OUT@', paths.out)
-  .replace('@ICON@', paths.icon)
+const nsi = NSI.replace('@ICON@', paths.icon)
   .replace('@ICON@', paths.icon)
   .replace('@LOGO@', paths.logo)
   .replace('@EXE@', paths.exe)
