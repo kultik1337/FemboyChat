@@ -13,7 +13,7 @@
     "tauri": "tauri",
     "desktop:icon-square": "node scripts/square-icon.mjs",
     "desktop:installer-art": "node scripts/installer-art.mjs",
-    "desktop:installer-nsi": "node scripts/installer-nsi.mjs",
+    "desktop:installer-nsi": "node scripts/installer-nsi.mjs && node scripts/installer-copy.mjs",
     "desktop:icons": "npm run desktop:icon-square && tauri icon icon-square.png && npm run desktop:installer-art && npm run desktop:installer-nsi",
     "desktop:dev": "tauri dev",
     "desktop:build": "npm run desktop:installer-nsi && tauri build"
