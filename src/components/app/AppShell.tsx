@@ -50,7 +50,7 @@ export function AppShell() {
   const animations = account?.settings.animations ?? true
   const [overlay, setOverlay] = useState<Overlay>(null)
   // Код-пароль спрашивается до первого кадра, а не после эффекта: иначе
-  // переписка мелькнёт на экране до того, как её закроют.
+  // переписка мелькнет на экране до того, как ее закроют.
   const [locked, setLocked] = useState(() => shouldLock())
 
   /*
@@ -104,7 +104,7 @@ export function AppShell() {
 
   useEffect(() => {
     const total = Object.values(unread).reduce((a, b) => a + b, 0)
-    document.title = total > 0 ? `(${total}) FemboyChat 🎀` : 'FemboyChat 🎀 — тᄅплый мессенджер'
+    document.title = total > 0 ? `(${total}) FemboyChat 🎀` : 'FemboyChat 🎀 — теплый мессенджер'
   }, [unread])
 
   // Manifest, service worker and the install banner's state.
@@ -196,7 +196,7 @@ export function AppShell() {
       })
       if (alive === false && !stopped) {
         stopped = true
-        useStore.getState().toast('Сеанс на этом устройстве завершᄅн', '🔒')
+        useStore.getState().toast('Сеанс на этом устройстве завершен', '🔒')
         await useStore.getState().logout()
       }
     }
