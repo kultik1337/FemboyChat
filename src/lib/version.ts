@@ -3,7 +3,8 @@
  *
  * It is a plain constant instead of an import from package.json on purpose:
  * reading JSON from TypeScript needs `resolveJsonModule` and Node types, and
- * `npm run typecheck` has neither. Bump this together with package.json.
+ * `npm run typecheck` has neither. Bump this together with package.json,
+ * src-tauri/tauri.conf.json and src-tauri/Cargo.toml.
  */
-export const APP_VERSION = '1.0.0'
+export const APP_VERSION = '1.0.2'
 export const APP_VERSION_LABEL = `v${APP_VERSION}`
