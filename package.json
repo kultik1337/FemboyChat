@@ -1,7 +1,7 @@
 {
   "name": "femboychat",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "FemboyChat — современный real-time мессенджер для РУ-сегмента (Telegram-подобный аналог).",
   "type": "module",
   "scripts": {
@@ -9,16 +9,22 @@
     "build": "vite build && cp icon.png dist/icon.png && cp manifest.webmanifest dist/manifest.webmanifest && cp sw.js dist/sw.js",
     "typecheck": "tsc --noEmit",
     "verify": "tsx scripts/verify.ts",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "tauri": "tauri",
+    "desktop:icons": "tauri icon icon.png",
+    "desktop:dev": "tauri dev",
+    "desktop:build": "tauri build"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.0",
+    "@tauri-apps/api": "^2.0.0",
     "lucide-react": "^0.427.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "zustand": "^4.5.4"
   },
   "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.1",
