@@ -19,17 +19,46 @@ import './titlebar.css'
   В браузере компонент не рисует ничего.
 */
 export default function TitleBar() {
+  const [desktop] = useState(isDesktopApp)
   const [maximized, setMaximized] = useState(false)
   const unread = useStore((s) => s.unread)
   const total = Object.values(unread).reduce((a, b) => a + b, 0)
 
-  useEffect(() => {
-    if (!isDesktopApp()) return
-    void isWindowMaximized().then(setMaximized)
-    return onWindowResized(() => void isWindowMaximized().then(setMaximized))
-  }, [])
+  /*
+    Отслеживание размера окна ради одной иконки: «развернуть» должна
+    меняться на «вернуть как было», даже когда окно развернули мимо нас —
+    двойным кликом или Win+↑.
 
-  if (!isDesktopApp()) return null
+    ВАЖНО: onWindowResized — асинхронная и возвращает Promise. Если
+    отдать её из useEffect напрямую, React получит вместо функции очистки
+    Promise и упадёт при первом же размонтировании — а StrictMode делает
+    его сразу после монтирования. Именно это давало белый экран в приложении:
+    плашка рендерится первой, и вместе с ней падало всё дерево.
+  */
+  useEffect(() => {
+    if (!desktop) return
+    let alive = true
+    let off: () => void = () => {}
+
+    const sync = () => {
+      isWindowMaximized().then((v) => {
+        if (alive) setMaximized(v)
+      })
+    }
+
+    sync()
+    onWindowResized(sync).then((unlisten) => {
+      if (alive) off = unlisten
+      else unlisten()
+    })
+
+    return () => {
+      alive = false
+      off()
+    }
+  }, [desktop])
+
+  if (!desktop) return null
 
   return (
     <div className="fc-titlebar" data-tauri-drag-region onDoubleClick={() => void toggleMaximizeWindow()}>
@@ -43,7 +72,7 @@ export default function TitleBar() {
       {total > 0 && <span className="fc-titlebar__badge">{total > 99 ? '99+' : total}</span>}
       <div className="fc-titlebar__spacer" data-tauri-drag-region />
       <div className="fc-titlebar__controls">
-        <button className="fc-titlebar__btn" title="Свернуть" onClick={() => void minimizeWindow()}>
+        <button className="fc-titlebar__btn" title="Свернуть" aria-label="Свернуть" onClick={() => void minimizeWindow()}>
           <svg width="11" height="11" viewBox="0 0 11 11" aria-hidden="true">
             <rect x="1" y="5" width="9" height="1.1" rx="0.55" fill="currentColor" />
           </svg>
@@ -51,6 +80,7 @@ export default function TitleBar() {
         <button
           className="fc-titlebar__btn"
           title={maximized ? 'Вернуть как было' : 'Развернуть'}
+          aria-label={maximized ? 'Вернуть как было' : 'Развернуть'}
           onClick={() => void toggleMaximizeWindow()}
         >
           {maximized ? (
@@ -67,6 +97,7 @@ export default function TitleBar() {
         <button
           className="fc-titlebar__btn fc-titlebar__btn--close"
           title="Закрыть"
+          aria-label="Закрыть"
           onClick={() => void closeWindow()}
         >
           <svg width="11" height="11" viewBox="0 0 11 11" aria-hidden="true">
