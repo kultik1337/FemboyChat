@@ -1,7 +1,7 @@
 {
   "name": "femboychat",
   "private": true,
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "FemboyChat — современный real-time мессенджер для РУ-сегмента (Telegram-подобный аналог).",
   "type": "module",
   "scripts": {
@@ -12,7 +12,8 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "desktop:icon-square": "node scripts/square-icon.mjs",
-    "desktop:icons": "npm run desktop:icon-square && tauri icon icon-square.png",
+    "desktop:installer-art": "node scripts/installer-art.mjs",
+    "desktop:icons": "npm run desktop:icon-square && tauri icon icon-square.png && npm run desktop:installer-art",
     "desktop:dev": "tauri dev",
     "desktop:build": "tauri build"
   },
