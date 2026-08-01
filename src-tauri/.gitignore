@@ -1,3 +1,11 @@
+# Сборка Rust и готовые установщики.
 target/
+
+# Генерируется Tauri при сборке.
 gen/schemas/
+
+# Иконки делает `npm run desktop:icons` из icon.png в корне проекта.
 icons/
+
+# Картинки установщика рисует scripts/installer-art.mjs тем же скриптом.
+installer/
