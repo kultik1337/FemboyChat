@@ -1,16 +1,15 @@
 /*
-  Фон для своего установщика (см. scripts/installer-nsi.mjs).
+  Значок для своего установщика (см. scripts/installer-nsi.mjs).
 
-  Раньше здесь рисовались две картинки для шаблона MUI — боковая и шапка.
-  Шаблона больше нет, окно рисуем целиком сами, поэтому нужен один большой
-  фон на всю клиентскую область. NSIS не умеет тянуть картинку под размер
-  контрола, поэтому рисуем с запасом и компонуем всё важное в левом верхнем
-  углу: правый край и низ спокойно обрезаются.
+  Сначала здесь рисовался большой фон на всё окно установщика. Идея
+  провалилась по двум причинам. Первая: NSIS показывает BMP как есть, без
+  масштабирования, и картинка обрезалась по-живому. Вторая: в Windows созданный
+  раньше контрол лежит ВЫШЕ остальных, так что картинка на всё окно просто
+  закрыла собой весь текст и кнопки.
 
-  Логотип впечатан в сам фон: BMP не умеет прозрачности, и отдельной
-  картинкой он бы выглядел тёмным прямоугольником поверх градиента.
-  Координаты логотипа здесь и координаты текста в .nsi живут в одной сетке:
-  логотип 72x72 в точке (36, 30), заголовок начинается с x = 126.
+  Поэтому фон теперь просто заливка цветом самого диалога, а картинкой
+  остаётся один значок 64x64. Фон в нём впечатан тем же цветом, что и диалог:
+  BMP не умеет прозрачности, зато так шов не виден.
 
   Кодировщик BMP свой: sharp умеет всё, кроме BMP, а формат настолько
   простой, что тащить ради него ещё одну библиотеку глупо.
@@ -24,13 +23,9 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const logoPath = resolve(root, 'icon.png')
 const outDir = resolve(root, 'src-tauri', 'installer')
 
-const BG = '#0f1017'
-const ACCENT = '#7c9cff'
-const ACCENT_2 = '#9d8bff'
-
-// Окно установщика около 500x330, берём с запасом на крупный масштаб.
-const W = 900
-const H = 620
+// Цвет должен совпадать с C_DARK в scripts/installer-nsi.mjs.
+const BG = { r: 0x0f, g: 0x10, b: 0x17 }
+const SIZE = 64
 
 let sharp
 try {
@@ -77,54 +72,24 @@ function encodeBmp24(rgb, width, height) {
   return buf
 }
 
-const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}">
-  <defs>
-    <linearGradient id="base" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#181a26"/>
-      <stop offset="0.55" stop-color="#111320"/>
-      <stop offset="1" stop-color="${BG}"/>
-    </linearGradient>
-    <radialGradient id="glow" cx="0.06" cy="0.02" r="0.62">
-      <stop offset="0" stop-color="${ACCENT}" stop-opacity="0.42"/>
-      <stop offset="1" stop-color="${ACCENT}" stop-opacity="0"/>
-    </radialGradient>
-    <radialGradient id="glow2" cx="0.72" cy="0.72" r="0.55">
-      <stop offset="0" stop-color="${ACCENT_2}" stop-opacity="0.30"/>
-      <stop offset="1" stop-color="${ACCENT_2}" stop-opacity="0"/>
-    </radialGradient>
-    <linearGradient id="hair" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0" stop-color="${ACCENT}" stop-opacity="0.55"/>
-      <stop offset="1" stop-color="${ACCENT_2}" stop-opacity="0"/>
-    </linearGradient>
-  </defs>
-
-  <rect width="100%" height="100%" fill="${BG}"/>
-  <rect width="100%" height="100%" fill="url(#base)"/>
-  <rect width="100%" height="100%" fill="url(#glow)"/>
-  <rect width="100%" height="100%" fill="url(#glow2)"/>
-
-  <!-- тонкая акцентная линия под шапкой -->
-  <rect x="36" y="126" width="420" height="1" fill="url(#hair)"/>
-
-  <!-- силуэты сообщений в свободном углу справа -->
-  <rect x="372" y="218" width="96" height="16" rx="8" fill="#ffffff" opacity="0.06"/>
-  <rect x="398" y="242" width="70" height="16" rx="8" fill="${ACCENT}" opacity="0.20"/>
-  <rect x="372" y="266" width="54" height="16" rx="8" fill="#ffffff" opacity="0.05"/>
-</svg>`
-
-const logo = await sharp(logoPath)
-  .resize(72, 72, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
-  .png()
-  .toBuffer()
-
-const { data } = await sharp(Buffer.from(svg))
-  .composite([{ input: logo, top: 30, left: 36 }])
-  .flatten({ background: BG })
+const { data } = await sharp({
+  create: { width: SIZE, height: SIZE, channels: 3, background: BG },
+})
+  .composite([
+    {
+      input: await sharp(logoPath)
+        .resize(SIZE, SIZE, { fit: 'contain', background: { ...BG, alpha: 1 } })
+        .png()
+        .toBuffer(),
+      top: 0,
+      left: 0,
+    },
+  ])
   .removeAlpha()
   .raw()
   .toBuffer({ resolveWithObject: true })
 
 mkdirSync(outDir, { recursive: true })
-writeFileSync(resolve(outDir, 'bg.bmp'), encodeBmp24(data, W, H))
+writeFileSync(resolve(outDir, 'logo.bmp'), encodeBmp24(data, SIZE, SIZE))
 
-console.log(`\u2713 фон установщика: bg.bmp ${W}x${H}`)
+console.log(`\u2713 значок установщика: logo.bmp ${SIZE}x${SIZE}`)
