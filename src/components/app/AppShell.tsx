@@ -104,7 +104,7 @@ export function AppShell() {
 
   useEffect(() => {
     const total = Object.values(unread).reduce((a, b) => a + b, 0)
-    document.title = total > 0 ? `(${total}) FemboyChat 🎀` : 'FemboyChat 🎀 — тёплый мессенджер'
+    document.title = total > 0 ? `(${total}) FemboyChat 🎀` : 'FemboyChat 🎀 — тᄅплый мессенджер'
   }, [unread])
 
   // Manifest, service worker and the install banner's state.
@@ -196,7 +196,7 @@ export function AppShell() {
       })
       if (alive === false && !stopped) {
         stopped = true
-        useStore.getState().toast('Сеанс на этом устройстве завершён', '🔒')
+        useStore.getState().toast('Сеанс на этом устройстве завершᄅн', '🔒')
         await useStore.getState().logout()
       }
     }
@@ -266,7 +266,13 @@ export function AppShell() {
           </button>
         </div>
       )}
-      <div className="min-h-0 min-w-0 flex-1 md:px-3 md:pb-3 md:pt-2" style={{ background: 'linear-gradient(160deg, var(--bg-grad-1), var(--bg-grad-2))' }}>
+      {/*
+        fc-frame-pad / fc-frame are hooks for the desktop build: inside the
+        Tauri window the app fills every pixel, so titlebar.css strips the
+        padding, the rounded corners and the border. In the browser the card
+        keeps floating on its gradient.
+      */}
+      <div className="fc-frame-pad min-h-0 min-w-0 flex-1 md:px-3 md:pb-3 md:pt-2" style={{ background: 'linear-gradient(160deg, var(--bg-grad-1), var(--bg-grad-2))' }}>
         {/*
           CRITICAL: both tracks are minmax(0, ...). A grid item's automatic
           minimum size is its min-content width, so a plain `1fr` lets one wide
@@ -275,7 +281,7 @@ export function AppShell() {
           page starts scrolling sideways. minmax(0, ...) plus min-w-0 on the
           panes forbids that: overflow has to be handled inside the pane.
         */}
-        <div className="mx-auto grid h-full w-full max-w-[1500px] grid-cols-1 overflow-hidden md:grid-cols-[minmax(300px,380px)_minmax(0,1fr)] md:rounded-3xl md:border md:border-[var(--border)] md:shadow-xl">
+        <div className="fc-frame mx-auto grid h-full w-full max-w-[1500px] grid-cols-1 overflow-hidden md:grid-cols-[minmax(300px,380px)_minmax(0,1fr)] md:rounded-3xl md:border md:border-[var(--border)] md:shadow-xl">
           <aside
             /* Remounting on the way back is what plays the entrance animation. */
             key={activeChatId ? 'aside-hidden' : 'aside'}
