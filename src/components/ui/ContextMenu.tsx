@@ -18,6 +18,49 @@ export interface MenuDivider {
 }
 export type MenuItem = MenuAction | MenuDivider
 
+/**
+ * Порядок пунктов в любом меню.
+ *
+ * Меню собираются из кусков: меню участника — это personMenu() плюс
+ * админские пункты сверху. Из-за этого красное «Остановить бота» оказывалось
+ * посередине, а за ним шло обычное «Назначить админом» и снова красное
+ * «Удалить из группы». Собирать опасные действия вручную в каждом месте
+ * сборки — значит рано или поздно где-то забыть, поэтому нормализация
+ * живёт в единственной точке входа — openContextMenu().
+ *
+ * Правило: сначала обычные действия в исходном порядке, потом один
+ * разделитель, потом все красные пункты. Набор пунктов не меняется.
+ */
+export function normalizeMenu(items: MenuItem[]): MenuItem[] {
+  const safe: MenuItem[] = []
+  const danger: MenuItem[] = []
+  for (const it of items) {
+    if (it.kind === 'divider') {
+      safe.push(it)
+      continue
+    }
+    if (it.danger) danger.push(it)
+    else safe.push(it)
+  }
+  const out = collapseDividers(safe)
+  if (danger.length) {
+    if (out.length) out.push({ kind: 'divider' })
+    out.push(...danger)
+  }
+  return out
+}
+
+/** Убрать сдвоенные, ведущие и висячие разделители. */
+function collapseDividers(items: MenuItem[]): MenuItem[] {
+  const out: MenuItem[] = []
+  for (const it of items) {
+    if (it.kind === 'divider' && (out.length === 0 || out[out.length - 1].kind === 'divider')) continue
+    out.push(it)
+  }
+  while (out.length && out[out.length - 1].kind === 'divider') out.pop()
+  return out
+}
+
 interface MenuData {
   x: number
   y: number
@@ -46,7 +89,7 @@ export function openContextMenu(
 ) {
   e.preventDefault()
   e.stopPropagation()
-  useMenu.getState().open({ x: e.clientX, y: e.clientY, items, ...opts })
+  useMenu.getState().open({ x: e.clientX, y: e.clientY, items: normalizeMenu(items), ...opts })
 }
 
 export function ContextMenu() {
