@@ -18,6 +18,10 @@
  * В установщике та же арифметика целыми числами (x * масштаб / 100), иначе
  * области нажатия уедут от рисунка на полпикселя.
  *
+ * ЦВЕТА ЖИВУТ В ОДНОМ МЕСТЕ — в блоке ПАЛИТРА ниже. Разбросанные по svg
+ * шестнадцатеричные значения — это ровно то, из-за чего установщик и приложение
+ * разъехались по цвету.
+ *
  * Выходные файлы на каждый масштаб: bg-<масштаб>.bmp и две галочки.
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
@@ -35,11 +39,52 @@ const H = 460
 /** Масштабы в процентах — тот же список обязан быть в installer-nsi.mjs. */
 const SCALES = [100, 125, 150, 200]
 
+/*
+ * ПАЛИТРА.
+ *
+ * Те же цвета, что у темы по умолчанию в src/index.css. Установщик — первое
+ * окно продукта, и он не должен выглядеть окном из другого приложения.
+ * Раньше здесь жила собственная палитра: сиреневый #C98CFF вместо --accent-2
+ * и кнопка, уходившая в розовый #FF9ECB, которого в приложении нет нигде.
+ * Меняешь цвета в теме — поменяй и здесь.
+ */
+
+/** --accent */
+const ACCENT = '#7C9CFF'
+/** --accent-2 */
+const ACCENT_2 = '#9D8BFF'
+/** Осветлённый акцент: мелкая подпись чистым акцентом на тёмном не читается. */
+const ACCENT_SOFT = '#A9BEFF'
+
+/** --text */
+const TEXT = '#FFFFFF'
+/** --muted. Тот же цвет обязан стоять в C_MUTED в installer-nsi.mjs. */
+const MUTED = '#8C93AD'
+/** Заголовок раздела: ещё тише, чем --muted. */
+const CAPTION = '#6F7590'
+/** Подпись у галочки. */
+const CHECK_LABEL = '#C3C9DD'
+/** Текст кнопки отмены. */
+const CANCEL_TEXT = '#AAB1C8'
+
+/**
+ * Краска поверх акцентной заливки.
+ *
+ * В приложении на акценте лежит белый (--accent-contrast), но там это мелкие
+ * элементы и пузыри сообщений. Здесь это главная кнопка окна, и тёмная краска
+ * на светлом акценте читается заметно увереннее: контраст около 9:1 против
+ * 2.6:1 у белого. Единственное осознанное отступление от темы.
+ */
+const ON_ACCENT = '#0A0C14'
+
 /** Плоский цвет подложки поля пути. Тот же ставится фоном подписи в NSIS. */
 const FIELD_FILL = '#161A26'
 
 /** Фон страницы установки и цвет, в который сводится прозрачность. */
 const PAGE_DARK = '#0A0B12'
+
+/** Верхний тон фоновой заливки — тот же тёмный, чуть светлее. */
+const PAGE_TOP = '#10121C'
 
 const LAYOUT = {
 	logo: { x: 64, y: 136, s: 120, r: 28 },
@@ -92,31 +137,31 @@ function screen(checked, pxW, pxH) {
 	const L = LAYOUT
 	const box = checked
 		? `<rect x="${L.check.x}" y="${L.check.y}" width="${L.check.s}" height="${L.check.s}" rx="${L.check.r}" fill="url(#chk)"/>
-		<path d="M${L.check.x + 5.5} ${L.check.y + 10.2} l3 3 l6 -6.6" fill="none" stroke="#0B0D14" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>`
-		: `<rect x="${L.check.x}" y="${L.check.y}" width="${L.check.s}" height="${L.check.s}" rx="${L.check.r}" fill="#FFFFFF" fill-opacity="0.05" stroke="#FFFFFF" stroke-opacity="0.18"/>`
+		<path d="M${L.check.x + 5.5} ${L.check.y + 10.2} l3 3 l6 -6.6" fill="none" stroke="${ON_ACCENT}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>`
+		: `<rect x="${L.check.x}" y="${L.check.y}" width="${L.check.s}" height="${L.check.s}" rx="${L.check.r}" fill="${TEXT}" fill-opacity="0.05" stroke="${TEXT}" stroke-opacity="0.18"/>`
 
 	return `<svg xmlns="http://www.w3.org/2000/svg" width="${pxW}" height="${pxH}" viewBox="0 0 ${W} ${H}">
 	<defs>
 		<linearGradient id="base" x1="0" y1="0" x2="0.45" y2="1">
-			<stop offset="0" stop-color="#10121C"/>
+			<stop offset="0" stop-color="${PAGE_TOP}"/>
 			<stop offset="1" stop-color="${PAGE_DARK}"/>
 		</linearGradient>
 		<radialGradient id="glowA" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(82 0) scale(620 420)">
-			<stop offset="0" stop-color="#C98CFF" stop-opacity="0.22"/>
-			<stop offset="0.62" stop-color="#C98CFF" stop-opacity="0"/>
+			<stop offset="0" stop-color="${ACCENT_2}" stop-opacity="0.22"/>
+			<stop offset="0.62" stop-color="${ACCENT_2}" stop-opacity="0"/>
 		</radialGradient>
 		<radialGradient id="glowB" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(625 460) scale(620 460)">
-			<stop offset="0" stop-color="#7C9CFF" stop-opacity="0.22"/>
-			<stop offset="0.62" stop-color="#7C9CFF" stop-opacity="0"/>
+			<stop offset="0" stop-color="${ACCENT}" stop-opacity="0.22"/>
+			<stop offset="0.62" stop-color="${ACCENT}" stop-opacity="0"/>
 		</radialGradient>
+		<!-- Та же пара, что у своих сообщений в чате: --accent → --accent-2. -->
 		<linearGradient id="btn" gradientUnits="userSpaceOnUse" x1="${L.install.x}" y1="${L.install.y}" x2="${L.install.x + L.install.w}" y2="${L.install.y + L.install.h}">
-			<stop offset="0" stop-color="#8FB0FF"/>
-			<stop offset="0.52" stop-color="#A78CFF"/>
-			<stop offset="1" stop-color="#FF9ECB"/>
+			<stop offset="0" stop-color="${ACCENT}"/>
+			<stop offset="1" stop-color="${ACCENT_2}"/>
 		</linearGradient>
 		<linearGradient id="chk" gradientUnits="userSpaceOnUse" x1="${L.check.x}" y1="${L.check.y}" x2="${L.check.x + L.check.s}" y2="${L.check.y + L.check.s}">
-			<stop offset="0" stop-color="#7C9CFF"/>
-			<stop offset="1" stop-color="#C98CFF"/>
+			<stop offset="0" stop-color="${ACCENT}"/>
+			<stop offset="1" stop-color="${ACCENT_2}"/>
 		</linearGradient>
 		<!-- Область фильтра с большим запасом: если её не хватит на радиус размытия,
 		     свечение обрежется и по краю появится заметная прямая граница. -->
@@ -133,37 +178,37 @@ function screen(checked, pxW, pxH) {
 	<rect width="${W}" height="${H}" fill="url(#glowB)"/>
 
 	<!-- ореол повторяет форму логотипа, а не круг -->
-	<rect x="${L.logo.x}" y="${L.logo.y}" width="${L.logo.s}" height="${L.logo.s}" rx="${L.logo.r}" fill="#C98CFF" fill-opacity="0.42" filter="url(#soft)"/>
+	<rect x="${L.logo.x}" y="${L.logo.y}" width="${L.logo.s}" height="${L.logo.s}" rx="${L.logo.r}" fill="${ACCENT_2}" fill-opacity="0.42" filter="url(#soft)"/>
 
-	<g font-family="${FONT}" fill="#FFFFFF">
+	<g font-family="${FONT}" fill="${TEXT}">
 		<text x="${L.logo.x + L.logo.s / 2}" y="302" font-size="19" font-weight="600" text-anchor="middle">FemboyChat</text>
-		<text x="${L.logo.x + L.logo.s / 2}" y="325" font-size="12.5" fill="#8C93AD" text-anchor="middle">версия ${version}</text>
+		<text x="${L.logo.x + L.logo.s / 2}" y="325" font-size="12.5" fill="${MUTED}" text-anchor="middle">версия ${version}</text>
 
 		<text x="296" y="116" font-size="29" font-weight="600">Почти готово</text>
-		<g font-size="13.5" fill="#8C93AD">
+		<g font-size="13.5" fill="${MUTED}">
 			<text x="296" y="152">Займ\u0451т пару секунд и не потребует прав</text>
 			<text x="296" y="174">администратора. Мессенджер откроется сразу</text>
 			<text x="296" y="196">после установки.</text>
 		</g>
-		<text x="296" y="232" font-size="11" fill="#6F7590" letter-spacing="1.8">КУДА УСТАНОВИТЬ</text>
+		<text x="296" y="232" font-size="11" fill="${CAPTION}" letter-spacing="1.8">КУДА УСТАНОВИТЬ</text>
 	</g>
 
-	<rect x="${L.field.x}" y="${L.field.y}" width="${L.field.w}" height="${L.field.h}" rx="${L.field.r}" fill="${FIELD_FILL}" stroke="#FFFFFF" stroke-opacity="0.09"/>
-	<rect x="${L.browse.x}" y="${L.browse.y}" width="${L.browse.w}" height="${L.browse.h}" rx="${L.browse.r}" fill="#7C9CFF" fill-opacity="0.14"/>
-	<text x="${L.browse.x + L.browse.w / 2}" y="${L.browse.y + 21}" font-family="${FONT}" font-size="13" fill="#93AEFF" text-anchor="middle">Изменить</text>
+	<rect x="${L.field.x}" y="${L.field.y}" width="${L.field.w}" height="${L.field.h}" rx="${L.field.r}" fill="${FIELD_FILL}" stroke="${TEXT}" stroke-opacity="0.09"/>
+	<rect x="${L.browse.x}" y="${L.browse.y}" width="${L.browse.w}" height="${L.browse.h}" rx="${L.browse.r}" fill="${ACCENT}" fill-opacity="0.14"/>
+	<text x="${L.browse.x + L.browse.w / 2}" y="${L.browse.y + 21}" font-family="${FONT}" font-size="13" fill="${ACCENT_SOFT}" text-anchor="middle">Изменить</text>
 
 	${box}
-	<text x="${L.check.x + 31}" y="${L.check.y + 15}" font-family="${FONT}" font-size="13.5" fill="#C3C9DD">Создать ярлык на рабочем столе</text>
+	<text x="${L.check.x + 31}" y="${L.check.y + 15}" font-family="${FONT}" font-size="13.5" fill="${CHECK_LABEL}">Создать ярлык на рабочем столе</text>
 
-	<rect x="${L.install.x + 10}" y="${L.install.y + 14}" width="${L.install.w - 20}" height="${L.install.h}" rx="${L.install.r}" fill="#8C8CFF" fill-opacity="0.45" filter="url(#softBtn)"/>
+	<rect x="${L.install.x + 10}" y="${L.install.y + 14}" width="${L.install.w - 20}" height="${L.install.h}" rx="${L.install.r}" fill="${ACCENT_2}" fill-opacity="0.45" filter="url(#softBtn)"/>
 	<rect x="${L.install.x}" y="${L.install.y}" width="${L.install.w}" height="${L.install.h}" rx="${L.install.r}" fill="url(#btn)"/>
-	<rect x="${L.install.x + 3}" y="${L.install.y + 1}" width="${L.install.w - 6}" height="1" rx="0.5" fill="#FFFFFF" fill-opacity="0.35"/>
-	<text x="${L.install.x + L.install.w / 2}" y="${L.install.y + 33}" font-family="${FONT}" font-size="15" font-weight="600" fill="#0A0C14" text-anchor="middle">Установить</text>
+	<rect x="${L.install.x + 3}" y="${L.install.y + 1}" width="${L.install.w - 6}" height="1" rx="0.5" fill="${TEXT}" fill-opacity="0.35"/>
+	<text x="${L.install.x + L.install.w / 2}" y="${L.install.y + 33}" font-family="${FONT}" font-size="15" font-weight="600" fill="${ON_ACCENT}" text-anchor="middle">Установить</text>
 
-	<rect x="${L.cancel.x}" y="${L.cancel.y}" width="${L.cancel.w}" height="${L.cancel.h}" rx="${L.cancel.r}" fill="#FFFFFF" fill-opacity="0.05" stroke="#FFFFFF" stroke-opacity="0.09"/>
-	<text x="${L.cancel.x + L.cancel.w / 2}" y="${L.cancel.y + 33}" font-family="${FONT}" font-size="15" fill="#AAB1C8" text-anchor="middle">Отмена</text>
+	<rect x="${L.cancel.x}" y="${L.cancel.y}" width="${L.cancel.w}" height="${L.cancel.h}" rx="${L.cancel.r}" fill="${TEXT}" fill-opacity="0.05" stroke="${TEXT}" stroke-opacity="0.09"/>
+	<text x="${L.cancel.x + L.cancel.w / 2}" y="${L.cancel.y + 33}" font-family="${FONT}" font-size="15" fill="${CANCEL_TEXT}" text-anchor="middle">Отмена</text>
 
-	<path d="M${L.close.x + 10.5} ${L.close.y + 10.5} l11 11 M${L.close.x + 21.5} ${L.close.y + 10.5} l-11 11" stroke="#8C93AD" stroke-width="1.6" stroke-linecap="round"/>
+	<path d="M${L.close.x + 10.5} ${L.close.y + 10.5} l11 11 M${L.close.x + 21.5} ${L.close.y + 10.5} l-11 11" stroke="${MUTED}" stroke-width="1.6" stroke-linecap="round"/>
 </svg>`
 }
 
