@@ -10,6 +10,7 @@ import { chatCounterpart, usePeople } from './people'
 import { useActions } from './useActions'
 import { openContextMenu } from '../ui/ContextMenu'
 import { attachmentLabel } from '../../lib/media'
+import { isDesktopApp } from '../../lib/desktop'
 import { classNames, dayLabel, lastSeenLabel, plainText, renderRich, timeShort } from '../../lib/util'
 import type { Chat, Message } from '../../types'
 
@@ -484,6 +485,13 @@ export function ChatView() {
       {/* messages */}
       <div className="relative min-h-0 min-w-0 flex-1">
         <div ref={scroller} onScroll={onScroll} onClick={onScrollerClick} className={classNames('relative z-[2] h-full overflow-y-auto overflow-x-hidden py-3 fancy-scroll', `wallpaper-${wallpaper}`)}>
+          {/*
+            Колонка сообщений центрируется: на широком экране пузыри занимают
+            долю от ширины панели, поэтому без ограничения текст прижимался влево,
+            а справа оставалась пустая полоса обоев. Скроллом по-прежнему
+            управляет родитель, поэтому вся логика прокрутки не меняется.
+          */}
+          <div className="mx-auto w-full max-w-[1000px]">
           {paging && (
             <div className="flex justify-center py-2">
               <span className="rounded-full bg-[var(--panel)] px-3 py-1 text-xs font-semibold text-[var(--muted)] shadow-sm">Загружаем историю…</span>
@@ -584,6 +592,7 @@ export function ChatView() {
               </span>
             </div>
           )}
+          </div>
         </div>
 
         {/*
@@ -852,12 +861,20 @@ function Dot() {
 }
 
 function EmptyState() {
+  // Тот же бандл работает и в браузере, и в установленной программе. Совет
+  // «открой сайт во второй вкладке» в программе бессмыслен: там нет ни сайта,
+  // ни вкладок, а это первый экран после запуска.
+  const desktop = isDesktopApp()
   return (
     <div className="grid h-full place-items-center" style={{ background: 'linear-gradient(160deg, var(--bg-grad-1), var(--bg-grad-2))' }}>
       <div className="flex max-w-sm flex-col items-center gap-3 px-6 text-center">
         <Logo size={80} className="!rounded-3xl animate-float" />
         <h2 className="text-xl font-black">Добро пожаловать в FemboyChat</h2>
-        <p className="text-sm text-[var(--muted)]">Выбери чат слева или найди новых собеседников через поиск. Открой сайт во второй вкладке, чтобы увидеть реальное время ✨</p>
+        <p className="text-sm text-[var(--muted)]">
+          {desktop
+            ? 'Выбери чат слева или найди новых собеседников через поиск. Ctrl+K — быстрый поиск ✨'
+            : 'Выбери чат слева или найди новых собеседников через поиск. Ctrl+K — быстрый поиск ✨'}
+        </p>
       </div>
     </div>
   )
