@@ -8,7 +8,13 @@
  * links, so every edit to it is a chance to break font loading. Chrome (and
  * Edge/Samsung Internet) re-read the manifest when the link element appears in
  * <head>, so installability is unaffected by injecting it at boot.
+ *
+ * NONE of this applies to the installed desktop program — see initPwa() and
+ * purgeServiceWorker() at the bottom of the file for why running it there was
+ * actively harmful.
  */
+
+import { isDesktopApp } from './desktop'
 
 /** Not in TypeScript's DOM lib yet — Chrome-only, hence the local shape. */
 type BeforeInstallPromptEvent = Event & {
@@ -24,6 +30,8 @@ type NavigatorUAData = {
 
 const HIDE_KEY = 'fc:hideInstall'
 const RELOAD_AT_KEY = 'fc:swReloadAt'
+/** Guards the one-off reload after a desktop cache purge against a loop. */
+const PURGED_KEY = 'fc:swPurged'
 
 /** How often an open tab asks whether a newer build has been deployed. */
 const UPDATE_EVERY_MS = 60_000
@@ -237,16 +245,76 @@ function registerServiceWorker(): void {
 }
 
 /**
+ * Removes any service worker and cache left behind on this origin.
+ *
+ * THIS IS NOT HOUSEKEEPING, it repairs a real trap. The desktop program serves
+ * the interface from `http://tauri.localhost`, which to the WebView is an
+ * ordinary origin, so the service worker registered there exactly as it does in
+ * a browser — and its cache lives in the WebView2 profile under %LOCALAPPDATA%,
+ * NOT in the program folder. Reinstalling the app therefore never cleared it:
+ * the worker kept answering with the shell and the hashed bundles it had cached
+ * on first launch, so every freshly built .exe still opened a weeks-old build.
+ * Offline support is also pointless here — the files are already inside the
+ * .exe, which is the whole point of shipping a desktop program.
+ *
+ * The reload afterwards is what actually lets the new build appear, and it is
+ * fired at most once per session so a failure can never turn into a boot loop.
+ */
+async function purgeServiceWorker(): Promise<void> {
+	let removed = false
+
+	try {
+		if ('serviceWorker' in navigator) {
+			const registrations = await navigator.serviceWorker.getRegistrations()
+			for (const registration of registrations) {
+				const gone = await registration.unregister()
+				removed = removed || gone
+			}
+		}
+	} catch (err) {
+		// An origin without service workers at all: nothing to repair.
+	}
+
+	try {
+		if ('caches' in window) {
+			const keys = await caches.keys()
+			for (const key of keys) {
+				await caches.delete(key)
+				removed = true
+			}
+		}
+	} catch (err) {
+		// Same: no Cache Storage, nothing to clean.
+	}
+
+	// Nothing was found, so this launch is already running the real files.
+	if (!removed) return
+	if (sessionStorage.getItem(PURGED_KEY) === '1') return
+	sessionStorage.setItem(PURGED_KEY, '1')
+	window.location.reload()
+}
+
+/**
  * Safe to call more than once; only the first call does the work.
  *
  * The install listener is attached BEFORE the manifest is injected on purpose:
  * Chrome can fire `beforeinstallprompt` as soon as it has both a manifest and
  * an active service worker, and an event that fires before the listener exists
  * is lost for good -- which is exactly how the banner went missing on desktop.
+ *
+ * In the installed desktop program every single thing in here is wrong: there
+ * is no browser to install into, no manifest to read it, and the service worker
+ * only ever served stale files. So it is not started at all there — instead any
+ * worker left over from an earlier build is removed.
  */
 export function initPwa(): void {
 	if (started) return
 	started = true
+
+	if (isDesktopApp()) {
+		void purgeServiceWorker()
+		return
+	}
 
 	window.addEventListener('beforeinstallprompt', (event) => {
 		event.preventDefault()
