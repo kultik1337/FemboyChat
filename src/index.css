@@ -80,6 +80,12 @@
  * A palette only ever sets surfaces, text and shadows. The accent pair stays
  * under the user's control and is written onto :root by applyAppearance(), so
  * every theme works with every accent instead of shipping nine fixed looks.
+ *
+ * Incoming bubbles are deliberately a step LIGHTER than `--panel-2` in every
+ * dark theme. They used to be the same shade as the surrounding panels, which
+ * made someone else's message look like a patch of background rather than a
+ * bubble, while our own message glowed with the accent gradient. The reply had
+ * to read as an object of its own before the conversation felt balanced.
  */
 
 /* Light — neutral daylight */
@@ -116,7 +122,7 @@
   --text: #eef1f7;
   --muted: #98a2b5;
   --border: #2b313d;
-  --bubble-in: #232833;
+  --bubble-in: #2c323f;
   --bubble-in-text: #eef1f7;
   --bubble-out: linear-gradient(135deg, var(--accent), var(--accent-2));
   --bubble-out-text: #ffffff;
@@ -139,7 +145,7 @@
   --text: #f0f1f3;
   --muted: #949aa4;
   --border: #23262c;
-  --bubble-in: #1b1e23;
+  --bubble-in: #262a31;
   --bubble-in-text: #f0f1f3;
   --bubble-out: linear-gradient(135deg, var(--accent), var(--accent-2));
   --bubble-out-text: #ffffff;
@@ -162,7 +168,7 @@
   --text: #eaf0ff;
   --muted: #8ea0c8;
   --border: #212c4d;
-  --bubble-in: #16203c;
+  --bubble-in: #1f2c50;
   --bubble-in-text: #eaf0ff;
   --bubble-out: linear-gradient(135deg, var(--accent), var(--accent-2));
   --bubble-out-text: #ffffff;
@@ -185,7 +191,7 @@
   --text: #e6f6fa;
   --muted: #86a9b4;
   --border: #16353f;
-  --bubble-in: #0e2b36;
+  --bubble-in: #153a47;
   --bubble-in-text: #e6f6fa;
   --bubble-out: linear-gradient(135deg, var(--accent), var(--accent-2));
   --bubble-out-text: #ffffff;
@@ -208,7 +214,7 @@
   --text: #e9f5ec;
   --muted: #8fab99;
   --border: #1d3529;
-  --bubble-in: #14261d;
+  --bubble-in: #1c3327;
   --bubble-in-text: #e9f5ec;
   --bubble-out: linear-gradient(135deg, var(--accent), var(--accent-2));
   --bubble-out-text: #ffffff;
@@ -231,7 +237,7 @@
   --text: #fbeeea;
   --muted: #b39a95;
   --border: #35211f;
-  --bubble-in: #291a1c;
+  --bubble-in: #372326;
   --bubble-in-text: #fbeeea;
   --bubble-out: linear-gradient(135deg, var(--accent), var(--accent-2));
   --bubble-out-text: #ffffff;
@@ -393,7 +399,12 @@ body,
 
 /* ─────────────────── Chat wallpapers ───────────────────
    Every background is built from the palette's own tokens, so it works in all
-   eight themes and follows the accent instead of shipping a fixed picture. */
+   eight themes and follows the accent instead of shipping a fixed picture.
+
+   A wallpaper sits UNDER running text, so its job is to be felt, not seen: any
+   pattern with a period close to the height of a line of text fights with the
+   letters and makes reading tiring. That is why the repeating patterns below
+   are kept low-contrast and widely spaced. */
 .wallpaper-aurora {
   background:
     radial-gradient(1200px 600px at 10% -10%, color-mix(in srgb, var(--accent) 22%, transparent), transparent 60%),
@@ -401,8 +412,8 @@ body,
     var(--bg);
 }
 .wallpaper-dots {
-  background-image: radial-gradient(color-mix(in srgb, var(--muted) 22%, transparent) 1px, transparent 1px);
-  background-size: 22px 22px;
+  background-image: radial-gradient(color-mix(in srgb, var(--muted) 16%, transparent) 1px, transparent 1px);
+  background-size: 26px 26px;
   background-color: var(--bg);
 }
 .wallpaper-plain {
@@ -410,8 +421,8 @@ body,
 }
 .wallpaper-hearts {
   background-color: var(--bg);
-  background-image: radial-gradient(circle at 50% 40%, color-mix(in srgb, var(--accent) 14%, transparent) 8px, transparent 9px);
-  background-size: 46px 46px;
+  background-image: radial-gradient(circle at 50% 40%, color-mix(in srgb, var(--accent) 12%, transparent) 8px, transparent 9px);
+  background-size: 52px 52px;
 }
 /* Soft off-centre glows — the calm default. */
 .wallpaper-mesh {
@@ -423,24 +434,27 @@ body,
 .wallpaper-grid {
   background-color: var(--bg);
   background-image:
-    linear-gradient(color-mix(in srgb, var(--muted) 12%, transparent) 1px, transparent 1px),
-    linear-gradient(90deg, color-mix(in srgb, var(--muted) 12%, transparent) 1px, transparent 1px);
-  background-size: 28px 28px, 28px 28px;
+    linear-gradient(color-mix(in srgb, var(--muted) 9%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--muted) 9%, transparent) 1px, transparent 1px);
+  background-size: 32px 32px, 32px 32px;
 }
+/* The stripes used to be 14px wide with a 34px period — close enough to a line
+   of text that the whole history shimmered. Thinner, fainter and much further
+   apart, they now read as a texture instead of as hatching. */
 .wallpaper-waves {
   background-color: var(--bg);
   background-image: repeating-linear-gradient(
     115deg,
-    color-mix(in srgb, var(--accent) 8%, transparent) 0 14px,
-    transparent 14px 34px
+    color-mix(in srgb, var(--accent) 5%, transparent) 0 10px,
+    transparent 10px 56px
   );
 }
 /* Two offset dot grids of different sizes read as a starfield. */
 .wallpaper-stars {
   background-color: var(--bg);
   background-image:
-    radial-gradient(color-mix(in srgb, var(--text) 26%, transparent) 1px, transparent 1px),
-    radial-gradient(color-mix(in srgb, var(--accent) 30%, transparent) 1.5px, transparent 2px);
+    radial-gradient(color-mix(in srgb, var(--text) 20%, transparent) 1px, transparent 1px),
+    radial-gradient(color-mix(in srgb, var(--accent) 24%, transparent) 1.5px, transparent 2px);
   background-size: 64px 64px, 141px 121px;
   background-position: 0 0, 24px 38px;
 }
@@ -523,6 +537,17 @@ body,
 .msg-flash {
   animation: msg-flash 1.4s ease-out;
   border-radius: 18px;
+}
+/* Something went wrong and the input should say so without a modal. */
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-6px); }
+  40% { transform: translateX(5px); }
+  60% { transform: translateX(-3px); }
+  80% { transform: translateX(2px); }
+}
+.animate-shake {
+  animation: shake 0.4s ease-in-out;
 }
 @keyframes heart-pop {
   0% { transform: translate(-50%, -50%) scale(0.2); opacity: 0; }
