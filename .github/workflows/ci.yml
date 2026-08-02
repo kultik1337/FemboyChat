@@ -1,0 +1,40 @@
+# Типы и сборка — на каждом PR и на каждом пуше в main.
+#
+# Смысл один: до сих пор о сломанной сборке мы узнавали от Cloudflare Pages
+# уже после мержа в main, то есть на боевом сайте. Теперь это видно в PR.
+#
+# `npm run build` не запускает tsc (Vite просто стирает типы), поэтому проверка
+# типов — отдельный шаг. Он идёт первым: ошибка типов понятнее читается,
+# чем падение сборки, и чаще всего именно она первопричина.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Если в PR быстро прилетел ещё один коммит — старый запуск отменяется.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Типы и сборка
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # package-lock.json в репозитории нет, поэтому npm ci здесь невозможен.
+      - name: Установка зависимостей
+        run: npm install
+
+      - name: Проверка типов
+        run: npm run typecheck
+
+      - name: Сборка
+        run: npm run build
