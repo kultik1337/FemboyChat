@@ -1,5 +1,6 @@
 import { Ban, Bell, BellOff, Copy, CornerUpLeft, Download, Forward, Hash, Info, LogOut, MessageCircle, Pencil, Pin, Trash2, UserRound } from 'lucide-react'
 import { useStore } from '../../store/useStore'
+import { useBlocks, setBlocked } from '../../lib/blocks'
 import { usePeople } from './people'
 import { openForward } from './ForwardPicker'
 import type { MenuItem } from '../ui/ContextMenu'
@@ -19,6 +20,7 @@ export function useActions() {
   const toast = useStore((s) => s.toast)
   const setProfileUid = useStore((s) => s.setProfileUid)
   const setRightPanel = useStore((s) => s.setRightPanel)
+  const blocked = useBlocks()
 
   const copy = (text: string, note = 'Скопировано') => {
     navigator.clipboard?.writeText(text)
@@ -72,6 +74,9 @@ export function useActions() {
   function personMenu(uid: string): MenuItem[] {
     const p = resolve(uid)
     const backend = useStore.getState().backend!
+    // A blocked bot is simply a bot whose replies the server now refuses to
+    // insert, which is exactly what "stop the bot" is supposed to mean.
+    const isBlocked = blocked.has(uid)
     return [
       { label: 'Написать сообщение', icon: <MessageCircle size={15} />, onClick: () => startPerson(uid) },
       { label: 'Открыть профиль', icon: <UserRound size={15} />, onClick: () => setProfileUid(uid) },
@@ -89,7 +94,23 @@ export function useActions() {
       { label: 'Копировать @username', icon: <Copy size={15} />, onClick: () => copy('@' + p.username) },
       ...(p.numId ? [{ label: `Копировать ID (#${p.numId})`, icon: <Hash size={15} />, onClick: () => copy('#' + p.numId) } as MenuItem] : []),
       { kind: 'divider' },
-      { label: p.isBot ? 'Остановить бота' : 'Заблокировать', icon: <Ban size={15} />, danger: true, onClick: () => toast(p.isBot ? 'Бот остановлен (демо)' : 'Пользователь заблокирован (демо)', '🚫') },
+      {
+        label: isBlocked
+          ? (p.isBot ? 'Запустить бота' : 'Разблокировать')
+          : (p.isBot ? 'Остановить бота' : 'Заблокировать'),
+        icon: <Ban size={15} />,
+        danger: !isBlocked,
+        onClick: async () => {
+          const ok = await setBlocked(uid, !isBlocked)
+          if (!ok) return toast('Доступно только с сервером', '🚫')
+          toast(
+            isBlocked
+              ? (p.isBot ? 'Бот снова отвечает' : 'Разблокирован')
+              : (p.isBot ? 'Бот остановлен' : 'Заблокирован'),
+            isBlocked ? '✅' : '🚫',
+          )
+        },
+      },
     ]
   }
 
