@@ -9,12 +9,55 @@
  *
  * Cross-origin requests (Supabase, fonts) are not touched at all: they are left
  * to the network so auth, realtime and storage behave exactly as before.
+ *
+ * NOTHING here should ever run inside the installed desktop program — see
+ * isDesktopOrigin() below.
  */
 
-const CACHE = 'fc-shell-v2'
+/* The cache name is versioned so a bad generation can be abandoned wholesale:
+   activate() deletes every cache whose name is not the current one. Bumped to
+   v3 together with the desktop self-destruct, so desktop installs that were
+   stuck on a cached build drop everything they had. */
+const CACHE = 'fc-shell-v3'
 const SHELL = ['/', '/icon.png', '/manifest.webmanifest']
 
+/*
+ * Tauri serves the bundled interface from `http://tauri.localhost` (and
+ * `tauri://localhost` on some platforms), which the WebView treats as a
+ * perfectly ordinary origin — so this worker used to register there and start
+ * caching. That was a trap rather than a feature: the cache lives in the
+ * WebView2 profile under %LOCALAPPDATA%, which no installer ever touches, so a
+ * freshly built .exe kept being served the shell and hashed bundles captured on
+ * the very first launch. Offline support is meaningless there anyway, because
+ * the files are already inside the executable.
+ *
+ * New builds no longer register the worker at all (see src/lib/pwa.ts), but the
+ * copies already installed on people's machines have to be got rid of too — and
+ * the only code that can remove them is the worker itself, which the page keeps
+ * updating every minute. Hence the self-destruct.
+ */
+function isDesktopOrigin() {
+  const host = self.location.hostname
+  return host === 'tauri.localhost' || host.endsWith('.tauri.localhost') || self.location.protocol === 'tauri:'
+}
+
+async function selfDestruct() {
+  const keys = await caches.keys()
+  await Promise.all(keys.map((key) => caches.delete(key)))
+  await self.registration.unregister()
+  // Reload every window so the next paint comes from the real bundled files
+  // instead of whatever this worker was still answering with.
+  const windows = await self.clients.matchAll({ type: 'window' })
+  for (const client of windows) {
+    if ('navigate' in client) client.navigate(client.url).catch(() => undefined)
+  }
+}
+
 self.addEventListener('install', (event) => {
+  if (isDesktopOrigin()) {
+    event.waitUntil(self.skipWaiting())
+    return
+  }
   event.waitUntil(
     caches
       .open(CACHE)
@@ -24,6 +67,10 @@ self.addEventListener('install', (event) => {
 })
 
 self.addEventListener('activate', (event) => {
+  if (isDesktopOrigin()) {
+    event.waitUntil(selfDestruct())
+    return
+  }
   event.waitUntil(
     caches
       .keys()
@@ -47,6 +94,9 @@ function cachePut(request, response) {
 }
 
 self.addEventListener('fetch', (event) => {
+  // In the desktop program every request must go straight to the bundled files.
+  if (isDesktopOrigin()) return
+
   const request = event.request
   if (request.method !== 'GET') return
 
@@ -97,7 +147,7 @@ self.addEventListener('fetch', (event) => {
   )
 })
 
-/* ──────────────────────── Push notifications ─────────────────────── */
+/* ─────────────────────── Push notifications ─────────────────── */
 
 self.addEventListener('push', (event) => {
   let data = {}
