@@ -16,6 +16,7 @@ import { PushPrompt } from '../ui/PushPrompt'
 import { X } from '../ui/icons'
 import { classNames } from '../../lib/util'
 import { deviceInfo, deviceKey } from '../../lib/device'
+import { isDesktopApp } from '../../lib/desktop'
 import { lockEnabled, shouldLock, touchLock } from '../../lib/lock'
 import { initPwa } from '../../lib/pwa'
 import { refreshPush } from '../../lib/push'
@@ -47,6 +48,10 @@ export function AppShell() {
   const openChat = useStore((s) => s.openChat)
   const [tipHidden, setTipHidden] = useState(() => localStorage.getItem('fc:hideRealtimeTip') === '1')
   const showTip = mode === 'local' && !tipHidden
+  // Один и тот же бандл ездит в браузер и в установленное приложение, а текст
+  // подсказки про «вкладки» имеет смысл только в первом случае: в программе
+  // нет ни сайта, ни второй вкладки, и это первое, что видит пользователь.
+  const desktop = isDesktopApp()
   const animations = account?.settings.animations ?? true
   const [overlay, setOverlay] = useState<Overlay>(null)
   // Код-пароль спрашивается до первого кадра, а не после эффекта: иначе
@@ -260,7 +265,11 @@ export function AppShell() {
     <div className="safe-bottom flex h-full flex-col overflow-hidden">
       {showTip && (
         <div className="flex items-center gap-2 bg-[var(--panel-2)] px-4 py-1.5 text-xs text-[var(--muted)]">
-          <span>💡 Демо-режим: чтобы увидеть реальное время, открой сайт в <b className="text-[var(--text)]">двух отдельных окнах</b> (не «дублировать вкладку») и войди разными аккаунтами. Для синхронизации между устройствами подключи Supabase (см. README).</span>
+          {desktop ? (
+            <span>💡 Демо-режим: сервер не подключен, поэтому чаты живут <b className="text-[var(--text)]">только на этом компьютере</b> и не синхронизируются с другими устройствами.</span>
+          ) : (
+            <span>💡 Демо-режим: чтобы увидеть реальное время, открой сайт в <b className="text-[var(--text)]">двух отдельных окнах</b> (не «дублировать вкладку») и войди разными аккаунтами. Для синхронизации между устройствами подключи Supabase (см. README).</span>
+          )}
           <button onClick={() => { localStorage.setItem('fc:hideRealtimeTip', '1'); setTipHidden(true) }} className="ml-auto grid h-6 w-6 shrink-0 place-items-center rounded-full hover:bg-[var(--panel-hover)]">
             <X size={13} />
           </button>
