@@ -49,7 +49,7 @@ const SCALES = [100, 125, 150, 200]
  *
  * Те же цвета, что у темы по умолчанию в src/index.css. Установщик — первое
  * окно продукта, и он не должен выглядеть окном из другого приложения.
- * Раньше здесь жила собственная палитра: сиреневый #C98CFF вместо --accent-2
+ * Раньше здесь жила собственная палитра: сиреневый #C98CFF вместо accent-2
  * и кнопка, уходившая в розовый #FF9ECB, которого в приложении нет нигде.
  * Меняешь цвета в теме — поменяй и здесь.
  */
@@ -109,7 +109,7 @@ for (const [name, rect] of Object.entries(LAYOUT)) {
 		// r — только радиус скругления, в расстановке контролов он не участвует.
 		if (key === 'r') continue
 		if (value % 4 !== 0) {
-			console.error(`\\u2716 LAYOUT.${name}.${key} = ${value} не кратно 4`)
+			console.error(`✖ LAYOUT.${name}.${key} = ${value} не кратно 4`)
 			process.exit(1)
 		}
 	}
@@ -119,12 +119,12 @@ let sharp
 try {
 	sharp = (await import('sharp')).default
 } catch {
-	console.error('\\u2716 Для графики установщика нужен sharp: npm install sharp')
+	console.error('✖ Для графики установщика нужен sharp: npm install sharp')
 	process.exit(1)
 }
 
 if (!existsSync(iconPath)) {
-	console.error('\\u2716 Не найден icon.png в корне проекта')
+	console.error('✖ Не найден icon.png в корне проекта')
 	process.exit(1)
 }
 
@@ -191,7 +191,7 @@ function screen(checked, pxW, pxH) {
 
 		<text x="296" y="116" font-size="29" font-weight="600">Почти готово</text>
 		<g font-size="13.5" fill="${MUTED}">
-			<text x="296" y="152">Займ\\u0451т пару секунд и не потребует прав</text>
+			<text x="296" y="152">Займёт пару секунд и не потребует прав</text>
 			<text x="296" y="174">администратора. Мессенджер откроется сразу</text>
 			<text x="296" y="196">после установки.</text>
 		</g>
@@ -269,7 +269,7 @@ function assertText(img, rect, k, wantBright, name) {
 		}
 	}
 	if (hit < 120) {
-		console.error(`\\u2716 Текст "${name}" не отрисовался (${hit} точек).`)
+		console.error(`✖ Текст "${name}" не отрисовался (${hit} точек).`)
 		console.error('  Похоже, рисовалка svg не нашла системных шрифтов.')
 		process.exit(1)
 	}
@@ -341,4 +341,4 @@ for (const scale of SCALES) {
 	console.log(`  ${scale}%  ${on.w}x${on.h}`)
 }
 
-console.log(`\\u2713 Графика установщика готова (${(total / 1024 / 1024).toFixed(1)} МБ до сжатия)`)
+console.log(`✓ Графика установщика готова (${(total / 1024 / 1024).toFixed(1)} МБ до сжатия)`)
