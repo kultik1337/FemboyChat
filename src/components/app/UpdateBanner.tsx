@@ -9,6 +9,10 @@ import { APP_RELEASE } from '../../lib/version'
  * смотрит, кто ему написал, а не читает про сборки. И всегда закрывается: окно,
  * которое нельзя прогнать, раздражает сильнее, чем старая версия.
  *
+ * Кнопки — штатные .btn-primary / .btn-ghost из index.css, а не свои цвета: акцент
+ * у каждого свой и задаётся в настройках, а тем более есть светлые темы, где
+ * угаданный цвет текста превратился бы в белое по белому.
+ *
  * Ссылка открывается обычным <a target="_blank"> — тем же способом, каким в
  * приложении открываются ссылки в сообщениях. Отдельного механизма здесь не
  * изобретаем.
@@ -44,7 +48,7 @@ export function UpdateBanner() {
         style={{ boxShadow: 'var(--shadow)' }}
       >
         <div className="flex items-start gap-3">
-          <span className="text-xl leading-none">✨</span>
+          <span className="emoji text-xl leading-none">✨</span>
           <div className="min-w-0 flex-1">
             <div className="text-sm font-semibold">Вышла версия {info.version}</div>
             <div className="mt-0.5 text-xs text-[var(--muted)]">У тебя сейчас {APP_RELEASE}</div>
@@ -52,7 +56,7 @@ export function UpdateBanner() {
         </div>
 
         {info.notes && (
-          <div className="mt-3 max-h-24 overflow-y-auto whitespace-pre-line text-xs leading-relaxed text-[var(--muted)]">
+          <div className="fancy-scroll mt-3 max-h-24 overflow-y-auto whitespace-pre-line text-xs leading-relaxed text-[var(--muted)]">
             {info.notes}
           </div>
         )}
@@ -63,14 +67,11 @@ export function UpdateBanner() {
             target="_blank"
             rel="noreferrer"
             onClick={() => setHidden(true)}
-            className="flex-1 rounded-xl bg-[var(--accent)] px-3 py-2 text-center text-sm font-semibold text-[var(--on-accent)]"
+            className="btn-primary flex-1 !py-2 text-sm"
           >
             Скачать
           </a>
-          <button
-            onClick={() => setHidden(true)}
-            className="rounded-xl border border-[var(--border)] px-3 py-2 text-sm font-medium text-[var(--muted)]"
-          >
+          <button onClick={() => setHidden(true)} className="btn-ghost !py-2 text-sm">
             Позже
           </button>
         </div>
