@@ -6,6 +6,7 @@ import { Landing } from './components/landing/Landing'
 import { Auth } from './components/auth/Auth'
 import { AppShell } from './components/app/AppShell'
 import { Welcome, welcomeSeen } from './components/app/Welcome'
+import { UpdateBanner } from './components/app/UpdateBanner'
 import { Toasts } from './components/ui/Toasts'
 import { ContextMenu } from './components/ui/ContextMenu'
 import { Effects } from './components/ui/Effects'
@@ -101,6 +102,10 @@ export default function App() {
       {route === 'auth' && <Auth />}
       {route === 'app' && <AppShell />}
       {showWelcome && <Welcome onDone={() => setGreeted(true)} />}
+      {/* Только в работающем приложении и не поверх приветствия: человек,
+          который только что завёл аккаунт, не должен первым делом читать про
+          установщик. В браузере компонент ничего не рисует сам. */}
+      {route === 'app' && !showWelcome && <UpdateBanner />}
       <Toasts />
       <ContextMenu />
       <Effects />
