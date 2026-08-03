@@ -1,6 +1,6 @@
 [package]
 name = "femboychat"
-version = "1.0.2"
+version = "1.0.3"
 description = "FemboyChat — десктопное приложение"
 authors = ["kultik1337"]
 edition = "2021"
