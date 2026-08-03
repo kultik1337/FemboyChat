@@ -5,8 +5,13 @@
  * reading JSON from TypeScript needs `resolveJsonModule` and Node types, and
  * `npm run typecheck` has neither. Bump this together with package.json,
  * src-tauri/tauri.conf.json and src-tauri/Cargo.toml.
+ *
+ * С появлением проверки обновлений (src/lib/update.ts) у этой строки
+ * появилась вторая роль: именно с ней сравнивается номер последнего релиза
+ * на GitHub. Если забыть поднять её перед тегом, собранное приложение будет
+ * вечно предлагать обновиться само до себя же.
  */
-export const APP_RELEASE = '1.0.2'
+export const APP_RELEASE = '1.0.3'
 
 /**
  * Replaced by Vite at build time (see `define` in vite.config.ts). It does not
