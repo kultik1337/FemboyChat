@@ -1,6 +1,6 @@
 {
   "identifier": "default",
-  "description": "Права, которые нужны кастомной верхней плашке: свернуть, развернуть, закрыть и таскать окно за шапку. Ничего лишнего веб-части не выдано.",
+  "description": "Права, которые нужны кастомной верхней плашке (свернуть, развернуть, закрыть, таскать окно за шапку) и системным уведомлениям о новых сообщениях. Ничего лишнего веб-части не выдано: ни файловой системы, ни запуска процессов, ни буфера обмена.",
   "windows": ["main"],
   "permissions": [
     "core:default",
@@ -11,6 +11,7 @@
     "core:window:allow-toggle-maximize",
     "core:window:allow-is-maximized",
     "core:window:allow-close",
-    "core:window:allow-start-dragging"
+    "core:window:allow-start-dragging",
+    "notification:default"
   ]
 }
