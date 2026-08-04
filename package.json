@@ -1,7 +1,7 @@
 {
   "name": "femboychat",
   "private": true,
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "FemboyChat — современный real-time мессенджер для РУ-сегмента (Telegram-подобный аналог).",
   "type": "module",
   "scripts": {
