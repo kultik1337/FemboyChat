@@ -534,11 +534,13 @@ export function ChatView() {
                   </div>
                 )}
                 {/*
-                  Выделенная строка — аккуратная скруглённая плашка с обводкой, а
-                  не полоса во всю ширину: полоса до краёв выглядела как
-                  сломанная вёрстка, а не как выбор.
+                  Выделенная строка — ровная подсветка во всю ширину строки, без
+                  рамки и без отступов по бокам: скруглённая плашка с обводкой
+                  рисовала вокруг сообщения огромный прямоугольник, и это
+                  выглядело как сломанная вёрстка, а не как выбор. Так же ведёт
+                  себя Телеграм: подсвечивается строка, а не пузырь.
                 */}
-                <div className={classNames('relative min-w-0 transition-colors', isPicked && 'mx-1.5 rounded-2xl bg-[var(--accent)]/12 ring-1 ring-inset ring-[var(--accent)]/35 sm:mx-2')}>
+                <div className={classNames('group/pick relative min-w-0 transition-colors', isPicked && 'bg-[var(--accent)]/10')}>
                   <MessageBubble
                     message={m}
                     chat={chat}
@@ -563,9 +565,9 @@ export function ChatView() {
                     instead of doing its usual thing. Touch events stop here too,
                     otherwise the swipe-to-reply handler underneath would fire.
 
-                    Кружок стоит с той же стороны, где сам пузырь: у своих
-                    сообщений он висел в пустоте у левого края, будто
-                    оторвавшись от строки.
+                    Кружок стоит с той же стороны, где сам пузырь, и пока
+                    сообщение не выбрано — почти прозрачный: колонка ярких пустых
+                    кружков вдоль всей истории отвлекала на себя всё внимание.
                   */}
                   {selectMode && !m.system && (
                     <button
@@ -573,17 +575,19 @@ export function ChatView() {
                       onTouchStart={(e) => e.stopPropagation()}
                       onTouchMove={(e) => e.stopPropagation()}
                       onTouchEnd={(e) => e.stopPropagation()}
-                      className={classNames('absolute inset-0 z-[6] flex items-center px-2 sm:px-3', isMine ? 'justify-end' : 'justify-start')}
+                      className={classNames('absolute inset-0 z-[6] flex items-center px-1.5 sm:px-2', isMine ? 'justify-end' : 'justify-start')}
                       aria-pressed={isPicked}
                       aria-label={isPicked ? 'Снять выделение' : 'Выделить сообщение'}
                     >
                       <span
                         className={classNames(
-                          'grid h-6 w-6 shrink-0 place-items-center rounded-full border-2 shadow-sm transition',
-                          isPicked ? 'accent-gradient border-transparent text-white' : 'border-[var(--border)] bg-[var(--panel)] text-transparent',
+                          'grid h-[22px] w-[22px] shrink-0 place-items-center rounded-full transition',
+                          isPicked
+                            ? 'accent-gradient text-white opacity-100 shadow-sm'
+                            : 'border border-[var(--border)] bg-[var(--panel)]/70 text-transparent opacity-40 group-hover/pick:opacity-90',
                         )}
                       >
-                        <Check size={14} />
+                        <Check size={13} strokeWidth={3} />
                       </span>
                     </button>
                   )}
