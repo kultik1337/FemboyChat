@@ -15,7 +15,7 @@
  * ли релиз вообще (.github/workflows/desktop-release.yml). Все четыре места обязаны
  * совпадать, иначе тег и имя установщика разъедутся.
  */
-export const APP_RELEASE = '1.0.4'
+export const APP_RELEASE = '1.0.5'
 
 /**
  * Replaced by Vite at build time (see `define` in vite.config.ts). It does not
