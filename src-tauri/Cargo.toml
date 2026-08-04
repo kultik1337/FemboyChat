@@ -10,13 +10,18 @@ rust-version = "1.77"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+# tray-icon — значок возле часов. Без этой возможности TrayIconBuilder
+# просто не существует и сборка не соберётся.
+tauri = { version = "2", features = ["tray-icon"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # Размер и положение окна запоминаются между запусками.
 tauri-plugin-window-state = "2"
 # Второй запуск не плодит копию, а поднимает уже открытое окно.
 tauri-plugin-single-instance = "2"
+# Системные уведомления: в WebView2 браузерного Notification API нет,
+# показывать их умеет только сама оболочка.
+tauri-plugin-notification = "2"
 
 # Установщик скачивают руками, поэтому размер важнее последних процентов
 # скорости: вся тяжелая работа всё равно идёт в WebView.
