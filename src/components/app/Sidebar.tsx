@@ -1,14 +1,16 @@
-import { useMemo, useState } from 'react'
-import { Menu, Pencil, Pin, Search, Settings, VolumeX } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { Menu, Pencil, Pin, Search, Settings, SlidersHorizontal, VolumeX } from 'lucide-react'
 import { useStore } from '../../store/useStore'
 import { Avatar } from '../ui/Avatar'
 import { chatCounterpart, usePeople } from './people'
 import { SearchResults } from './SearchResults'
+import { FolderManager } from './FolderManager'
 import { useActions } from './useActions'
 import { openContextMenu } from '../ui/ContextMenu'
 import { Logo } from '../ui/Logo'
 import { Verified } from '../ui/Verified'
 import { attachmentLabel } from '../../lib/media'
+import { FOLDER_EVENT, loadFolders, type ChatFolder } from '../../lib/folders'
 import { classNames, plainText, timeShort } from '../../lib/util'
 import type { Chat } from '../../types'
 
@@ -18,6 +20,8 @@ const FOLDERS = [
   { id: 'group', label: 'Группы' },
   { id: 'channel', label: 'Каналы' },
 ] as const
+
+const BUILTIN_IDS: readonly string[] = FOLDERS.map((f) => f.id)
 
 /**
  * A preview row is one short line, so a raw link eats all of it and tells the
@@ -53,15 +57,39 @@ export function Sidebar() {
   const { resolve } = usePeople()
   const { chatMenu } = useActions()
 
-  const [folder, setFolder] = useState<(typeof FOLDERS)[number]['id']>('all')
+  const [folder, setFolder] = useState<string>('all')
   const [menuOpen, setMenuOpen] = useState(false)
+  /** Свои папки — из localStorage этого устройства, см. lib/folders.ts. */
+  const [custom, setCustom] = useState<ChatFolder[]>(() => loadFolders(account.uid))
+  const [foldersOpen, setFoldersOpen] = useState(false)
   const searching = searchQuery.trim().length > 0
 
+  // Редактор сохраняет папки и стреляет событием — панель обновляется сразу,
+  // без перезагрузки и без общего состояния в сторе.
+  useEffect(() => {
+    const sync = () => setCustom(loadFolders(account.uid))
+    window.addEventListener(FOLDER_EVENT, sync)
+    return () => window.removeEventListener(FOLDER_EVENT, sync)
+  }, [account.uid])
+
+  const activeCustom = custom.find((f) => f.id === folder) ?? null
+
+  // Удалённая папка не должна оставить список пустым навсегда.
+  useEffect(() => {
+    if (!BUILTIN_IDS.includes(folder) && !custom.some((f) => f.id === folder)) setFolder('all')
+  }, [custom, folder])
+
   const filtered = useMemo(() => {
+    if (activeCustom) return chats.filter((c) => activeCustom.chatIds.includes(c.id))
     if (folder === 'all') return chats
     if (folder === 'dm') return chats.filter((c) => c.type === 'dm' || c.type === 'bot' || c.type === 'saved')
     return chats.filter((c) => c.type === folder)
-  }, [chats, folder])
+  }, [chats, folder, activeCustom])
+
+  /** Непрочитанные внутри папки — иначе папка прячет от тебя сообщения. */
+  function folderUnread(f: ChatFolder) {
+    return f.chatIds.reduce((sum, id) => sum + (unread[id] ?? 0), 0)
+  }
 
   function chatVisual(c: Chat) {
     if (c.type === 'dm' || c.type === 'bot') {
@@ -108,6 +136,7 @@ export function Sidebar() {
               <div className="absolute left-0 top-12 z-30 w-56 rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-1.5 shadow-xl animate-pop-in" style={{ boxShadow: 'var(--shadow)' }}>
                 <MenuItem onClick={() => { setMenuOpen(false); setNewChatKind('group') }}>👥 Новая группа</MenuItem>
                 <MenuItem onClick={() => { setMenuOpen(false); setNewChatKind('channel') }}>📣 Новый канал</MenuItem>
+                <MenuItem onClick={() => { setMenuOpen(false); setFoldersOpen(true) }}>📁 Папки чатов</MenuItem>
                 <MenuItem onClick={() => { setMenuOpen(false); setSettingsOpen(true) }}>⚙️ Настройки</MenuItem>
                 <MenuItem onClick={() => { setMenuOpen(false); logout() }}>🚪 Выйти / сменить аккаунт</MenuItem>
               </div>
@@ -135,7 +164,7 @@ export function Sidebar() {
       ) : (
         <>
           {/* folders */}
-          <div className="no-scrollbar flex gap-1 overflow-x-auto px-3 pb-2">
+          <div className="no-scrollbar flex items-center gap-1 overflow-x-auto px-3 pb-2">
             {FOLDERS.map((f) => (
               <button
                 key={f.id}
@@ -148,13 +177,51 @@ export function Sidebar() {
                 {f.label}
               </button>
             ))}
+            {custom.map((f) => {
+              const count = folderUnread(f)
+              return (
+                <button
+                  key={f.id}
+                  onClick={() => setFolder(f.id)}
+                  onContextMenu={(e) => {
+                    e.preventDefault()
+                    setFoldersOpen(true)
+                  }}
+                  className={classNames(
+                    'flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-semibold transition',
+                    folder === f.id ? 'accent-gradient text-white' : 'text-[var(--muted)] hover:bg-[var(--panel-hover)]',
+                  )}
+                  title={`Чатов в папке: ${f.chatIds.length}`}
+                >
+                  <span className="emoji">{f.emoji}</span>
+                  <span className="max-w-[9rem] truncate">{f.name}</span>
+                  {count > 0 && (
+                    <span
+                      className={classNames(
+                        'grid h-4 min-w-4 place-items-center rounded-full px-1 text-[10px] font-black tabular-nums',
+                        folder === f.id ? 'bg-white/25 text-white' : 'accent-gradient text-white',
+                      )}
+                    >
+                      {count > 99 ? '99+' : count}
+                    </span>
+                  )}
+                </button>
+              )
+            })}
+            <button
+              onClick={() => setFoldersOpen(true)}
+              className="grid h-8 w-8 shrink-0 place-items-center rounded-full text-[var(--muted)] transition hover:bg-[var(--panel-hover)] hover:text-[var(--text)]"
+              title="Настроить папки"
+            >
+              <SlidersHorizontal size={16} />
+            </button>
           </div>
 
           {/* chat list */}
           <div className="fancy-scroll flex-1 overflow-y-auto px-2 pb-3">
             {filtered.length === 0 && (
               <div className="mt-10 px-6 text-center text-sm text-[var(--muted)]">
-                Пока пусто. Найди кого-нибудь через поиск ✨
+                {activeCustom ? 'В этой папке пока пусто — добавь в неё чаты 📁' : 'Пока пусто. Найди кого-нибудь через поиск ✨'}
               </div>
             )}
             {filtered.map((c) => {
@@ -207,7 +274,7 @@ export function Sidebar() {
       {/* profile footer */}
       <button
         onClick={() => setSettingsOpen(true)}
-        onContextMenu={(e) => openContextMenu(e, [{ label: 'Настройки', onClick: () => setSettingsOpen(true) }, { label: 'Выйти / сменить аккаунт', danger: true, onClick: () => logout() }])}
+        onContextMenu={(e) => openContextMenu(e, [{ label: 'Настройки', onClick: () => setSettingsOpen(true) }, { label: 'Папки чатов', onClick: () => setFoldersOpen(true) }, { label: 'Выйти / сменить аккаунт', danger: true, onClick: () => logout() }])}
         className="flex items-center gap-3 border-t border-[var(--border)] px-3 py-3 text-left hover:bg-[var(--panel-hover)]"
       >
         <Avatar emoji={account.emoji} color={account.color} src={account.avatarUrl} size={40} />
@@ -217,6 +284,8 @@ export function Sidebar() {
         </div>
         <Pencil size={16} className="text-[var(--muted)]" />
       </button>
+
+      <FolderManager open={foldersOpen} onClose={() => setFoldersOpen(false)} />
     </div>
   )
 }
