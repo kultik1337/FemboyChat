@@ -18,6 +18,7 @@ export function isDesktopApp(): boolean {
 export function initDesktop(): void {
   if (!isDesktopApp()) return
   document.documentElement.classList.add('is-desktop')
+  installNotificationShim()
 }
 
 type AppWindow = {
@@ -75,5 +76,84 @@ export async function onWindowResized(cb: () => void): Promise<() => void> {
     return await w.onResized(cb)
   } catch {
     return () => {}
+  }
+}
+
+/* --- Системные уведомления ------------------------------------------------ */
+
+type NotificationPlugin = {
+  isPermissionGranted: () => Promise<boolean>
+  requestPermission: () => Promise<string>
+  sendNotification: (options: { title: string; body?: string }) => void
+}
+
+let plugin: Promise<NotificationPlugin | null> | null = null
+
+function notifications(): Promise<NotificationPlugin | null> {
+  if (!isDesktopApp()) return Promise.resolve(null)
+  if (!plugin) {
+    plugin = import('@tauri-apps/plugin-notification')
+      .then((m) => m as unknown as NotificationPlugin)
+      .catch(() => null)
+  }
+  return plugin
+}
+
+/**
+ * Показать уведомление силами системы. Право спрашивается лениво — в тот
+ * момент, когда показать уже есть что, а не на старте: запрос в пустоту
+ * раздражает и чаще всего получает отказ.
+ */
+async function sendSystemNotification(title: string, body?: string): Promise<void> {
+  const api = await notifications()
+  if (!api) return
+  try {
+    let allowed = await api.isPermissionGranted()
+    if (!allowed) allowed = (await api.requestPermission()) === 'granted'
+    if (allowed) api.sendNotification({ title, body })
+  } catch {
+    /* уведомление — не причина ломать чат */
+  }
+}
+
+/**
+ * Подмена глобального `Notification` внутри приложения.
+ *
+ * WebView2 не реализует браузерные уведомления: обычный `new Notification(...)`
+ * внутри окна либо бросает, либо молча ничего не показывает — именно поэтому
+ * в приложении уведомлений не было, хотя в браузере они работали.
+ *
+ * Вместо того чтобы разводить по всему коду ветки «если десктоп — одно, иначе
+ * другое», подменяется сам глобальный класс. Вся остальная логика (когда
+ * уведомлять, что писать, уважать ли настройки и беззвучные чаты) остаётся
+ * ровно одна и та же для браузера и приложения.
+ *
+ * Класс подменяется безусловно, даже если WebView2 вдруг отдаёт свой:
+ * тот, что он отдаёт, всё равно ничего не рисует.
+ */
+function installNotificationShim(): void {
+  class DesktopNotification {
+    static permission = 'granted'
+
+    static requestPermission(): Promise<string> {
+      return Promise.resolve('granted')
+    }
+
+    constructor(title: string, options?: { body?: string }) {
+      void sendSystemNotification(title, options?.body)
+    }
+
+    /** Системное уведомление закрывает сама Windows, закрывать нечего. */
+    close(): void {}
+  }
+
+  try {
+    Object.defineProperty(window, 'Notification', {
+      value: DesktopNotification,
+      configurable: true,
+      writable: true,
+    })
+  } catch {
+    /* если окружение не даёт подменить — остаёмся без уведомлений, но живые */
   }
 }
