@@ -10,7 +10,6 @@ import { chatCounterpart, usePeople } from './people'
 import { useActions } from './useActions'
 import { openContextMenu } from '../ui/ContextMenu'
 import { attachmentLabel } from '../../lib/media'
-import { isDesktopApp } from '../../lib/desktop'
 import { classNames, dayLabel, lastSeenLabel, plainText, renderRich, timeShort } from '../../lib/util'
 import type { Chat, Message } from '../../types'
 
@@ -486,12 +485,13 @@ export function ChatView() {
       <div className="relative min-h-0 min-w-0 flex-1">
         <div ref={scroller} onScroll={onScroll} onClick={onScrollerClick} className={classNames('relative z-[2] h-full overflow-y-auto overflow-x-hidden py-3 fancy-scroll', `wallpaper-${wallpaper}`)}>
           {/*
-            Колонка сообщений центрируется: на широком экране пузыри занимают
-            долю от ширины панели, поэтому без ограничения текст прижимался влево,
-            а справа оставалась пустая полоса обоев. Скроллом по-прежнему
-            управляет родитель, поэтому вся логика прокрутки не меняется.
+            Колонка сообщений центрируется, но ограничение специально широкое:
+            узкая колонка посреди большого окна выглядела так, будто сообщения
+            отодвинули от краёв и оставили по бокам пустые полосы обоев. Скроллом
+            по-прежнему управляет родитель, поэтому вся логика прокрутки не
+            меняется.
           */}
-          <div className="mx-auto w-full max-w-[1000px]">
+          <div className="mx-auto w-full max-w-[1400px]">
           {paging && (
             <div className="flex justify-center py-2">
               <span className="rounded-full bg-[var(--panel)] px-3 py-1 text-xs font-semibold text-[var(--muted)] shadow-sm">Загружаем историю…</span>
@@ -516,6 +516,9 @@ export function ChatView() {
             const sender = resolve(m.senderUid)
             const replied = m.replyToId ? msgs.find((x) => x.id === m.replyToId) : undefined
             const isPicked = selectedIds.includes(m.id)
+            /* A channel post belongs to the channel, not to whoever pressed
+               publish — so it always renders on the left, like in Telegram. */
+            const isMine = !isChannel && m.senderUid === account.uid
             return (
               <div key={m.id} className={classNames('min-w-0', m.pending && 'opacity-60 transition-opacity', m.failed && 'opacity-80')}>
                 {newDay && (
@@ -530,13 +533,16 @@ export function ChatView() {
                     <span className="h-px flex-1 bg-[var(--accent)]/40" />
                   </div>
                 )}
-                <div className={classNames('relative min-w-0', isPicked && 'msg-selected')}>
+                {/*
+                  Выделенная строка — аккуратная скруглённая плашка с обводкой, а
+                  не полоса во всю ширину: полоса до краёв выглядела как
+                  сломанная вёрстка, а не как выбор.
+                */}
+                <div className={classNames('relative min-w-0 transition-colors', isPicked && 'mx-1.5 rounded-2xl bg-[var(--accent)]/12 ring-1 ring-inset ring-[var(--accent)]/35 sm:mx-2')}>
                   <MessageBubble
                     message={m}
                     chat={chat}
-                    /* A channel post belongs to the channel, not to whoever pressed
-                       publish — so it always renders on the left, like in Telegram. */
-                    isMine={!isChannel && m.senderUid === account.uid}
+                    isMine={isMine}
                     sender={sender}
                     firstOfGroup={firstOfGroup}
                     showAvatar={lastOfGroup}
@@ -556,6 +562,10 @@ export function ChatView() {
                     anywhere — on a link, a photo, a reaction — picks the message
                     instead of doing its usual thing. Touch events stop here too,
                     otherwise the swipe-to-reply handler underneath would fire.
+
+                    Кружок стоит с той же стороны, где сам пузырь: у своих
+                    сообщений он висел в пустоте у левого края, будто
+                    оторвавшись от строки.
                   */}
                   {selectMode && !m.system && (
                     <button
@@ -563,7 +573,7 @@ export function ChatView() {
                       onTouchStart={(e) => e.stopPropagation()}
                       onTouchMove={(e) => e.stopPropagation()}
                       onTouchEnd={(e) => e.stopPropagation()}
-                      className="absolute inset-0 z-[6] flex items-center px-2 sm:px-3"
+                      className={classNames('absolute inset-0 z-[6] flex items-center px-2 sm:px-3', isMine ? 'justify-end' : 'justify-start')}
                       aria-pressed={isPicked}
                       aria-label={isPicked ? 'Снять выделение' : 'Выделить сообщение'}
                     >
@@ -861,20 +871,12 @@ function Dot() {
 }
 
 function EmptyState() {
-  // Тот же бандл работает и в браузере, и в установленной программе. Совет
-  // «открой сайт во второй вкладке» в программе бессмыслен: там нет ни сайта,
-  // ни вкладок, а это первый экран после запуска.
-  const desktop = isDesktopApp()
   return (
     <div className="grid h-full place-items-center" style={{ background: 'linear-gradient(160deg, var(--bg-grad-1), var(--bg-grad-2))' }}>
       <div className="flex max-w-sm flex-col items-center gap-3 px-6 text-center">
         <Logo size={80} className="!rounded-3xl animate-float" />
         <h2 className="text-xl font-black">Добро пожаловать в FemboyChat</h2>
-        <p className="text-sm text-[var(--muted)]">
-          {desktop
-            ? 'Выбери чат слева или найди новых собеседников через поиск. Ctrl+K — быстрый поиск ✨'
-            : 'Выбери чат слева или найди новых собеседников через поиск. Ctrl+K — быстрый поиск ✨'}
-        </p>
+        <p className="text-sm text-[var(--muted)]">Выбери чат слева или найди новых собеседников через поиск. Ctrl+K — быстрый поиск ✨</p>
       </div>
     </div>
   )
