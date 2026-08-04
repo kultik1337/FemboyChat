@@ -7,6 +7,7 @@ import { Auth } from './components/auth/Auth'
 import { AppShell } from './components/app/AppShell'
 import { Welcome, welcomeSeen } from './components/app/Welcome'
 import { UpdateBanner } from './components/app/UpdateBanner'
+import { ScheduledPanel } from './components/app/ScheduledPanel'
 import { Toasts } from './components/ui/Toasts'
 import { ContextMenu } from './components/ui/ContextMenu'
 import { Effects } from './components/ui/Effects'
@@ -106,6 +107,10 @@ export default function App() {
           который только что завёл аккаунт, не должен первым делом читать про
           установщик. В браузере компонент ничего не рисует сам. */}
       {route === 'app' && !showWelcome && <UpdateBanner />}
+      {/* Окно отложенных сообщений живёт здесь, а не внутри чата: оно показывает
+          заготовки сразу по всем чатам и не должно зависеть от того, какой диалог
+          открыт. Само по себе ничего не рисует, пока его не откроют. */}
+      {route === 'app' && <ScheduledPanel />}
       <Toasts />
       <ContextMenu />
       <Effects />
