@@ -8,6 +8,7 @@ import { initViewport } from './lib/viewport'
 import { initTouchContextMenu } from './lib/longPress'
 import { initSounds } from './lib/sound'
 import { initDesktop } from './lib/desktop'
+import { installSettingsGuard } from './lib/settingsGuard'
 
 // Requested before mount so the emoji font is usually ready by first paint,
 // but never awaited -- the app must not wait on a font.
@@ -25,6 +26,10 @@ initTouchContextMenu()
 
 // Gives the chat its own send/receive sounds (synthesised, no audio files).
 initSounds()
+
+// Ни один аккаунт не попадёт в интерфейс с неполными настройками — иначе экран
+// «Оформление» и приветствие падают при отрисовке (чёрный экран).
+installSettingsGuard()
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
