@@ -46,9 +46,47 @@ function isTyping(): boolean {
 	return tag === 'INPUT' || tag === 'TEXTAREA' || (el instanceof HTMLElement && el.isContentEditable)
 }
 
+function upsertMeta(name: string, content: string): void {
+	let tag = document.querySelector(`meta[name="${name}"]`)
+	if (!tag) {
+		tag = document.createElement('meta')
+		tag.setAttribute('name', name)
+		document.head.appendChild(tag)
+	}
+	tag.setAttribute('content', content)
+}
+
+/**
+ * Полный экран в режиме «На экран Домой».
+ *
+ * Без `viewport-fit=cover` iOS честно оставляет сверху и снизу полосы цвета
+ * фона страницы и вообще не даёт странице залезть под часы — именно эти
+ * рамки и раздражают. `apple-mobile-web-app-capable` запускает ярлык без
+ * интерфейса Safari, а `black-translucent` пускает фон под статус-бар.
+ *
+ * Меты ставятся из кода, а не в index.html: сборка одна и та же для сайта и для
+ * десктопной оболочки, и править шаблон ради телефона не хочется.
+ */
+function installAppMeta(): void {
+	const viewport = document.querySelector('meta[name="viewport"]')
+	const wanted = 'width=device-width, initial-scale=1, viewport-fit=cover'
+	if (viewport) {
+		const current = viewport.getAttribute('content') ?? ''
+		if (!current.includes('viewport-fit')) viewport.setAttribute('content', `${current}, viewport-fit=cover`.replace(/^, /, ''))
+	} else {
+		upsertMeta('viewport', wanted)
+	}
+	upsertMeta('apple-mobile-web-app-capable', 'yes')
+	upsertMeta('mobile-web-app-capable', 'yes')
+	upsertMeta('apple-mobile-web-app-status-bar-style', 'black-translucent')
+	upsertMeta('apple-mobile-web-app-title', 'FemboyChat')
+}
+
 export function initViewport(): void {
 	if (started) return
 	started = true
+
+	installAppMeta()
 
 	const vv = window.visualViewport
 	// No visualViewport (older engines, most desktops) -> the CSS fallback of

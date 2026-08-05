@@ -1,0 +1,78 @@
+/*
+  Телефонная версия: полный экран и честная прокрутка.
+
+  Подключается после index.css и ничего там не переопределяет — только добавляет
+  правила для сенсорных экранов и для режима «добавлено на главный экран».
+*/
+
+@media (max-width: 900px), (pointer: coarse) {
+  /*
+    Главная боль: жест вниз уводил всю страницу, а не список. Браузер
+    отдавал жест документу — получался резиновый откат и pull-to-refresh
+    вместо прокрутки чатов. Документ больше не скроллится вообще: всё,
+    что листается, живёт внутри оболочки.
+  */
+  html,
+  body {
+    height: 100%;
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+
+  body {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    /* Убирает задержку 300ms перед кликом, но оставляет прокрутку и зум. */
+    touch-action: manipulation;
+  }
+
+  /*
+    Любая внутренняя область докручивается до края и не передаёт жест
+    соседям: иначе конец истории в чате начинал тянуть список чатов.
+  */
+  .fancy-scroll,
+  .no-scrollbar,
+  .overflow-y-auto,
+  .overflow-x-auto {
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* На пальце полосы прокрутки — только мусор поверх сообщений. */
+  .fancy-scroll::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+  }
+
+  /* Палец толще курсора: мелкие круглые кнопки чуть подрастают. */
+  button {
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+
+/*
+  Режим приложения («На экран Домой» на iPhone, установленная PWA на Android).
+
+  Системные полосы сверху и снизу раздражали потому, что их красил белый
+  фон страницы, а не сам мессенджер. Теперь фон уходит под часы и под
+  полоску жестов, а сама оболочка отступает ровно на безопасную зону, чтобы
+  шапка чата не уезжала под время. Десктопная оболочка исключена: там своя
+  шапка окна и безопасных зон нет.
+*/
+@media (display-mode: standalone), (display-mode: fullscreen), (display-mode: minimal-ui) {
+  html:not(.is-desktop),
+  html:not(.is-desktop) body {
+    background: var(--bg);
+  }
+
+  html:not(.is-desktop) #root {
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  /* Клавиатура съедает полоску жестов — пустой полосе там быть нечего. */
+  html.kb-open:not(.is-desktop) #root {
+    padding-bottom: 0;
+  }
+}
