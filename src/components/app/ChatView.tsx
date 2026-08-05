@@ -516,6 +516,7 @@ export function ChatView() {
             const sender = resolve(m.senderUid)
             const replied = m.replyToId ? msgs.find((x) => x.id === m.replyToId) : undefined
             const isPicked = selectedIds.includes(m.id)
+            const pickable = selectMode && !m.system
             /* A channel post belongs to the channel, not to whoever pressed
                publish — so it always renders on the left, like in Telegram. */
             const isMine = !isChannel && m.senderUid === account.uid
@@ -534,13 +535,19 @@ export function ChatView() {
                   </div>
                 )}
                 {/*
-                  Выделенная строка — ровная подсветка во всю ширину строки, без
-                  рамки и без отступов по бокам: скруглённая плашка с обводкой
-                  рисовала вокруг сообщения огромный прямоугольник, и это
-                  выглядело как сломанная вёрстка, а не как выбор. Так же ведёт
-                  себя Телеграм: подсвечивается строка, а не пузырь.
+                  Выделение устроено как в Телеграме: кружок живёт в собственной
+                  колонке слева, а вся строка на время выбора сдвигается вправо.
+                  Раньше кружок лежал поверх пузыря и наезжал на текст — короткие
+                  сообщения он закрывал целиком. Сдвиг отдан CSS-переходу, чтобы
+                  вход в режим выбора не выглядел рывком.
                 */}
-                <div className={classNames('group/pick relative min-w-0 transition-colors', isPicked && 'bg-[var(--accent)]/10')}>
+                <div
+                  className={classNames(
+                    'group/pick relative min-w-0 transition-[background-color,padding] duration-150',
+                    pickable && 'pl-11 sm:pl-12',
+                    isPicked && 'bg-[var(--accent)]/10',
+                  )}
+                >
                   <MessageBubble
                     message={m}
                     chat={chat}
@@ -564,27 +571,23 @@ export function ChatView() {
                     anywhere — on a link, a photo, a reaction — picks the message
                     instead of doing its usual thing. Touch events stop here too,
                     otherwise the swipe-to-reply handler underneath would fire.
-
-                    Кружок стоит с той же стороны, где сам пузырь, и пока
-                    сообщение не выбрано — почти прозрачный: колонка ярких пустых
-                    кружков вдоль всей истории отвлекала на себя всё внимание.
                   */}
-                  {selectMode && !m.system && (
+                  {pickable && (
                     <button
                       onClick={() => toggleSelect(m.id)}
                       onTouchStart={(e) => e.stopPropagation()}
                       onTouchMove={(e) => e.stopPropagation()}
                       onTouchEnd={(e) => e.stopPropagation()}
-                      className={classNames('absolute inset-0 z-[6] flex items-center px-1.5 sm:px-2', isMine ? 'justify-end' : 'justify-start')}
+                      className="absolute inset-y-0 left-0 right-0 z-[6] flex items-center"
                       aria-pressed={isPicked}
                       aria-label={isPicked ? 'Снять выделение' : 'Выделить сообщение'}
                     >
                       <span
                         className={classNames(
-                          'grid h-[22px] w-[22px] shrink-0 place-items-center rounded-full transition',
+                          'ml-3 grid h-[22px] w-[22px] shrink-0 place-items-center rounded-full transition sm:ml-3.5',
                           isPicked
-                            ? 'accent-gradient text-white opacity-100 shadow-sm'
-                            : 'border border-[var(--border)] bg-[var(--panel)]/70 text-transparent opacity-40 group-hover/pick:opacity-90',
+                            ? 'accent-gradient text-white shadow-sm'
+                            : 'border-2 border-[var(--border)] bg-[var(--panel)]/70 text-transparent',
                         )}
                       >
                         <Check size={13} strokeWidth={3} />
