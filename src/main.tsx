@@ -2,6 +2,8 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App'
 import './index.css'
+// Только дополнения для сенсорных экранов и режима приложения — после index.css.
+import './mobile.css'
 import TitleBar from './components/desktop/TitleBar'
 import { loadEmojiFont } from './lib/emojiFont'
 import { initViewport } from './lib/viewport'
