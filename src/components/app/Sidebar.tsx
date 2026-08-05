@@ -11,6 +11,7 @@ import { Logo } from '../ui/Logo'
 import { Verified } from '../ui/Verified'
 import { attachmentLabel } from '../../lib/media'
 import { FOLDER_EVENT, loadFolders, type ChatFolder } from '../../lib/folders'
+import { useHScroll } from '../../lib/hscroll'
 import { classNames, plainText, timeShort } from '../../lib/util'
 import type { Chat } from '../../types'
 
@@ -62,6 +63,8 @@ export function Sidebar() {
   /** Свои папки — из localStorage этого устройства, см. lib/folders.ts. */
   const [custom, setCustom] = useState<ChatFolder[]>(() => loadFolders(account.uid))
   const [foldersOpen, setFoldersOpen] = useState(false)
+  /** Полоска фильтров шире панели, поэтому её надо уметь листать и мышью. */
+  const foldersRef = useHScroll<HTMLDivElement>()
   const searching = searchQuery.trim().length > 0
 
   // Редактор сохраняет папки и стреляет событием — панель обновляется сразу,
@@ -164,7 +167,7 @@ export function Sidebar() {
       ) : (
         <>
           {/* folders */}
-          <div className="no-scrollbar flex items-center gap-1 overflow-x-auto px-3 pb-2">
+          <div ref={foldersRef} className="no-scrollbar flex touch-pan-x select-none items-center gap-1 overflow-x-auto px-3 pb-2">
             {FOLDERS.map((f) => (
               <button
                 key={f.id}
