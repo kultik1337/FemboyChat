@@ -5,6 +5,11 @@
   Настоящая граница — в базе: каждая admin_* RPC первым делом проверяет
   fc_is_admin() и выдана только роли authenticated. Подмена флага в браузере
   не даёт ни одного байта данных.
+
+  Оформление берёт только те токены, которые реально есть в index.css:
+  --panel, --panel-2, --panel-hover, --border, --text, --muted, --accent.
+  Любая выдуманная переменная — это невалидный цвет, то есть молча
+  исчезающая рамка или фон, а не ошибка сборки.
 */
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useStore } from '../../store/useStore'
@@ -49,11 +54,14 @@ function cx(...parts: Array<string | false | null | undefined>): string {
   return parts.filter(Boolean).join(' ')
 }
 
-/* ── мелкие примитивы ──────────────────────────────────────────────────── */
+/* ── мелкие примитивы ─────────────────────────────────────── */
 
 function Panel({ children, className }: { children: React.ReactNode; className?: string }) {
   return (
-    <div className={cx('rounded-2xl border border-[var(--line)] bg-[var(--panel)] p-4', className)}>
+    <div
+      className={cx('rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-4', className)}
+      style={{ boxShadow: 'var(--shadow)' }}
+    >
       {children}
     </div>
   )
@@ -63,7 +71,7 @@ function Stat({ label, value, hint }: { label: string; value: string; hint?: str
   return (
     <Panel className="flex flex-col gap-1">
       <div className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">{label}</div>
-      <div className="text-2xl font-black">{value}</div>
+      <div className="text-2xl font-black text-[var(--text)]">{value}</div>
       {hint && <div className="text-xs text-[var(--muted)]">{hint}</div>}
     </Panel>
   )
@@ -83,9 +91,9 @@ function Btn({
   title?: string
 }) {
   const tones = {
-    ghost: 'border-[var(--line)] hover:bg-[var(--hover)]',
-    primary: 'border-transparent bg-[var(--accent)] text-white hover:opacity-90',
-    danger: 'border-red-500/40 text-red-400 hover:bg-red-500/10',
+    ghost: 'border-[var(--border)] bg-[var(--panel-2)] text-[var(--text)] hover:bg-[var(--panel-hover)]',
+    primary: 'accent-gradient border-transparent text-white hover:brightness-110',
+    danger: 'border-rose-500/40 bg-rose-500/10 text-rose-400 hover:bg-rose-500/20',
   }
   return (
     <button
@@ -94,7 +102,7 @@ function Btn({
       disabled={disabled}
       onClick={onClick}
       className={cx(
-        'rounded-xl border px-2.5 py-1.5 text-xs font-semibold transition disabled:opacity-40',
+        'rounded-xl border px-2.5 py-1.5 text-xs font-semibold transition active:scale-95 disabled:opacity-40',
         tones[tone],
       )}
     >
@@ -105,12 +113,14 @@ function Btn({
 
 function Chip({ children, tone = 'muted' }: { children: React.ReactNode; tone?: 'muted' | 'good' | 'bad' | 'warn' }) {
   const tones = {
-    muted: 'bg-[var(--hover)] text-[var(--muted)]',
-    good: 'bg-emerald-500/15 text-emerald-400',
-    bad: 'bg-red-500/15 text-red-400',
-    warn: 'bg-amber-500/15 text-amber-400',
+    muted: 'border-[var(--border)] bg-[var(--panel-2)] text-[var(--muted)]',
+    good: 'border-emerald-500/30 bg-emerald-500/15 text-emerald-400',
+    bad: 'border-rose-500/30 bg-rose-500/15 text-rose-400',
+    warn: 'border-amber-500/30 bg-amber-500/15 text-amber-400',
   }
-  return <span className={cx('rounded-lg px-1.5 py-0.5 text-[11px] font-bold', tones[tone])}>{children}</span>
+  return (
+    <span className={cx('rounded-lg border px-1.5 py-0.5 text-[11px] font-bold', tones[tone])}>{children}</span>
+  )
 }
 
 function SearchBox({
@@ -133,7 +143,7 @@ function SearchBox({
           if (e.key === 'Enter') onSubmit()
         }}
         placeholder={placeholder}
-        className="min-w-0 flex-1 rounded-xl border border-[var(--line)] bg-[var(--panel)] px-3 py-2 text-sm outline-none focus:border-[var(--accent)]"
+        className="input min-w-0 flex-1 text-sm"
       />
       <Btn tone="primary" onClick={onSubmit}>
         Найти
@@ -146,7 +156,7 @@ function Empty({ text }: { text: string }) {
   return <div className="py-10 text-center text-sm text-[var(--muted)]">{text}</div>
 }
 
-/* ── вкладка: обзор ──────────────────────────────────────────────────── */
+/* ── вкладка: обзор ───────────────────────────────────── */
 
 function OverviewTab() {
   const [data, setData] = useState<AdminOverview | null>(null)
@@ -162,10 +172,12 @@ function OverviewTab() {
     void load()
   }, [load])
 
-  const maxDaily = useMemo(
-    () => Math.max(1, ...(data?.daily ?? []).map((d) => Number(d.messages) || 0)),
+  const days = useMemo(
+    () => (data?.daily ?? []).map((d) => ({ day: d.day, value: Number(d.messages) || 0 })),
     [data],
   )
+  const maxDaily = useMemo(() => Math.max(1, ...days.map((d) => d.value)), [days])
+  const sumDaily = useMemo(() => days.reduce((a, d) => a + d.value, 0), [days])
 
   if (loading && !data) return <Empty text="Считаем…" />
   if (!data) return <Empty text="Не удалось загрузить статистику" />
@@ -193,37 +205,65 @@ function OverviewTab() {
       </div>
 
       <Panel>
-        <div className="mb-3 text-sm font-bold">Сообщения за 14 дней</div>
-        {data.daily.length === 0 ? (
+        <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+          <div className="text-sm font-bold text-[var(--text)]">Сообщения за 14 дней</div>
+          <div className="text-xs text-[var(--muted)]">
+            всего {fmtNum(sumDaily)} · максимум за день {fmtNum(maxDaily)}
+          </div>
+        </div>
+        {days.length === 0 ? (
           <Empty text="Пока пусто" />
         ) : (
-          <div className="flex h-32 items-end gap-1">
-            {data.daily.map((d) => (
-              <div key={d.day} className="group flex flex-1 flex-col items-center justify-end gap-1">
-                <div
-                  className="w-full rounded-t-md bg-[var(--accent)]/70 transition group-hover:bg-[var(--accent)]"
-                  style={{ height: Math.max(2, (Number(d.messages) / maxDaily) * 100) + '%' }}
-                  title={d.day + ': ' + fmtNum(Number(d.messages))}
-                />
-                <div className="text-[10px] text-[var(--muted)]">{d.day.slice(8)}</div>
-              </div>
-            ))}
+          /*
+            У каждого дня есть видимая дорожка, а столбик при любом ненулевом
+            значении не мельче 6px: два сообщения при максимуме в двести — это
+            один процент высоты, то есты визуальный ноль.
+          */
+          <div className="flex h-40 items-stretch gap-1.5">
+            {days.map((d) => {
+              const pct = (d.value / maxDaily) * 100
+              return (
+                <div key={d.day} className="group flex min-w-0 flex-1 flex-col gap-1.5">
+                  <div className="h-4 text-center text-[10px] font-bold tabular-nums text-[var(--text)] opacity-0 transition group-hover:opacity-100">
+                    {d.value}
+                  </div>
+                  <div
+                    className="flex flex-1 items-end overflow-hidden rounded-md border border-[var(--border)] bg-[var(--panel-2)]"
+                    title={d.day + ': ' + fmtNum(d.value)}
+                  >
+                    <div
+                      className="w-full rounded-md transition-all"
+                      style={{
+                        height: pct + '%',
+                        minHeight: d.value > 0 ? 6 : 0,
+                        background: 'linear-gradient(180deg, var(--accent), var(--accent-2))',
+                      }}
+                    />
+                  </div>
+                  <div className="text-center text-[10px] text-[var(--muted)]">{d.day.slice(8)}</div>
+                </div>
+              )
+            })}
           </div>
         )}
       </Panel>
 
       <Panel>
-        <div className="mb-3 text-sm font-bold">Самые активные чаты за неделю</div>
+        <div className="mb-3 text-sm font-bold text-[var(--text)]">Самые активные чаты за неделю</div>
         {data.top_chats.length === 0 ? (
           <Empty text="Нет активности" />
         ) : (
-          <div className="flex flex-col gap-1.5">
+          <div className="flex flex-col">
             {data.top_chats.map((c) => (
-              <div key={c.id} className="flex items-center justify-between gap-2 text-sm">
-                <span className="truncate">
-                  {c.title || c.id} <Chip>{c.type}</Chip>
+              <div
+                key={c.id}
+                className="flex items-center justify-between gap-2 border-b border-[var(--border)] py-2 text-sm last:border-0"
+              >
+                <span className="flex min-w-0 items-center gap-1.5">
+                  <span className="truncate text-[var(--text)]">{c.title || c.id}</span>
+                  <Chip>{c.type}</Chip>
                 </span>
-                <span className="font-bold tabular-nums">{fmtNum(Number(c.messages))}</span>
+                <span className="shrink-0 font-bold tabular-nums text-[var(--text)]">{fmtNum(Number(c.messages))}</span>
               </div>
             ))}
           </div>
@@ -233,7 +273,7 @@ function OverviewTab() {
   )
 }
 
-/* ── вкладка: люди ───────────────────────────────────────────────────── */
+/* ── вкладка: люди ──────────────────────────────────── */
 
 function UsersTab() {
   const toast = useStore((s) => s.toast)
@@ -305,11 +345,13 @@ function UsersTab() {
           {rows.map((u) => {
             const banned = isBanned(u)
             return (
-              <Panel key={u.uid} className={cx('flex flex-col gap-2', banned && 'border-red-500/40')}>
+              <Panel key={u.uid} className={cx('flex flex-col gap-2', banned && '!border-rose-500/40')}>
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-1.5">
-                      <span className="truncate font-bold">{u.name || u.username || u.uid.slice(0, 8)}</span>
+                      <span className="truncate font-bold text-[var(--text)]">
+                        {u.name || u.username || u.uid.slice(0, 8)}
+                      </span>
                       {u.username && <span className="text-xs text-[var(--muted)]">@{u.username}</span>}
                       {u.is_admin && <Chip tone="warn">админ</Chip>}
                       {u.verified && <Chip tone="good">вериф</Chip>}
@@ -322,10 +364,10 @@ function UsersTab() {
                       {u.num_id != null && ' · #' + u.num_id}
                     </div>
                     {banned && u.ban_reason && (
-                      <div className="mt-1 text-xs text-red-400">Причина: {u.ban_reason}</div>
+                      <div className="mt-1 text-xs text-rose-400">Причина: {u.ban_reason}</div>
                     )}
                     {banned && (
-                      <div className="text-xs text-red-400">
+                      <div className="text-xs text-rose-400">
                         До:{' '}
                         {u.banned_until && new Date(u.banned_until).getFullYear() > 9000
                           ? 'навсегда'
@@ -333,9 +375,7 @@ function UsersTab() {
                       </div>
                     )}
                   </div>
-                  <div className="shrink-0 text-right text-[11px] text-[var(--muted)]">
-                    боты: {u.max_bots}
-                  </div>
+                  <div className="shrink-0 text-right text-[11px] text-[var(--muted)]">боты: {u.max_bots}</div>
                 </div>
 
                 <div className="flex flex-wrap gap-1.5">
@@ -406,7 +446,7 @@ function UsersTab() {
   )
 }
 
-/* ── вкладка: чаты ───────────────────────────────────────────────────── */
+/* ── вкладка: чаты ──────────────────────────────────── */
 
 function ChatsTab({ onInspect }: { onInspect: (chatId: string) => void }) {
   const toast = useStore((s) => s.toast)
@@ -454,7 +494,7 @@ function ChatsTab({ onInspect }: { onInspect: (chatId: string) => void }) {
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-1.5">
-                    <span className="truncate font-bold">{c.title || c.id}</span>
+                    <span className="truncate font-bold text-[var(--text)]">{c.title || c.id}</span>
                     <Chip>{c.type}</Chip>
                     {c.is_private && <Chip tone="warn">приватный</Chip>}
                     {c.verified && <Chip tone="good">вериф</Chip>}
@@ -493,7 +533,7 @@ function ChatsTab({ onInspect }: { onInspect: (chatId: string) => void }) {
   )
 }
 
-/* ── вкладка: сообщения ────────────────────────────────────────────────── */
+/* ── вкладка: сообщения ──────────────────────────────── */
 
 function MessagesTab({ chatFilter, onClearFilter }: { chatFilter: string | null; onClearFilter: () => void }) {
   const toast = useStore((s) => s.toast)
@@ -530,7 +570,7 @@ function MessagesTab({ chatFilter, onClearFilter }: { chatFilter: string | null;
       <SearchBox value={q} onChange={setQ} onSubmit={() => void load()} placeholder="Текст сообщения…" />
       {chatFilter && (
         <div className="flex items-center gap-2 text-xs text-[var(--muted)]">
-          <span>Фильтр по чату: {chatFilter}</span>
+          <span className="truncate">Фильтр по чату: {chatFilter}</span>
           <Btn onClick={onClearFilter}>Сбросить</Btn>
         </div>
       )}
@@ -543,15 +583,13 @@ function MessagesTab({ chatFilter, onClearFilter }: { chatFilter: string | null;
           {rows.map((m) => (
             <Panel key={m.id} className="flex flex-col gap-1.5">
               <div className="flex flex-wrap items-center gap-1.5 text-xs text-[var(--muted)]">
-                <span className="font-bold text-[var(--fg)]">
-                  {m.sender_name || m.sender_username || '—'}
-                </span>
+                <span className="font-bold text-[var(--text)]">{m.sender_name || m.sender_username || '—'}</span>
                 <span>в {m.chat_title || m.chat_id}</span>
                 <span>· {fmtDate(m.ts)}</span>
                 {m.deleted && <Chip tone="bad">удалено</Chip>}
                 {m.has_attachment && <Chip>вложение</Chip>}
               </div>
-              <div className="whitespace-pre-wrap break-words text-sm">{m.text || '—'}</div>
+              <div className="whitespace-pre-wrap break-words text-sm text-[var(--text)]">{m.text || '—'}</div>
               <div className="flex flex-wrap gap-1.5">
                 {!m.deleted && (
                   <Btn tone="danger" disabled={busy === m.id} onClick={() => void remove(m, false)}>
@@ -570,7 +608,7 @@ function MessagesTab({ chatFilter, onClearFilter }: { chatFilter: string | null;
   )
 }
 
-/* ── вкладка: жалобы ─────────────────────────────────────────────────── */
+/* ── вкладка: жалобы ────────────────────────────────── */
 
 const STATUSES: Array<{ key: ReportStatus | 'all'; label: string }> = [
   { key: 'open', label: 'Открытые' },
@@ -612,8 +650,8 @@ function ReportsTab({ onInspect }: { onInspect: (chatId: string) => void }) {
             className={cx(
               'rounded-xl border px-3 py-1.5 text-xs font-semibold transition',
               status === s.key
-                ? 'border-transparent bg-[var(--accent)] text-white'
-                : 'border-[var(--line)] hover:bg-[var(--hover)]',
+                ? 'accent-gradient border-transparent text-white'
+                : 'border-[var(--border)] bg-[var(--panel-2)] text-[var(--text)] hover:bg-[var(--panel-hover)]',
             )}
           >
             {s.label}
@@ -636,7 +674,7 @@ function ReportsTab({ onInspect }: { onInspect: (chatId: string) => void }) {
                 <span>от {r.reporter_name || r.reporter_username || r.reporter_uid.slice(0, 8)}</span>
                 <span>· {fmtDate(r.created_at)}</span>
               </div>
-              <div className="text-sm font-semibold">{r.reason}</div>
+              <div className="text-sm font-semibold text-[var(--text)]">{r.reason}</div>
               {r.note && <div className="whitespace-pre-wrap break-words text-sm text-[var(--muted)]">{r.note}</div>}
               <div className="text-[11px] text-[var(--muted)]">Объект: {r.target_id}</div>
               <div className="flex flex-wrap gap-1.5">
@@ -657,7 +695,7 @@ function ReportsTab({ onInspect }: { onInspect: (chatId: string) => void }) {
   )
 }
 
-/* ── страница ───────────────────────────────────────────────────────── */
+/* ── страница ──────────────────────────────────────── */
 
 export function AdminConsole({ onClose }: { onClose: () => void }) {
   const perks = usePerks()
@@ -680,10 +718,13 @@ export function AdminConsole({ onClose }: { onClose: () => void }) {
 
   if (!account || !perks.is_admin) {
     return (
-      <div className="grid h-full place-items-center p-6">
+      <div
+        className="grid h-full place-items-center p-6"
+        style={{ background: 'linear-gradient(160deg, var(--bg-grad-1), var(--bg-grad-2))' }}
+      >
         <Panel className="max-w-sm text-center">
           <div className="mb-2 text-3xl">🔒</div>
-          <div className="mb-1 font-bold">Страница только для администрации</div>
+          <div className="mb-1 font-bold text-[var(--text)]">Страница только для администрации</div>
           <div className="mb-3 text-sm text-[var(--muted)]">
             У этого аккаунта нет прав админа. Данные защищены также на стороне базы.
           </div>
@@ -700,23 +741,23 @@ export function AdminConsole({ onClose }: { onClose: () => void }) {
       className="flex h-full flex-col overflow-hidden"
       style={{ background: 'linear-gradient(160deg, var(--bg-grad-1), var(--bg-grad-2))' }}
     >
-      <header className="flex shrink-0 flex-wrap items-center gap-3 border-b border-[var(--line)] bg-[var(--panel)]/80 px-4 py-3 backdrop-blur">
+      <header className="glass flex shrink-0 flex-wrap items-center gap-3 border-b border-[var(--border)] px-4 py-3">
         <button
           type="button"
           onClick={onClose}
-          className="rounded-xl border border-[var(--line)] px-3 py-1.5 text-sm font-semibold hover:bg-[var(--hover)]"
+          className="rounded-xl border border-[var(--border)] bg-[var(--panel-2)] px-3 py-1.5 text-sm font-semibold text-[var(--text)] transition hover:bg-[var(--panel-hover)]"
         >
           ← В чаты
         </button>
         <div className="min-w-0">
-          <div className="truncate text-base font-black">Панель управления</div>
+          <div className="truncate text-base font-black text-[var(--text)]">Панель управления</div>
           <div className="truncate text-xs text-[var(--muted)]">
             {account.name || account.username} · полный доступ
           </div>
         </div>
       </header>
 
-      <nav className="flex shrink-0 gap-1.5 overflow-x-auto border-b border-[var(--line)] px-4 py-2">
+      <nav className="flex shrink-0 gap-1.5 overflow-x-auto border-b border-[var(--border)] bg-[var(--panel)] px-4 py-2">
         {TABS.map((t) => (
           <button
             key={t.key}
@@ -725,8 +766,8 @@ export function AdminConsole({ onClose }: { onClose: () => void }) {
             className={cx(
               'whitespace-nowrap rounded-xl border px-3 py-1.5 text-sm font-semibold transition',
               tab === t.key
-                ? 'border-transparent bg-[var(--accent)] text-white'
-                : 'border-[var(--line)] hover:bg-[var(--hover)]',
+                ? 'accent-gradient border-transparent text-white'
+                : 'border-[var(--border)] bg-[var(--panel-2)] text-[var(--text)] hover:bg-[var(--panel-hover)]',
             )}
           >
             <span className="mr-1">{t.icon}</span>
@@ -735,7 +776,7 @@ export function AdminConsole({ onClose }: { onClose: () => void }) {
         ))}
       </nav>
 
-      <main className="min-h-0 flex-1 overflow-y-auto p-4">
+      <main className="fancy-scroll min-h-0 flex-1 overflow-y-auto p-4">
         <div className="mx-auto w-full max-w-4xl">
           {tab === 'overview' && <OverviewTab />}
           {tab === 'users' && <UsersTab />}
