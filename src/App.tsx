@@ -5,6 +5,7 @@ import { defaultSettings } from './lib/defaults'
 import { Landing } from './components/landing/Landing'
 import { Auth } from './components/auth/Auth'
 import { AppShell } from './components/app/AppShell'
+import { AdminConsole } from './components/admin/AdminConsole'
 import { Welcome, welcomeSeen } from './components/app/Welcome'
 import { UpdateBanner } from './components/app/UpdateBanner'
 import { ScheduledPanel } from './components/app/ScheduledPanel'
@@ -16,6 +17,15 @@ import { Logo } from './components/ui/Logo'
 /** How long boot may take before the app gives up and shows something usable. */
 const BOOT_TIMEOUT_MS = 12_000
 
+/** Адрес админки. Отдельная страница, а не модалка: её можно открыть ссылкой,
+ *  обновить и закрыть кнопкой «назад» браузера. */
+export const ADMIN_HASH = '#admin'
+
+/** Открыть страницу админ-управления из любого места приложения. */
+export function openAdminPage(): void {
+  window.location.hash = 'admin'
+}
+
 export default function App() {
   const ready = useStore((s) => s.ready)
   const route = useStore((s) => s.route)
@@ -24,6 +34,14 @@ export default function App() {
   const settings = useStore((s) => s.account?.settings)
   /** Set when the greeting is dismissed in this session, so it never flashes back. */
   const [greeted, setGreeted] = useState(false)
+  /** Хеш-маршрут: сейчас им пользуется только админка. */
+  const [hash, setHash] = useState(() => (typeof window === 'undefined' ? '' : window.location.hash))
+
+  useEffect(() => {
+    const onHash = () => setHash(window.location.hash)
+    window.addEventListener('hashchange', onHash)
+    return () => window.removeEventListener('hashchange', onHash)
+  }, [])
 
   useEffect(() => {
     let settled = false
@@ -87,6 +105,31 @@ export default function App() {
           <div className="text-sm font-semibold text-[var(--muted)]">Загружаем FemboyChat…</div>
         </div>
       </div>
+    )
+  }
+
+  /*
+    Админка — полноэкранная страница поверх маршрута «app». Живёт на хеше, чтобы
+    её нельзя было случайно «открыть» в неавторизованном состоянии: без аккаунта
+    хеш просто игнорируется, а сама страница ещё раз проверяет права (и, что
+    важнее, каждая admin_* функция проверяет их в базе).
+  */
+  const adminOpen = route === 'app' && !!account && hash === ADMIN_HASH
+
+  const closeAdmin = () => {
+    // replaceState вместо hash = '': не оставляем пустую запись в истории.
+    window.history.replaceState(null, '', window.location.pathname + window.location.search)
+    setHash('')
+  }
+
+  if (adminOpen) {
+    return (
+      <>
+        <AdminConsole onClose={closeAdmin} />
+        <Toasts />
+        <ContextMenu />
+        <Effects />
+      </>
     )
   }
 
