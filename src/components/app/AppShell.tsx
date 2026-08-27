@@ -5,7 +5,6 @@ import { ChatView } from './ChatView'
 import { RightPanel } from './RightPanel'
 import { Settings } from '../settings/Settings'
 import { NewChatModal } from './NewChatModal'
-import { AdminPanel } from './AdminPanel'
 import { BotStudio } from './BotStudio'
 import { AiAssist } from './AiAssist'
 import { Lightbox } from '../ui/Lightbox'
@@ -31,12 +30,20 @@ const BACK_TRIGGER = 90
  * Panels that live above everything and are opened from several places at
  * once (settings, a menu, a keyboard shortcut). Rather than threading state
  * through half the tree, anyone can dispatch `fc:open-panel`.
+ *
+ * «admin» здесь остался ради совместимости вызовов: это больше не модалка, а
+ * отдельная страница (маршрут #admin), поэтому запрос превращается в переход.
  */
 type Overlay = 'admin' | 'bots' | 'assist' | null
 
 /** Open one of the shell's overlays from anywhere in the app. */
 export function openPanel(panel: Exclude<Overlay, null>): void {
   window.dispatchEvent(new CustomEvent('fc:open-panel', { detail: panel }))
+}
+
+/** Перейти на страницу админ-управления. */
+function gotoAdmin(): void {
+  window.location.hash = 'admin'
 }
 
 export function AppShell() {
@@ -151,7 +158,11 @@ export function AppShell() {
   useEffect(() => {
     const onOpen = (e: Event) => {
       const detail = (e as CustomEvent).detail as Overlay
-      if (detail === 'admin' || detail === 'bots' || detail === 'assist') setOverlay(detail)
+      if (detail === 'admin') {
+        gotoAdmin()
+        return
+      }
+      if (detail === 'bots' || detail === 'assist') setOverlay(detail)
     }
     window.addEventListener('fc:open-panel', onOpen)
     return () => window.removeEventListener('fc:open-panel', onOpen)
@@ -217,9 +228,9 @@ export function AppShell() {
     }
   }, [account?.uid, backend])
 
-  // ⌘/Ctrl+K → focus search · ⌘/Ctrl+Shift+A → admin · ⌘/Ctrl+Shift+B → bots
-  // · ⌘/Ctrl+Shift+I → ИИ-помощник · ⌘/Ctrl+Shift+L → закрыть приложение
-  // · Konami code → easter egg
+  // ⌘/Ctrl+K → focus search · ⌘/Ctrl+Shift+A → страница админки
+  // · ⌘/Ctrl+Shift+B → bots · ⌘/Ctrl+Shift+I → ИИ-помощник
+  // · ⌘/Ctrl+Shift+L → закрыть приложение · Konami code → easter egg
   useEffect(() => {
     const KONAMI = ['arrowup', 'arrowup', 'arrowdown', 'arrowdown', 'arrowleft', 'arrowright', 'arrowleft', 'arrowright', 'b', 'a']
     let seq: string[] = []
@@ -233,7 +244,7 @@ export function AppShell() {
       }
       if (mod && e.shiftKey && key === 'a') {
         e.preventDefault()
-        setOverlay('admin')
+        gotoAdmin()
         return
       }
       if (mod && e.shiftKey && key === 'b') {
@@ -325,7 +336,6 @@ export function AppShell() {
       <RightPanel />
       <Settings />
       <NewChatModal />
-      {overlay === 'admin' && <AdminPanel onClose={() => setOverlay(null)} />}
       {overlay === 'bots' && <BotStudio onClose={() => setOverlay(null)} />}
       {overlay === 'assist' && <AiAssist onClose={() => setOverlay(null)} />}
       <Lightbox />

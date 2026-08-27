@@ -5,6 +5,8 @@ import { defaultSettings } from './lib/defaults'
 import { Landing } from './components/landing/Landing'
 import { Auth } from './components/auth/Auth'
 import { AppShell } from './components/app/AppShell'
+import { AdminConsole } from './components/admin/AdminConsole'
+import { NotFound } from './components/app/NotFound'
 import { Welcome, welcomeSeen } from './components/app/Welcome'
 import { UpdateBanner } from './components/app/UpdateBanner'
 import { ScheduledPanel } from './components/app/ScheduledPanel'
@@ -16,6 +18,45 @@ import { Logo } from './components/ui/Logo'
 /** How long boot may take before the app gives up and shows something usable. */
 const BOOT_TIMEOUT_MS = 12_000
 
+/** Адрес админки. Отдельная страница, а не модалка: её можно открыть ссылкой,
+ *  обновить и закрыть кнопкой «назад» браузера. */
+export const ADMIN_HASH = '#admin'
+
+/** Открыть страницу админ-управления из любого места приложения. */
+export function openAdminPage(): void {
+  window.location.hash = 'admin'
+}
+
+/** Хеши, которые приложение действительно умеет открывать. */
+const KNOWN_HASHES = new Set(['', '#', ADMIN_HASH])
+
+/**
+ * Supabase возвращает человека из письма с токенами в хеше: подтверждение
+ * почты, сброс пароля, магическая ссылка. Такой адрес выглядит «неизвестным»,
+ * но это самый настоящий вход — показать на нём 404 значит сломать
+ * восстановление доступа.
+ */
+function isAuthCallbackHash(hash: string): boolean {
+  return /access_token|refresh_token|provider_token|error_code|error_description|type=(recovery|signup|invite|magiclink|email_change)/.test(hash)
+}
+
+/**
+ * Сайт живёт в корне домена, а хостинг отдаёт index.html на любой путь
+ * (SPA-фолбэк). Поэтому «страница не найдена» решается здесь, а не сервером:
+ * до этой проверки любой мусор после слеша молча показывал обычный мессенджер.
+ */
+function isKnownPath(pathname: string): boolean {
+  return pathname === '' || pathname === '/' || pathname === '/index.html'
+}
+
+/** Единая точка правды о том, битая ли ссылка. */
+export function isNotFoundUrl(pathname: string, hash: string): boolean {
+  if (!isKnownPath(pathname)) return true
+  if (!hash || KNOWN_HASHES.has(hash)) return false
+  if (isAuthCallbackHash(hash)) return false
+  return true
+}
+
 export default function App() {
   const ready = useStore((s) => s.ready)
   const route = useStore((s) => s.route)
@@ -24,6 +65,14 @@ export default function App() {
   const settings = useStore((s) => s.account?.settings)
   /** Set when the greeting is dismissed in this session, so it never flashes back. */
   const [greeted, setGreeted] = useState(false)
+  /** Хеш-маршрут: им пользуются админка и определение битой ссылки. */
+  const [hash, setHash] = useState(() => (typeof window === 'undefined' ? '' : window.location.hash))
+
+  useEffect(() => {
+    const onHash = () => setHash(window.location.hash)
+    window.addEventListener('hashchange', onHash)
+    return () => window.removeEventListener('hashchange', onHash)
+  }, [])
 
   useEffect(() => {
     let settled = false
@@ -79,6 +128,23 @@ export default function App() {
     return () => document.removeEventListener('contextmenu', onCtx)
   }, [])
 
+  /*
+    404 проверяется до загрузочного экрана и до всякой авторизации: битый адрес
+    остаётся битым независимо от того, вошёл человек или нет, и заставлять его
+    сначала смотреть на спиннер незачем.
+  */
+  const notFound =
+    typeof window !== 'undefined' && isNotFoundUrl(window.location.pathname, hash)
+
+  if (notFound) {
+    return (
+      <>
+        <NotFound url={window.location.href} />
+        <Toasts />
+      </>
+    )
+  }
+
   if (!ready) {
     return (
       <div className="grid h-full place-items-center" style={{ background: 'linear-gradient(160deg, var(--bg-grad-1), var(--bg-grad-2))' }}>
@@ -87,6 +153,31 @@ export default function App() {
           <div className="text-sm font-semibold text-[var(--muted)]">Загружаем FemboyChat…</div>
         </div>
       </div>
+    )
+  }
+
+  /*
+    Админка — полноэкранная страница поверх маршрута «app». Живёт на хеше, чтобы
+    её нельзя было случайно «открыть» в неавторизованном состоянии: без аккаунта
+    хеш просто игнорируется, а сама страница ещё раз проверяет права (и, что
+    важнее, каждая admin_* функция проверяет их в базе).
+  */
+  const adminOpen = route === 'app' && !!account && hash === ADMIN_HASH
+
+  const closeAdmin = () => {
+    // replaceState вместо hash = '': не оставляем пустую запись в истории.
+    window.history.replaceState(null, '', window.location.pathname + window.location.search)
+    setHash('')
+  }
+
+  if (adminOpen) {
+    return (
+      <>
+        <AdminConsole onClose={closeAdmin} />
+        <Toasts />
+        <ContextMenu />
+        <Effects />
+      </>
     )
   }
 
