@@ -1,8 +1,9 @@
-import { Ban, Bell, BellOff, Copy, CornerUpLeft, Download, Forward, Hash, Info, LogOut, MessageCircle, Pencil, Pin, Trash2, UserRound } from 'lucide-react'
+import { Ban, Bell, BellOff, Copy, CornerUpLeft, Download, Flag, Forward, Hash, Info, LogOut, MessageCircle, Pencil, Pin, Trash2, UserRound } from 'lucide-react'
 import { useStore } from '../../store/useStore'
 import { useBlocks, setBlocked } from '../../lib/blocks'
 import { usePeople } from './people'
 import { openForward } from './ForwardPicker'
+import { openReport } from '../ui/ReportDialog'
 import type { MenuItem } from '../ui/ContextMenu'
 import type { Chat, Message } from '../../types'
 
@@ -54,6 +55,15 @@ export function useActions() {
         onClick: async () => { await backend.markRead(chat.id); useStore.setState((s) => ({ unread: { ...s.unread, [chat.id]: 0 } })) },
       },
     ]
+    // Жаловаться есть смысл только на общее место, а не на своё Избранное.
+    if (chat.type === 'group' || chat.type === 'channel') {
+      items.push({
+        label: 'Пожаловаться…',
+        icon: <Flag size={15} />,
+        danger: true,
+        onClick: () => openReport({ type: 'chat', id: chat.id, title: chat.title }),
+      })
+    }
     if (chat.type !== 'saved') {
       items.push({ kind: 'divider' })
       items.push({
@@ -74,6 +84,7 @@ export function useActions() {
   function personMenu(uid: string): MenuItem[] {
     const p = resolve(uid)
     const backend = useStore.getState().backend!
+    const me = useStore.getState().account
     // A blocked bot is simply a bot whose replies the server now refuses to
     // insert, which is exactly what "stop the bot" is supposed to mean.
     const isBlocked = blocked.has(uid)
@@ -94,6 +105,15 @@ export function useActions() {
       { label: 'Копировать @username', icon: <Copy size={15} />, onClick: () => copy('@' + p.username) },
       ...(p.numId ? [{ label: `Копировать ID (#${p.numId})`, icon: <Hash size={15} />, onClick: () => copy('#' + p.numId) } as MenuItem] : []),
       { kind: 'divider' },
+      // На себя жаловаться нельзя — это только шум в очереди модерации.
+      ...(me && me.uid !== uid
+        ? [{
+            label: 'Пожаловаться…',
+            icon: <Flag size={15} />,
+            danger: true,
+            onClick: () => openReport({ type: 'user', id: uid, title: p.name ? '@' + p.username : undefined }),
+          } as MenuItem]
+        : []),
       {
         label: isBlocked
           ? (p.isBot ? 'Запустить бота' : 'Разблокировать')
@@ -162,6 +182,20 @@ export function useActions() {
       })
     }
     if (mine && !m.poll && !m.sticker) items.push({ label: 'Изменить', icon: <Pencil size={15} />, onClick: () => setComposeEdit(m) })
+    // Своё сообщение проще удалить, чем жаловаться на себя.
+    if (!mine && !m.deleted && !m.system) {
+      items.push({
+        label: 'Пожаловаться…',
+        icon: <Flag size={15} />,
+        danger: true,
+        onClick: () =>
+          openReport({
+            type: 'message',
+            id: m.id,
+            title: m.text ? m.text.slice(0, 90) : m.sticker ? 'Стикер' : 'Вложение',
+          }),
+      })
+    }
     if (mine) {
       items.push({ kind: 'divider' })
       items.push({ label: 'Удалить', icon: <Trash2 size={15} />, danger: true, onClick: () => removeMsg(m.id) })

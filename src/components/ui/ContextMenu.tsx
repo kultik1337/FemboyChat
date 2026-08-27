@@ -4,6 +4,7 @@ import { Plus } from 'lucide-react'
 import { REACTIONS } from '../../lib/stickers'
 import { EmojiGrid } from './EmojiPicker'
 import { classNames } from '../../lib/util'
+import { ReportHost } from './ReportDialog'
 
 export interface MenuAction {
   kind?: 'action'
@@ -135,51 +136,59 @@ export function ContextMenu() {
     }
   }, [data, close])
 
-  if (!data) return null
+  /*
+    Форма жалобы рендерится здесь и тогда, когда самого меню нет. Пункт
+    «Пожаловаться» закрывает меню в тот же кадр, в котором открывает диалог,
+    так что диалог внутри ветки «меню открыто» умирал бы мгновенно.
+  */
+  if (!data) return <ReportHost />
 
   return (
-    <div className="fixed inset-0 z-[70]" onMouseDown={close} onContextMenu={(e) => { e.preventDefault(); close() }}>
-      <div
-        ref={ref}
-        className="absolute min-w-[200px] max-w-[280px] overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-1 shadow-2xl animate-pop-in"
-        style={{ left: pos.x, top: pos.y, visibility: pos.ready ? 'visible' : 'hidden', boxShadow: 'var(--shadow)', transformOrigin: 'top left' }}
-        onMouseDown={(e) => e.stopPropagation()}
-      >
-        {data.reactions && (
-          <>
-            <ReactionStrip
-              onPick={(emoji) => { data.reactions!.onPick(emoji); close() }}
-              allEmoji={allEmoji}
-              onToggleAll={() => setAllEmoji((v) => !v)}
-            />
-            {allEmoji && (
-              <div className="mb-1 rounded-xl bg-[var(--panel-2)] p-1.5">
-                <EmojiGrid compact onPick={(e) => { data.reactions!.onPick(e); close() }} />
-              </div>
-            )}
-          </>
-        )}
-        {data.header && <div className="px-3 py-1.5 text-xs font-bold text-[var(--muted)]">{data.header}</div>}
-        {data.items.map((it, i) =>
-          it.kind === 'divider' ? (
-            <div key={i} className="my-1 h-px bg-[var(--border)]" />
-          ) : (
-            <button
-              key={i}
-              onClick={() => { it.onClick(); close() }}
-              className={classNames(
-                'flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-sm font-medium transition hover:bg-[var(--panel-hover)]',
-                it.danger && 'text-rose-500',
+    <>
+      <div className="fixed inset-0 z-[70]" onMouseDown={close} onContextMenu={(e) => { e.preventDefault(); close() }}>
+        <div
+          ref={ref}
+          className="absolute min-w-[200px] max-w-[280px] overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-1 shadow-2xl animate-pop-in"
+          style={{ left: pos.x, top: pos.y, visibility: pos.ready ? 'visible' : 'hidden', boxShadow: 'var(--shadow)', transformOrigin: 'top left' }}
+          onMouseDown={(e) => e.stopPropagation()}
+        >
+          {data.reactions && (
+            <>
+              <ReactionStrip
+                onPick={(emoji) => { data.reactions!.onPick(emoji); close() }}
+                allEmoji={allEmoji}
+                onToggleAll={() => setAllEmoji((v) => !v)}
+              />
+              {allEmoji && (
+                <div className="mb-1 rounded-xl bg-[var(--panel-2)] p-1.5">
+                  <EmojiGrid compact onPick={(e) => { data.reactions!.onPick(e); close() }} />
+                </div>
               )}
-            >
-              {it.icon && <span className="grid w-4 place-items-center">{it.icon}</span>}
-              <span className="flex-1 truncate">{it.label}</span>
-              {it.checked && <span className="accent-text font-bold">✓</span>}
-            </button>
-          ),
-        )}
+            </>
+          )}
+          {data.header && <div className="px-3 py-1.5 text-xs font-bold text-[var(--muted)]">{data.header}</div>}
+          {data.items.map((it, i) =>
+            it.kind === 'divider' ? (
+              <div key={i} className="my-1 h-px bg-[var(--border)]" />
+            ) : (
+              <button
+                key={i}
+                onClick={() => { it.onClick(); close() }}
+                className={classNames(
+                  'flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-sm font-medium transition hover:bg-[var(--panel-hover)]',
+                  it.danger && 'text-rose-500',
+                )}
+              >
+                {it.icon && <span className="grid w-4 place-items-center">{it.icon}</span>}
+                <span className="flex-1 truncate">{it.label}</span>
+                {it.checked && <span className="accent-text font-bold">✓</span>}
+              </button>
+            ),
+          )}
+        </div>
       </div>
-    </div>
+      <ReportHost />
+    </>
   )
 }
 
