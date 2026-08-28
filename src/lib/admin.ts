@@ -188,7 +188,7 @@ export const adminResolveReport = (report: string, status: ReportStatus) =>
   call<boolean>('admin_resolve_report', { p_report: report, p_status: status })
 
 /* ── журнал действий админа ──────────────────────────────────────────────── */
-// Заполняется на стороne базы: каждый мутирующий admin_* пишет запись сам,
+// Заполняется на стороне базы: каждый мутирующий admin_* пишет запись сам,
 // поэтому обойти журнал через прямой RPC-вызов нельзя.
 export const adminListAudit = (
   action?: AdminAuditAction | 'all',
