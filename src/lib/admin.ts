@@ -13,6 +13,9 @@ async function call<T>(fn: string, args?: Record<string, unknown>): Promise<T | 
   }
 }
 
+/** Размер страницы по умолчанию для списков админки. Сервер жёстко режет на 200. */
+export const ADMIN_PAGE_SIZE = 60
+
 export interface AdminOverview {
   users: number
   bots: number
@@ -102,12 +105,35 @@ export interface AdminReport {
   resolved_by: string | null
 }
 
+export type AdminAuditAction =
+  | 'ban_user'
+  | 'unban_user'
+  | 'set_verified'
+  | 'set_chat_verified'
+  | 'delete_chat'
+  | 'delete_message'
+  | 'resolve_report'
+  | 'set_perk'
+  | 'set_max_bots'
+
+export interface AdminAuditEntry {
+  id: number
+  action: AdminAuditAction | string
+  target_type: 'user' | 'chat' | 'message' | 'report' | 'perk'
+  target_id: string | null
+  detail: Record<string, unknown>
+  created_at: string
+  actor_uid: string | null
+  actor_username: string | null
+  actor_name: string | null
+}
+
 /* ── обзор ───────────────────────────────────────────────────────────────── */
 export const adminOverview = () => call<AdminOverview>('admin_overview')
 
 /* ── люди ────────────────────────────────────────────────────────────────── */
-export const adminListUsers = (q?: string, lim = 60) =>
-  call<AdminUser[]>('admin_list_users', { q: q?.trim() || null, lim })
+export const adminListUsers = (q?: string, lim = ADMIN_PAGE_SIZE, off = 0) =>
+  call<AdminUser[]>('admin_list_users', { q: q?.trim() || null, lim, p_off: off })
 
 export const adminSetVerified = (target: string, value: boolean) =>
   call<boolean>('admin_set_verified', { target, value })
@@ -125,8 +151,8 @@ export const adminSetMaxBots = (target: string, value: number) =>
   call<boolean>('set_max_bots', { target, value })
 
 /* ── чаты ────────────────────────────────────────────────────────────────── */
-export const adminListChats = (q?: string, lim = 60) =>
-  call<AdminChat[]>('admin_list_chats', { q: q?.trim() || null, lim })
+export const adminListChats = (q?: string, lim = ADMIN_PAGE_SIZE, off = 0) =>
+  call<AdminChat[]>('admin_list_chats', { q: q?.trim() || null, lim, p_off: off })
 
 export const adminSetChatVerified = (chat: string, value: boolean) =>
   call<boolean>('admin_set_chat_verified', { p_chat: chat, value })
@@ -135,22 +161,47 @@ export const adminDeleteChat = (chat: string) =>
   call<boolean>('admin_delete_chat', { p_chat: chat })
 
 /* ── сообщения ───────────────────────────────────────────────────────────── */
-export const adminSearchMessages = (q?: string, chat?: string | null, lim = 60) =>
+export const adminSearchMessages = (
+  q?: string,
+  chat?: string | null,
+  lim = ADMIN_PAGE_SIZE,
+  off = 0,
+) =>
   call<AdminMessage[]>('admin_search_messages', {
     q: q?.trim() || null,
     p_chat: chat || null,
     lim,
+    p_off: off,
   })
 
 export const adminDeleteMessage = (message: string, hard = false) =>
   call<boolean>('admin_delete_message', { p_message: message, hard })
 
 /* ── жалобы ──────────────────────────────────────────────────────────────── */
-export const adminListReports = (status: ReportStatus | 'all' = 'open', lim = 60) =>
-  call<AdminReport[]>('admin_list_reports', { p_status: status, lim })
+export const adminListReports = (
+  status: ReportStatus | 'all' = 'open',
+  lim = ADMIN_PAGE_SIZE,
+  off = 0,
+) => call<AdminReport[]>('admin_list_reports', { p_status: status, lim, p_off: off })
 
 export const adminResolveReport = (report: string, status: ReportStatus) =>
   call<boolean>('admin_resolve_report', { p_report: report, p_status: status })
+
+/* ── журнал действий админа ──────────────────────────────────────────────── */
+// Заполняется на стороне базы: каждый мутирующий admin_* пишет запись сам,
+// поэтому обойти журнал через прямой RPC-вызов нельзя.
+export const adminListAudit = (
+  action?: AdminAuditAction | 'all',
+  target?: string | null,
+  lim = ADMIN_PAGE_SIZE,
+  off = 0,
+) =>
+  call<AdminAuditEntry[]>('admin_list_audit', {
+    p_action: action && action !== 'all' ? action : null,
+    p_target: target || null,
+    lim,
+    p_off: off,
+  })
 
 /* ── пользовательская жалоба (доступна всем авторизованным) ──────────────── */
 export const reportContent = (
@@ -183,4 +234,31 @@ export function isBanned(user: Pick<AdminUser, 'banned_until'>): boolean {
   if (!user.banned_until) return false
   const t = new Date(user.banned_until).getTime()
   return Number.isNaN(t) ? true : t > Date.now()
+}
+
+/** Человекочитаемая строка для записи журнала. */
+export function auditLabel(entry: AdminAuditEntry): string {
+  const d = entry.detail ?? {}
+  switch (entry.action) {
+    case 'ban_user':
+      return d.days == null ? 'забанил навсегда' : `забанил на ${d.days} дн.`
+    case 'unban_user':
+      return 'разбанил'
+    case 'set_verified':
+      return d.value ? 'выдал галочку' : 'снял галочку'
+    case 'set_chat_verified':
+      return d.value ? 'верифицировал чат' : 'снял верификацию чата'
+    case 'delete_chat':
+      return `удалил чат «${d.title ?? '—'}»`
+    case 'delete_message':
+      return d.hard ? 'удалил сообщение навсегда' : 'скрыл сообщение'
+    case 'resolve_report':
+      return `перевёл жалобу в «${d.status ?? '—'}»`
+    case 'set_perk':
+      return `${d.value ? 'выдал' : 'снял'} перк ${d.perk ?? '—'}`
+    case 'set_max_bots':
+      return `лимит ботов → ${d.value ?? '—'}`
+    default:
+      return entry.action
+  }
 }
