@@ -11,13 +11,15 @@
   Любая выдуманная переменная — это невалидный цвет, то есть молча
   исчезающая рамка или фон, а не ошибка сборки.
 */
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from '../../store/useStore'
 import { usePerks, invalidatePerks } from '../../lib/perks'
 import {
+  ADMIN_PAGE_SIZE,
   adminBanUser,
   adminDeleteChat,
   adminDeleteMessage,
+  adminListAudit,
   adminListChats,
   adminListReports,
   adminListUsers,
@@ -29,9 +31,12 @@ import {
   adminSetPerk,
   adminSetVerified,
   adminUnbanUser,
+  auditLabel,
   fmtDate,
   fmtNum,
   isBanned,
+  type AdminAuditAction,
+  type AdminAuditEntry,
   type AdminChat,
   type AdminMessage,
   type AdminOverview,
@@ -40,7 +45,7 @@ import {
   type ReportStatus,
 } from '../../lib/admin'
 
-type Tab = 'overview' | 'users' | 'chats' | 'messages' | 'reports'
+type Tab = 'overview' | 'users' | 'chats' | 'messages' | 'reports' | 'audit'
 
 const TABS: Array<{ key: Tab; label: string; icon: string }> = [
   { key: 'overview', label: 'Обзор', icon: '📊' },
@@ -48,13 +53,14 @@ const TABS: Array<{ key: Tab; label: string; icon: string }> = [
   { key: 'chats', label: 'Чаты', icon: '💬' },
   { key: 'messages', label: 'Сообщения', icon: '🔎' },
   { key: 'reports', label: 'Жалобы', icon: '🚩' },
+  { key: 'audit', label: 'Журнал', icon: '🧾' },
 ]
 
 function cx(...parts: Array<string | false | null | undefined>): string {
   return parts.filter(Boolean).join(' ')
 }
 
-/* ── мелкие примитивы ─────────────────────────────────────── */
+/* ── мелкие примитивы ──────────────────────────── */
 
 function Panel({ children, className }: { children: React.ReactNode; className?: string }) {
   return (
@@ -123,6 +129,37 @@ function Chip({ children, tone = 'muted' }: { children: React.ReactNode; tone?: 
   )
 }
 
+/** Ряд кнопок-фильтров — один вид для жалоб и журнала. */
+function FilterRow<T extends string>({
+  items,
+  value,
+  onPick,
+}: {
+  items: Array<{ key: T; label: string }>
+  value: T
+  onPick: (key: T) => void
+}) {
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {items.map((s) => (
+        <button
+          key={s.key}
+          type="button"
+          onClick={() => onPick(s.key)}
+          className={cx(
+            'rounded-xl border px-3 py-1.5 text-xs font-semibold transition',
+            value === s.key
+              ? 'accent-gradient border-transparent text-white'
+              : 'border-[var(--border)] bg-[var(--panel-2)] text-[var(--text)] hover:bg-[var(--panel-hover)]',
+          )}
+        >
+          {s.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 function SearchBox({
   value,
   onChange,
@@ -156,7 +193,57 @@ function Empty({ text }: { text: string }) {
   return <div className="py-10 text-center text-sm text-[var(--muted)]">{text}</div>
 }
 
-/* ── вкладка: обзор ───────────────────────────────────── */
+/**
+ * Перелистывание списков админки.
+ *
+ * RPC отдают голый массив без общего числа строк, и это намеренно:
+ * count(*) по messages на каждый поиск — полный проход по таблице ради
+ * одного числа в углу. Поэтому «Далее» активна ровно тогда, когда страница
+ * пришла полной. Плата за это: если строк ровно кратно размеру страницы,
+ * последний переход покажет пустой список.
+ */
+function Pager({
+  page,
+  count,
+  loading,
+  onPage,
+}: {
+  page: number
+  count: number
+  loading?: boolean
+  onPage: (next: number) => void
+}) {
+  const box = useRef<HTMLDivElement>(null)
+  const hasMore = count === ADMIN_PAGE_SIZE
+
+  // Одна неполная страница — перелистывать нечего.
+  if (page === 0 && !hasMore) return null
+
+  const go = (next: number) => {
+    onPage(next)
+    // Новая страница должна начинаться сверху, а не там, где была кнопка.
+    box.current?.closest('main')?.scrollTo({ top: 0 })
+  }
+
+  const from = page * ADMIN_PAGE_SIZE + 1
+  const to = page * ADMIN_PAGE_SIZE + count
+
+  return (
+    <div ref={box} className="flex items-center justify-between gap-2 pt-1">
+      <Btn disabled={page === 0 || loading} onClick={() => go(page - 1)}>
+        ← Назад
+      </Btn>
+      <div className="text-xs tabular-nums text-[var(--muted)]">
+        {count === 0 ? 'пусто' : `${fmtNum(from)}–${fmtNum(to)}`} · стр. {page + 1}
+      </div>
+      <Btn disabled={!hasMore || loading} onClick={() => go(page + 1)}>
+        Далее →
+      </Btn>
+    </div>
+  )
+}
+
+/* ── вкладка: обзор ───────────────────────────── */
 
 function OverviewTab() {
   const [data, setData] = useState<AdminOverview | null>(null)
@@ -217,7 +304,7 @@ function OverviewTab() {
           /*
             У каждого дня есть видимая дорожка, а столбик при любом ненулевом
             значении не мельче 6px: два сообщения при максимуме в двести — это
-            один процент высоты, то есты визуальный ноль.
+            один процент высоты, то есть визуальный ноль.
           */
           <div className="flex h-40 items-stretch gap-1.5">
             {days.map((d) => {
@@ -273,27 +360,33 @@ function OverviewTab() {
   )
 }
 
-/* ── вкладка: люди ──────────────────────────────────── */
+/* ── вкладка: люди ─────────────────────────── */
 
 function UsersTab() {
   const toast = useStore((s) => s.toast)
   const me = useStore((s) => s.account?.uid)
   const [q, setQ] = useState('')
   const [rows, setRows] = useState<AdminUser[]>([])
+  const [page, setPage] = useState(0)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState<string | null>(null)
 
+  // Поиск и перелистывание идут через одну загрузку: новый запрос всегда
+  // сбрасывает страницу, иначе поиск со третьей страницы даёт пустоту.
   const load = useCallback(
-    async (query?: string) => {
+    async (opts?: { query?: string; page?: number }) => {
+      const nextQuery = opts?.query ?? q
+      const nextPage = opts?.page ?? 0
       setLoading(true)
-      setRows((await adminListUsers(query ?? q)) ?? [])
+      setRows((await adminListUsers(nextQuery, ADMIN_PAGE_SIZE, nextPage * ADMIN_PAGE_SIZE)) ?? [])
+      setPage(nextPage)
       setLoading(false)
     },
     [q],
   )
 
   useEffect(() => {
-    void load('')
+    void load({ query: '' })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -307,7 +400,8 @@ function UsersTab() {
     }
     toast(label, '✅')
     if (uid === me) invalidatePerks()
-    await load()
+    // После действия остаёмся на той же странице.
+    await load({ page })
   }
 
   const ban = (u: AdminUser) => {
@@ -339,7 +433,7 @@ function UsersTab() {
       {loading && rows.length === 0 ? (
         <Empty text="Загружаем…" />
       ) : rows.length === 0 ? (
-        <Empty text="Никого не нашлось" />
+        <Empty text={page > 0 ? 'Дальше пусто — вернись назад' : 'Никого не нашлось'} />
       ) : (
         <div className="flex flex-col gap-2">
           {rows.map((u) => {
@@ -442,30 +536,35 @@ function UsersTab() {
           })}
         </div>
       )}
+      <Pager page={page} count={rows.length} loading={loading} onPage={(next) => void load({ page: next })} />
     </div>
   )
 }
 
-/* ── вкладка: чаты ──────────────────────────────────── */
+/* ── вкладка: чаты ─────────────────────────── */
 
 function ChatsTab({ onInspect }: { onInspect: (chatId: string) => void }) {
   const toast = useStore((s) => s.toast)
   const [q, setQ] = useState('')
   const [rows, setRows] = useState<AdminChat[]>([])
+  const [page, setPage] = useState(0)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState<string | null>(null)
 
   const load = useCallback(
-    async (query?: string) => {
+    async (opts?: { query?: string; page?: number }) => {
+      const nextQuery = opts?.query ?? q
+      const nextPage = opts?.page ?? 0
       setLoading(true)
-      setRows((await adminListChats(query ?? q)) ?? [])
+      setRows((await adminListChats(nextQuery, ADMIN_PAGE_SIZE, nextPage * ADMIN_PAGE_SIZE)) ?? [])
+      setPage(nextPage)
       setLoading(false)
     },
     [q],
   )
 
   useEffect(() => {
-    void load('')
+    void load({ query: '' })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -477,7 +576,7 @@ function ChatsTab({ onInspect }: { onInspect: (chatId: string) => void }) {
     const ok = await adminDeleteChat(c.id)
     setBusy(null)
     toast(ok ? 'Чат удалён' : 'Не удалось удалить чат', ok ? '🗑️' : '⚠️')
-    await load()
+    await load({ page })
   }
 
   return (
@@ -486,7 +585,7 @@ function ChatsTab({ onInspect }: { onInspect: (chatId: string) => void }) {
       {loading && rows.length === 0 ? (
         <Empty text="Загружаем…" />
       ) : rows.length === 0 ? (
-        <Empty text="Чатов не нашлось" />
+        <Empty text={page > 0 ? 'Дальше пусто — вернись назад' : 'Чатов не нашлось'} />
       ) : (
         <div className="flex flex-col gap-2">
           {rows.map((c) => (
@@ -516,7 +615,7 @@ function ChatsTab({ onInspect }: { onInspect: (chatId: string) => void }) {
                     const ok = await adminSetChatVerified(c.id, !c.verified)
                     setBusy(null)
                     toast(ok ? 'Готово' : 'Не получилось', ok ? '✅' : '⚠️')
-                    await load()
+                    await load({ page })
                   }}
                 >
                   {c.verified ? 'Снять галочку' : 'Верифицировать'}
@@ -529,30 +628,38 @@ function ChatsTab({ onInspect }: { onInspect: (chatId: string) => void }) {
           ))}
         </div>
       )}
+      <Pager page={page} count={rows.length} loading={loading} onPage={(next) => void load({ page: next })} />
     </div>
   )
 }
 
-/* ── вкладка: сообщения ──────────────────────────────── */
+/* ── вкладка: сообщения ──────────────────── */
 
 function MessagesTab({ chatFilter, onClearFilter }: { chatFilter: string | null; onClearFilter: () => void }) {
   const toast = useStore((s) => s.toast)
   const [q, setQ] = useState('')
   const [rows, setRows] = useState<AdminMessage[]>([])
+  const [page, setPage] = useState(0)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState<string | null>(null)
 
   const load = useCallback(
-    async (query?: string) => {
+    async (opts?: { query?: string; page?: number }) => {
+      const nextQuery = opts?.query ?? q
+      const nextPage = opts?.page ?? 0
       setLoading(true)
-      setRows((await adminSearchMessages(query ?? q, chatFilter)) ?? [])
+      setRows(
+        (await adminSearchMessages(nextQuery, chatFilter, ADMIN_PAGE_SIZE, nextPage * ADMIN_PAGE_SIZE)) ?? [],
+      )
+      setPage(nextPage)
       setLoading(false)
     },
     [q, chatFilter],
   )
 
+  // Смена фильтра по чату — это другой набор строк, так что с первой страницы.
   useEffect(() => {
-    void load()
+    void load({ page: 0 })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chatFilter])
 
@@ -562,7 +669,7 @@ function MessagesTab({ chatFilter, onClearFilter }: { chatFilter: string | null;
     const ok = await adminDeleteMessage(m.id, hard)
     setBusy(null)
     toast(ok ? 'Готово' : 'Не получилось', ok ? '🗑️' : '⚠️')
-    await load()
+    await load({ page })
   }
 
   return (
@@ -577,7 +684,7 @@ function MessagesTab({ chatFilter, onClearFilter }: { chatFilter: string | null;
       {loading && rows.length === 0 ? (
         <Empty text="Загружаем…" />
       ) : rows.length === 0 ? (
-        <Empty text="Ничего не нашлось" />
+        <Empty text={page > 0 ? 'Дальше пусто — вернись назад' : 'Ничего не нашлось'} />
       ) : (
         <div className="flex flex-col gap-2">
           {rows.map((m) => (
@@ -604,11 +711,12 @@ function MessagesTab({ chatFilter, onClearFilter }: { chatFilter: string | null;
           ))}
         </div>
       )}
+      <Pager page={page} count={rows.length} loading={loading} onPage={(next) => void load({ page: next })} />
     </div>
   )
 }
 
-/* ── вкладка: жалобы ────────────────────────────────── */
+/* ── вкладка: жалобы ─────────────────────── */
 
 const STATUSES: Array<{ key: ReportStatus | 'all'; label: string }> = [
   { key: 'open', label: 'Открытые' },
@@ -621,11 +729,13 @@ function ReportsTab({ onInspect }: { onInspect: (chatId: string) => void }) {
   const toast = useStore((s) => s.toast)
   const [status, setStatus] = useState<ReportStatus | 'all'>('open')
   const [rows, setRows] = useState<AdminReport[]>([])
+  const [page, setPage] = useState(0)
   const [loading, setLoading] = useState(true)
 
-  const load = useCallback(async (next: ReportStatus | 'all') => {
+  const load = useCallback(async (next: ReportStatus | 'all', nextPage = 0) => {
     setLoading(true)
-    setRows((await adminListReports(next)) ?? [])
+    setRows((await adminListReports(next, ADMIN_PAGE_SIZE, nextPage * ADMIN_PAGE_SIZE)) ?? [])
+    setPage(nextPage)
     setLoading(false)
   }, [])
 
@@ -636,32 +746,16 @@ function ReportsTab({ onInspect }: { onInspect: (chatId: string) => void }) {
   const resolve = async (r: AdminReport, next: ReportStatus) => {
     const ok = await adminResolveReport(r.id, next)
     toast(ok ? 'Статус обновлён' : 'Не получилось', ok ? '✅' : '⚠️')
-    await load(status)
+    await load(status, page)
   }
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex flex-wrap gap-1.5">
-        {STATUSES.map((s) => (
-          <button
-            key={s.key}
-            type="button"
-            onClick={() => setStatus(s.key)}
-            className={cx(
-              'rounded-xl border px-3 py-1.5 text-xs font-semibold transition',
-              status === s.key
-                ? 'accent-gradient border-transparent text-white'
-                : 'border-[var(--border)] bg-[var(--panel-2)] text-[var(--text)] hover:bg-[var(--panel-hover)]',
-            )}
-          >
-            {s.label}
-          </button>
-        ))}
-      </div>
+      <FilterRow items={STATUSES} value={status} onPick={setStatus} />
       {loading && rows.length === 0 ? (
         <Empty text="Загружаем…" />
       ) : rows.length === 0 ? (
-        <Empty text="Жалоб нет — тишина в королевстве" />
+        <Empty text={page > 0 ? 'Дальше пусто — вернись назад' : 'Жалоб нет — тишина в королевстве'} />
       ) : (
         <div className="flex flex-col gap-2">
           {rows.map((r) => (
@@ -691,11 +785,131 @@ function ReportsTab({ onInspect }: { onInspect: (chatId: string) => void }) {
           ))}
         </div>
       )}
+      <Pager page={page} count={rows.length} loading={loading} onPage={(next) => void load(status, next)} />
     </div>
   )
 }
 
-/* ── страница ──────────────────────────────────────── */
+/* ── вкладка: журнал действий ─────────────── */
+
+const AUDIT_FILTERS: Array<{ key: AdminAuditAction | 'all'; label: string }> = [
+  { key: 'all', label: 'Все' },
+  { key: 'ban_user', label: 'Баны' },
+  { key: 'unban_user', label: 'Разбаны' },
+  { key: 'set_verified', label: 'Галочки' },
+  { key: 'delete_message', label: 'Сообщения' },
+  { key: 'delete_chat', label: 'Удалённые чаты' },
+  { key: 'resolve_report', label: 'Жалобы' },
+  { key: 'set_perk', label: 'Перки' },
+]
+
+const AUDIT_ICONS: Record<string, string> = {
+  ban_user: '🚫',
+  unban_user: '🔓',
+  set_verified: '✔️',
+  set_chat_verified: '✔️',
+  delete_chat: '🗑️',
+  delete_message: '✂️',
+  resolve_report: '🚩',
+  set_perk: '🎁',
+  set_max_bots: '🤖',
+}
+
+/**
+ * Журнал действий администрации — только чтение.
+ *
+ * Записи ставит сама база внутри каждой мутирующей admin_* RPC, а право
+ * на fc_admin_log() у роли authenticated отозвано. Значит, запись нельзя ни
+ * подделать, ни пропустить, обойдя UI. Кнопки «удалить запись» здесь нет
+ * и быть не должно: журнал, в котором можно стирать строки, не журнал.
+ */
+function AuditTab() {
+  const [action, setAction] = useState<AdminAuditAction | 'all'>('all')
+  const [target, setTarget] = useState('')
+  const [rows, setRows] = useState<AdminAuditEntry[]>([])
+  const [page, setPage] = useState(0)
+  const [loading, setLoading] = useState(true)
+  const [open, setOpen] = useState<number | null>(null)
+
+  const load = useCallback(
+    async (opts?: { action?: AdminAuditAction | 'all'; target?: string; page?: number }) => {
+      const nextAction = opts?.action ?? action
+      const nextTarget = opts?.target ?? target
+      const nextPage = opts?.page ?? 0
+      setLoading(true)
+      setRows(
+        (await adminListAudit(nextAction, nextTarget.trim() || null, ADMIN_PAGE_SIZE, nextPage * ADMIN_PAGE_SIZE)) ??
+          [],
+      )
+      setPage(nextPage)
+      setLoading(false)
+    },
+    [action, target],
+  )
+
+  useEffect(() => {
+    void load({ action, page: 0 })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [action])
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="text-sm text-[var(--muted)]">
+        Кто из админов что сделал. Записи ставит база, правка и удаление невозможны.
+      </div>
+      <FilterRow items={AUDIT_FILTERS} value={action} onPick={setAction} />
+      <SearchBox
+        value={target}
+        onChange={setTarget}
+        onSubmit={() => void load({ page: 0 })}
+        placeholder="id объекта: uid, id чата или сообщения…"
+      />
+      {loading && rows.length === 0 ? (
+        <Empty text="Загружаем…" />
+      ) : rows.length === 0 ? (
+        <Empty text={page > 0 ? 'Дальше пусто — вернись назад' : 'Записей нет — админы ничего не трогали'} />
+      ) : (
+        <div className="flex flex-col gap-2">
+          {rows.map((e) => {
+            const detail = e.detail ?? {}
+            const hasDetail = Object.keys(detail).length > 0
+            return (
+              <Panel key={e.id} className="flex flex-col gap-1.5">
+                <div className="flex flex-wrap items-center gap-1.5 text-xs text-[var(--muted)]">
+                  <span className="text-base leading-none">{AUDIT_ICONS[e.action] ?? '📝'}</span>
+                  <span className="font-bold text-[var(--text)]">
+                    {e.actor_name || e.actor_username || (e.actor_uid ? e.actor_uid.slice(0, 8) : '—')}
+                  </span>
+                  <span className="text-[var(--text)]">{auditLabel(e)}</span>
+                  <Chip>{e.target_type}</Chip>
+                  <span>· {fmtDate(e.created_at)}</span>
+                </div>
+                {e.target_id && (
+                  <div className="break-all text-[11px] text-[var(--muted)]">Объект: {e.target_id}</div>
+                )}
+                {hasDetail && (
+                  <div>
+                    <Btn onClick={() => setOpen(open === e.id ? null : e.id)}>
+                      {open === e.id ? 'Скрыть подробности' : 'Подробности'}
+                    </Btn>
+                    {open === e.id && (
+                      <pre className="fancy-scroll mt-1.5 max-h-48 overflow-auto rounded-xl border border-[var(--border)] bg-[var(--panel-2)] p-2 text-[11px] leading-relaxed text-[var(--text)]">
+                        {JSON.stringify(detail, null, 2)}
+                      </pre>
+                    )}
+                  </div>
+                )}
+              </Panel>
+            )
+          })}
+        </div>
+      )}
+      <Pager page={page} count={rows.length} loading={loading} onPage={(next) => void load({ page: next })} />
+    </div>
+  )
+}
+
+/* ── страница ──────────────────────────── */
 
 export function AdminConsole({ onClose }: { onClose: () => void }) {
   const perks = usePerks()
@@ -785,6 +999,7 @@ export function AdminConsole({ onClose }: { onClose: () => void }) {
             <MessagesTab chatFilter={chatFilter} onClearFilter={() => setChatFilter(null)} />
           )}
           {tab === 'reports' && <ReportsTab onInspect={inspectChat} />}
+          {tab === 'audit' && <AuditTab />}
         </div>
       </main>
     </div>
