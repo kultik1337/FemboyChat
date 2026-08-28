@@ -30,6 +30,12 @@ export function isDarkTheme(t: ThemeName): boolean {
   return DARK_THEMES.has(resolveTheme(t))
 }
 
+/** Телефоны и планшеты — те же условия, что у медиа-запроса в mobile.css. */
+function isTouchLayout(): boolean {
+  if (typeof window === 'undefined' || !window.matchMedia) return false
+  return window.matchMedia('(max-width: 900px)').matches || window.matchMedia('(pointer: coarse)').matches
+}
+
 /**
  * Reflect the user's appearance settings onto the document.
  *
@@ -51,15 +57,28 @@ export function applyAppearance(s?: Partial<UserSettings> | null) {
   root.style.setProperty('--font-scale', String(merged.fontScale))
   root.style.setProperty('--radius-bubble', `${merged.bubbleRadius}px`)
 
-  const bg = getComputedStyle(root).getPropertyValue('--bg').trim()
-  if (bg) {
+  /*
+    Цвет полос браузера.
+
+    На телефоне берём --panel, а не --bg: к верхней и нижней кромке экрана
+    там примыкают шапка и поле ввода, а они окрашены в цвет панели.
+    Если системная полоса красится цветом страницы, получается ровно такая
+    же чужая рамка, как и от фона html/body — только её уже не убрать вёрсткой
+    вообще: это рисует сам браузер. На широком экране карточка плавает на
+    градиенте, и там правильный ответ — всё ещё --bg.
+  */
+  const style = getComputedStyle(root)
+  const panel = style.getPropertyValue('--panel').trim()
+  const bg = style.getPropertyValue('--bg').trim()
+  const bar = (isTouchLayout() ? panel : bg) || bg || panel
+  if (bar) {
     let meta = document.querySelector('meta[name="theme-color"]')
     if (!meta) {
       meta = document.createElement('meta')
       meta.setAttribute('name', 'theme-color')
       document.head.appendChild(meta)
     }
-    meta.setAttribute('content', bg)
+    meta.setAttribute('content', bar)
   }
 }
 
