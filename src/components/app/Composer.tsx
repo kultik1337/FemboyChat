@@ -5,6 +5,7 @@ import {
   Eye,
   EyeOff,
   FileText,
+  Image as ImageIcon,
   ImagePlay,
   ListChecks,
   Loader2,
@@ -94,6 +95,8 @@ export function Composer() {
   const [spoiler, setSpoiler] = useState(false)
   // Phone-only sheet holding the actions that no longer fit on the bar.
   const [moreOpen, setMoreOpen] = useState(false)
+  // Меню скрепки на компьютере: тот же список, что в телефонном «➕».
+  const [attachOpen, setAttachOpen] = useState(false)
   // Which autocomplete row the arrow keys are currently on, and whether Escape
   // has hidden the list for the token being typed.
   const [acIndex, setAcIndex] = useState(0)
@@ -101,6 +104,7 @@ export function Composer() {
   const [dragOver, setDragOver] = useState(false)
   const ref = useRef<HTMLTextAreaElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
+  const mediaRef = useRef<HTMLInputElement>(null)
 
   /**
    * Put the cursor in the input, at the end of whatever text is already there.
@@ -127,6 +131,7 @@ export function Composer() {
   useEffect(() => {
     setSpoiler(false)
     setMoreOpen(false)
+    setAttachOpen(false)
     if (useStore.getState().composeEdit) return
     setText(localStorage.getItem(draftKey(chatId)) ?? '')
     focusInput()
@@ -226,6 +231,7 @@ export function Composer() {
     setStickers(false)
     setGifs(false)
     setMoreOpen(false)
+    setAttachOpen(false)
     setTtlOpen(false)
   }
 
@@ -418,7 +424,7 @@ export function Composer() {
     }
     if (e.key === 'Escape') {
       // Close whatever tray is open first; only then drop the reply or edit.
-      if (emoji || stickers || gifs || moreOpen || ttlOpen) {
+      if (emoji || stickers || gifs || moreOpen || attachOpen || ttlOpen) {
         closeTrays()
         return
       }
@@ -589,6 +595,12 @@ export function Composer() {
       )}
 
       <input ref={fileRef} type="file" multiple hidden onChange={(e) => { addPendingFiles(Array.from(e.target.files ?? [])); e.target.value = '' }} />
+      {/*
+        У «Фото или видео» свой вход с готовым accept, а не общий с подменой
+        атрибута перед click(): браузер читает accept в момент открытия
+        диалога, и гонка здесь даёт диалог со старым фильтром.
+      */}
+      <input ref={mediaRef} type="file" accept="image/*,video/*" multiple hidden onChange={(e) => { addPendingFiles(Array.from(e.target.files ?? [])); e.target.value = '' }} />
 
       {recording ? (
         <VoiceRecorder
@@ -630,6 +642,9 @@ export function Composer() {
           hidden group turns into `display: contents`, and the familiar desktop
           bar is exactly as it was — the `order` values keep the field between
           the two icon groups.
+
+          Скрепка живёт отдельно от этой группы: ей нужен свой relative-родитель
+          под меню вложений, а внутри `display: contents` привязаться не к чему.
         */
         <div className="flex items-end gap-0.5 sm:gap-1">
           <div className="relative sm:hidden">
@@ -640,15 +655,42 @@ export function Composer() {
               <>
                 <div className="fixed inset-0 z-20" onClick={() => setMoreOpen(false)} />
                 <div className="absolute bottom-12 left-0 z-30 w-56 overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-1 shadow-xl animate-pop-in" style={{ boxShadow: 'var(--shadow)' }}>
-                  <SheetItem icon={<Paperclip size={17} />} label="Фото или файл" onClick={() => { setMoreOpen(false); fileRef.current?.click() }} />
-                  <SheetItem icon={<StickerIcon size={17} />} label="Стикеры" onClick={() => { setMoreOpen(false); setStickers(true) }} />
-                  <SheetItem icon={<ImagePlay size={17} />} label="GIF" onClick={() => { setMoreOpen(false); setGifs(true) }} />
-                  <SheetItem icon={<ListChecks size={17} />} label="Опрос" onClick={() => { setMoreOpen(false); setPollOpen(true) }} />
-                  <SheetItem
-                    icon={<Clock size={17} />}
-                    label="Исчезающее"
-                    hint={ttl ? ttlLabel : undefined}
-                    onClick={() => { setMoreOpen(false); setTtlOpen(true) }}
+                  <AttachMenu
+                    phone
+                    ttlHint={ttl ? ttlLabel : undefined}
+                    onMedia={() => { setMoreOpen(false); mediaRef.current?.click() }}
+                    onFile={() => { setMoreOpen(false); fileRef.current?.click() }}
+                    onStickers={() => { setMoreOpen(false); setStickers(true) }}
+                    onGifs={() => { setMoreOpen(false); setGifs(true) }}
+                    onPoll={() => { setMoreOpen(false); setPollOpen(true) }}
+                    onTtl={() => { setMoreOpen(false); setTtlOpen(true) }}
+                  />
+                </div>
+              </>
+            )}
+          </div>
+
+          {/*
+            Скрепка на компьютере теперь открывает меню, а не сразу системный
+            диалог файла. Добраться до выбора файла стало на один клик дольше,
+            зато появился выбор между медиа и документом — без него в диалоге
+            приходилось искать фото среди всего на диске. Перетаскивание и вставка
+            из буфера работают как раньше и меню не требуют.
+          */}
+          <div className="relative hidden sm:block sm:order-1">
+            <IconButton title="Прикрепить" active={attachOpen} onClick={() => { setAttachOpen((v) => !v); setEmoji(false); setStickers(false); setGifs(false) }}>
+              <Paperclip size={20} />
+            </IconButton>
+            {attachOpen && (
+              <>
+                <div className="fixed inset-0 z-20" onClick={() => setAttachOpen(false)} />
+                <div className="absolute bottom-12 left-0 z-30 w-56 overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-1 shadow-xl animate-pop-in" style={{ boxShadow: 'var(--shadow)' }}>
+                  <AttachMenu
+                    ttlHint={ttl ? ttlLabel : undefined}
+                    onMedia={() => { setAttachOpen(false); mediaRef.current?.click() }}
+                    onFile={() => { setAttachOpen(false); fileRef.current?.click() }}
+                    onPoll={() => { setAttachOpen(false); setPollOpen(true) }}
+                    onTtl={() => { setAttachOpen(false); setTtlOpen(true) }}
                   />
                 </div>
               </>
@@ -676,20 +718,17 @@ export function Composer() {
             )}
           />
 
-          <IconButton title="Эмодзи" className="sm:order-1" active={emoji} onClick={() => { setEmoji((v) => !v); setStickers(false); setGifs(false); setMoreOpen(false) }}>
+          <IconButton title="Эмодзи" className="sm:order-1" active={emoji} onClick={() => { setEmoji((v) => !v); setStickers(false); setGifs(false); setMoreOpen(false); setAttachOpen(false) }}>
             <Smile size={21} />
           </IconButton>
 
           {/* Desktop-only group: `display: none` on phones, plain flex items from `sm`. */}
           <span className="hidden sm:contents">
-            <IconButton title="Стикеры" className="sm:order-1" active={stickers} onClick={() => { setStickers((v) => !v); setEmoji(false); setGifs(false) }}>
+            <IconButton title="Стикеры" className="sm:order-1" active={stickers} onClick={() => { setStickers((v) => !v); setEmoji(false); setGifs(false); setAttachOpen(false) }}>
               <StickerIcon size={21} />
             </IconButton>
-            <IconButton title="GIF" className="sm:order-1" active={gifs} onClick={() => { setGifs((v) => !v); setEmoji(false); setStickers(false) }}>
+            <IconButton title="GIF" className="sm:order-1" active={gifs} onClick={() => { setGifs((v) => !v); setEmoji(false); setStickers(false); setAttachOpen(false) }}>
               <ImagePlay size={21} />
-            </IconButton>
-            <IconButton title="Прикрепить файл" className="sm:order-1" onClick={() => fileRef.current?.click()}>
-              <Paperclip size={20} />
             </IconButton>
             <IconButton title="Исчезающее сообщение" className="sm:order-3" active={!!ttl} onClick={() => setTtlOpen((v) => !v)}>
               <Clock size={20} />
@@ -733,7 +772,49 @@ function attachmentChipLabel(a: Attachment) {
   }
 }
 
-/** One row of the phone «➕» sheet. */
+/**
+ * Меню вложений — иконка и подпись в столбик, попап над полем ввода.
+ *
+ * Один список на две точки входа: скрепка на компьютере и «➕» на телефоне,
+ * иначе две копии разметки разъехались бы при первой же правке. На телефоне
+ * список длиннее: там у стикеров и GIF нет своих кнопок на панели.
+ *
+ * Сознательно нет «Геопозиции» и «Кошелька» из Телеграма: за ними в нашей
+ * базе ничего не стоит, а пункт меню, который ничего не делает, хуже его
+ * отсутствия.
+ */
+function AttachMenu({
+  phone,
+  ttlHint,
+  onMedia,
+  onFile,
+  onPoll,
+  onTtl,
+  onStickers,
+  onGifs,
+}: {
+  phone?: boolean
+  ttlHint?: string
+  onMedia: () => void
+  onFile: () => void
+  onPoll: () => void
+  onTtl: () => void
+  onStickers?: () => void
+  onGifs?: () => void
+}) {
+  return (
+    <>
+      <SheetItem icon={<ImageIcon size={17} />} label="Фото или видео" onClick={onMedia} />
+      <SheetItem icon={<FileText size={17} />} label="Документ" onClick={onFile} />
+      {phone && onStickers && <SheetItem icon={<StickerIcon size={17} />} label="Стикеры" onClick={onStickers} />}
+      {phone && onGifs && <SheetItem icon={<ImagePlay size={17} />} label="GIF" onClick={onGifs} />}
+      <SheetItem icon={<ListChecks size={17} />} label="Опрос" onClick={onPoll} />
+      <SheetItem icon={<Clock size={17} />} label="Исчезающее" hint={ttlHint} onClick={onTtl} />
+    </>
+  )
+}
+
+/** One row of the attachment menu («➕» sheet on a phone, paperclip on desktop). */
 function SheetItem({ icon, label, hint, onClick }: { icon: React.ReactNode; label: string; hint?: string; onClick: () => void }) {
   return (
     <button onClick={onClick} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-semibold hover:bg-[var(--panel-hover)]">
