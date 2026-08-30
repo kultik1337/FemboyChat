@@ -921,5 +921,6 @@ function rowToMessage(r: any): Message {
     commentOf: r.comment_of ?? undefined,
     viewCount: r.view_count ?? undefined,
     commentCount: r.comment_count ?? undefined,
+    streaming: r.streaming ? true : undefined,
   }
 }

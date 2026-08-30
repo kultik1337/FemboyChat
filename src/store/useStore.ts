@@ -624,20 +624,53 @@ export const useStore = create<StoreState>((set, get) => ({
               ? { presence: { ...s.presence, [e.message.senderUid]: { online: true, lastSeen: e.message.ts } } }
               : {},
           )
+          // A streaming bot reply lands empty and fills in over `message:update`.
+          // Its ping is deferred until the text exists (see message:update below),
+          // otherwise the sound and the OS notification would carry no content.
+          const streamingPlaceholder = e.message.streaming && !e.message.text.trim()
           const muted = state.chats.find((c) => c.id === chatId)?.muted
-          if (state.account?.settings.notifySound && !muted) beep()
+          if (!streamingPlaceholder) {
+            if (state.account?.settings.notifySound && !muted) beep()
+            if (!muted) maybeNotify(state, e.message)
+          }
           if (isActive) get().backend?.markRead(chatId)
-          if (!muted) maybeNotify(state, e.message)
         }
         break
       }
       case 'message:update': {
         const { chatId, id } = e.message
+        const prev = state.messages[chatId]?.find((m) => m.id === id)
+        // A reply that just finished streaming gets the ping the empty placeholder
+        // skipped: play the sound and raise the notification once, now that there
+        // is something to show.
+        const justFinished = !!prev?.streaming && !e.message.streaming
         set((s) => ({
           messages: s.messages[chatId]
             ? { ...s.messages, [chatId]: s.messages[chatId].map((m) => (m.id === id ? e.message : m)) }
             : s.messages,
+          // Keep the sidebar preview in step with the growing text — but only
+          // when this chat already has a preview and this is its newest message,
+          // so an edit to some older message never hijacks the sidebar.
+          previews:
+            s.previews[chatId] && e.message.ts >= s.previews[chatId].ts
+              ? {
+                  ...s.previews,
+                  [chatId]: {
+                    text: e.message.text,
+                    ts: e.message.ts,
+                    senderUid: e.message.senderUid,
+                    sticker: e.message.sticker,
+                    attachment: e.message.attachment,
+                    deleted: e.message.deleted,
+                  },
+                }
+              : s.previews,
         }))
+        if (justFinished && e.message.senderUid !== state.account?.uid) {
+          const muted = state.chats.find((c) => c.id === chatId)?.muted
+          if (state.activeChatId !== chatId && state.account?.settings.notifySound && !muted) beep()
+          if (!muted) maybeNotify(state, e.message)
+        }
         break
       }
       case 'message:delete': {

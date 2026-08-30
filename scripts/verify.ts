@@ -110,6 +110,24 @@ async function main() {
   const botMsgs = await be.listMessages(botDm.id)
   ok('bot replied to /help', botMsgs.some((m) => m.senderUid !== me.uid && m.text.includes('Команды')))
 
+  // 9b. bot reply streams in: an empty placeholder appears first (streaming=true),
+  // then message:update events grow the text until the flag is cleared.
+  const streamEvents: { streaming?: boolean; text: string }[] = []
+  const offStream = be.subscribe((e) => {
+    if ((e.type === 'message' || e.type === 'message:update') && (e as any).message.chatId === botDm.id) {
+      const m = (e as any).message
+      if (m.senderUid !== me.uid) streamEvents.push({ streaming: m.streaming, text: m.text })
+    }
+  })
+  await be.send({ chatId: botDm.id, senderUid: me.uid, text: '/joke' } as any)
+  await sleep(1800)
+  offStream()
+  ok('reply starts as an empty streaming placeholder', streamEvents.some((e) => e.streaming === true && e.text === ''))
+  ok('reply text grows over updates', streamEvents.filter((e) => e.streaming).map((e) => e.text.length).some((l, i, a) => i > 0 && l > a[i - 1]))
+  ok('streaming flag clears when done', streamEvents.length > 1 && !streamEvents[streamEvents.length - 1].streaming)
+  const jokeMsgs = await be.listMessages(botDm.id)
+  ok('final streamed message is complete', jokeMsgs.some((m) => m.senderUid !== me.uid && m.text.length > 0 && !m.streaming))
+
   // 10. create a group and channel; channel posting restricted for non-admins handled in UI
   const grp = await be.createChat({ type: 'group', title: 'Тестовая', emoji: '💬' })
   ok('group created & searchable', be.searchDirectory('Тестовая').length > 0 && grp.adminUids.includes(me.uid))

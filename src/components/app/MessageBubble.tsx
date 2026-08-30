@@ -461,9 +461,13 @@ export function MessageBubble({
               <PollView message={message} onVote={(i) => vote(message.id, i)} />
             ) : message.text ? (
               <>
-                <LongText text={message.text} isMine={isMine} isPost={isPost} />
-                <LinkPreviewCard text={message.text} isMine={isMine} />
+                <LongText text={message.text} isMine={isMine} isPost={isPost} streaming={message.streaming} />
+                {/* Skip link previews while the text is still arriving: the URL
+                    may be half-typed, and the card would flicker as it grows. */}
+                {!message.streaming && <LinkPreviewCard text={message.text} isMine={isMine} />}
               </>
+            ) : message.streaming ? (
+              <StreamingDots />
             ) : null}
 
             {footer}
@@ -632,17 +636,22 @@ function VisualMedia({ a, fill }: { a: Attachment; fill?: boolean }) {
  * bubble — and with it the chat pane — past the viewport. overflow-wrap:anywhere
  * lets the layout break such a token, so the bubble can actually be narrow.
  */
-function LongText({ text, isMine, isPost }: { text: string; isMine: boolean; isPost?: boolean }) {
+function LongText({ text, isMine, isPost, streaming }: { text: string; isMine: boolean; isPost?: boolean; streaming?: boolean }) {
   const LIMIT = 700
   const [expanded, setExpanded] = useState(false)
   const isLong = text.length > LIMIT
   const shown = isLong && !expanded ? text.slice(0, 550).trimEnd() + '…' : text
+  const base = isPost ? renderPost(shown) : renderRich(shown)
+  // A blinking caret rides the end of the last line while the reply streams in.
+  // It is appended straight to the rendered HTML so it sits inline after the
+  // final character rather than dropping onto its own line.
+  const html = streaming ? { __html: base.__html + '<span class="fc-caret" aria-hidden="true"></span>' } : base
   return (
     <>
       <div
         className={classNames('min-w-0 break-words', isPost ? 'whitespace-normal' : 'whitespace-pre-wrap')}
         style={{ overflowWrap: 'anywhere' }}
-        dangerouslySetInnerHTML={isPost ? renderPost(shown) : renderRich(shown)}
+        dangerouslySetInnerHTML={html}
       />
       {isLong && (
         <button
@@ -653,6 +662,17 @@ function LongText({ text, isMine, isPost }: { text: string; isMine: boolean; isP
         </button>
       )}
     </>
+  )
+}
+
+/** Three bouncing dots shown in an AI bubble before its first token arrives. */
+function StreamingDots() {
+  return (
+    <span className="fc-typing" aria-label="печатает">
+      <span className="fc-typing-dot" />
+      <span className="fc-typing-dot" />
+      <span className="fc-typing-dot" />
+    </span>
   )
 }
 

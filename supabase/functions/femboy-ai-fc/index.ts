@@ -12,6 +12,12 @@
 //    на сообщение собеседника;
 //  - помнит больше контекста (30 сообщений).
 //
+// v3 («живой стриминг»):
+//  - ответ теперь по-настоящему печатается токен за токеном. Пустой пузырёк
+//    вставляется сразу (streaming=true), а Realtime-UPDATE'ы дописывают в него
+//    текст по мере генерации; в конце флаг снимается. Клиент рисует «каретку»,
+//    пока идёт стрим. Обновления БД троттлятся (~3 записи в секунду).
+//
 // Protected by a shared secret (x-fc-secret) that only the DB trigger knows.
 //
 // Provider is chosen from whichever key exists in Vault (via get_ai_config):
@@ -21,6 +27,11 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 const FEMBOY_UID = "00000000-0000-4000-8000-000000000002";
 const MAX_HISTORY = 30;
 const MAX_LEN = 4000;
+// While streaming we rewrite the growing bubble in the DB. Cap the churn so a
+// fast model does not turn into hundreds of Realtime UPDATEs: at most one write
+// every FLUSH_MS, and only once at least FLUSH_CHARS new characters arrived.
+const FLUSH_MS = 350;
+const FLUSH_CHARS = 2;
 const STICKERS = ["🎀", "🌸", "💖", "✨", "🐾", "🧸", "🍓", "🫶", "😳", "🥺", "💅", "🌈", "🦄", "🧦", "💜", "🐈"];
 
 const SYSTEM_PROMPT = `Тебя зовут FemboyAI. Ты — милый, ласковый, игривый ути-пути фембойчик и живёшь внутри мессенджера FemboyChat.
@@ -56,6 +67,9 @@ const FALLBACK =
   "Уии~ мой ИИ-мозг сейчас чуть-чуть задумался (>﹏<) напиши ещё разок, пожалуйста? 🎀";
 
 type LlmMessage = { role: "system" | "user" | "assistant"; content: string };
+
+/** A chosen model, ready to stream a reply as a sequence of text deltas. */
+type Provider = { stream(messages: LlmMessage[]): AsyncGenerator<string> };
 
 type Attachment = { kind?: string; name?: string; durationSec?: number } | null;
 type Poll = { question?: string } | null;
@@ -93,31 +107,67 @@ function describe(m: HistoryRow): string {
   return parts.join(" ").trim();
 }
 
-async function callOpenAiCompatible(
+/**
+ * Read a Server-Sent-Events body line by line, hand every `data:` JSON frame to
+ * `pick`, and yield the non-empty text deltas. Handles frames that arrive split
+ * across chunk boundaries by buffering until a newline is seen.
+ */
+async function* sse(body: ReadableStream<Uint8Array>, pick: (o: unknown) => string): AsyncGenerator<string> {
+  const reader = body.getReader();
+  const dec = new TextDecoder();
+  let buf = "";
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let nl: number;
+      while ((nl = buf.indexOf("\n")) >= 0) {
+        const line = buf.slice(0, nl).trim();
+        buf = buf.slice(nl + 1);
+        if (!line.startsWith("data:")) continue;
+        const data = line.slice(5).trim();
+        if (data === "[DONE]") return;
+        try {
+          const delta = pick(JSON.parse(data));
+          if (delta) yield delta;
+        } catch {
+          /* keep-alive comment or a half-received frame — skip it */
+        }
+      }
+    }
+  } finally {
+    try {
+      reader.releaseLock();
+    } catch {
+      /* already released */
+    }
+  }
+}
+
+async function* streamOpenAiCompatible(
   baseUrl: string,
   apiKey: string,
   model: string,
   messages: LlmMessage[],
-): Promise<string> {
+): AsyncGenerator<string> {
   const r = await fetch(`${baseUrl.replace(/\/$/, "")}/chat/completions`, {
     method: "POST",
     headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
-    body: JSON.stringify({ model, temperature: 0.9, max_tokens: 700, messages }),
+    body: JSON.stringify({ model, temperature: 0.9, max_tokens: 700, stream: true, messages }),
   });
-  if (!r.ok) throw new Error(`${baseUrl} -> ${r.status}: ${(await r.text()).slice(0, 200)}`);
-  const d = await r.json();
-  const c = d?.choices?.[0]?.message?.content;
-  if (typeof c !== "string") throw new Error("no content");
-  return c;
+  if (!r.ok || !r.body)
+    throw new Error(`${baseUrl} -> ${r.status}: ${r.body ? (await r.text()).slice(0, 200) : "no body"}`);
+  yield* sse(r.body, (o) => (o as any)?.choices?.[0]?.delta?.content ?? "");
 }
 
-async function callGemini(apiKey: string, model: string, messages: LlmMessage[]): Promise<string> {
+async function* streamGemini(apiKey: string, model: string, messages: LlmMessage[]): AsyncGenerator<string> {
   const system = messages.find((m) => m.role === "system")?.content ?? "";
   const contents = messages
     .filter((m) => m.role !== "system")
     .map((m) => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] }));
   const r = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse&key=${apiKey}`,
     {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -128,27 +178,42 @@ async function callGemini(apiKey: string, model: string, messages: LlmMessage[])
       }),
     },
   );
-  if (!r.ok) throw new Error(`gemini -> ${r.status}: ${(await r.text()).slice(0, 200)}`);
-  const d = await r.json();
-  const parts = d?.candidates?.[0]?.content?.parts;
-  const text = Array.isArray(parts) ? parts.map((p: { text?: string }) => p?.text ?? "").join("") : "";
-  if (!text) throw new Error("no content");
-  return text;
+  if (!r.ok || !r.body)
+    throw new Error(`gemini -> ${r.status}: ${r.body ? (await r.text()).slice(0, 200) : "no body"}`);
+  yield* sse(r.body, (o) => {
+    const parts = (o as any)?.candidates?.[0]?.content?.parts;
+    return Array.isArray(parts) ? parts.map((p: { text?: string }) => p?.text ?? "").join("") : "";
+  });
 }
 
-async function generate(cfg: Record<string, string>, messages: LlmMessage[]): Promise<string | null> {
+/** Choose a provider by whichever key exists in Vault, or null if none is set. */
+function pickProvider(cfg: Record<string, string>): Provider | null {
   if (cfg.LLM7_API_KEY)
-    return await callOpenAiCompatible("https://api.llm7.io/v1", cfg.LLM7_API_KEY, "gpt-oss:20b", messages);
-  if (cfg.GEMINI_API_KEY) return await callGemini(cfg.GEMINI_API_KEY, "gemini-2.0-flash", messages);
+    return { stream: (m) => streamOpenAiCompatible("https://api.llm7.io/v1", cfg.LLM7_API_KEY, "gpt-oss:20b", m) };
+  if (cfg.GEMINI_API_KEY)
+    return { stream: (m) => streamGemini(cfg.GEMINI_API_KEY, "gemini-2.0-flash", m) };
   if (cfg.GROQ_API_KEY)
-    return await callOpenAiCompatible("https://api.groq.com/openai/v1", cfg.GROQ_API_KEY, "llama-3.3-70b-versatile", messages);
+    return { stream: (m) => streamOpenAiCompatible("https://api.groq.com/openai/v1", cfg.GROQ_API_KEY, "llama-3.3-70b-versatile", m) };
   if (cfg.DEEPSEEK_API_KEY)
-    return await callOpenAiCompatible("https://api.deepseek.com/v1", cfg.DEEPSEEK_API_KEY, "deepseek-chat", messages);
+    return { stream: (m) => streamOpenAiCompatible("https://api.deepseek.com/v1", cfg.DEEPSEEK_API_KEY, "deepseek-chat", m) };
   if (cfg.OPENROUTER_API_KEY)
-    return await callOpenAiCompatible("https://openrouter.ai/api/v1", cfg.OPENROUTER_API_KEY, "meta-llama/llama-3.3-70b-instruct", messages);
+    return { stream: (m) => streamOpenAiCompatible("https://openrouter.ai/api/v1", cfg.OPENROUTER_API_KEY, "meta-llama/llama-3.3-70b-instruct", m) };
   if (cfg.GITHUB_MODELS_TOKEN)
-    return await callOpenAiCompatible("https://models.github.ai/inference", cfg.GITHUB_MODELS_TOKEN, "openai/gpt-4o-mini", messages);
+    return { stream: (m) => streamOpenAiCompatible("https://models.github.ai/inference", cfg.GITHUB_MODELS_TOKEN, "openai/gpt-4o-mini", m) };
   return null; // no provider configured
+}
+
+/**
+ * Hide control tags from the *live* text as it streams. Removes any completed
+ * [sticker:…]/[react:…] tag, plus a tag that is still mid-arrival at the very
+ * end, so the user never sees "[sticker:🎀" flash before it is stripped.
+ */
+function stripLiveTags(s: string): string {
+  return s
+    .replace(/\[\s*sticker\s*:\s*[^\]]*\]/giu, "")
+    .replace(/\[\s*react\s*:\s*[^\]]*\]/giu, "")
+    .replace(/\[\s*(?:sticker|react)\b[^\]]*$/iu, "")
+    .trimEnd();
 }
 
 /** Pull [sticker:X] / [react:X] control tags out of the model's reply. */
@@ -246,44 +311,76 @@ Deno.serve(async (req) => {
     })),
   ];
 
-  let reply = FALLBACK;
-  let sticker: string | null = null;
-  let reaction: string | null = null;
-  try {
-    const { data: cfg } = await admin.rpc("get_ai_config");
-    const generated = await generate((cfg ?? {}) as Record<string, string>, messages);
-    if (generated && generated.trim()) {
-      const parsed = extractTags(generated.trim().slice(0, MAX_LEN));
-      reply = parsed.text || FALLBACK;
-      sticker = parsed.sticker;
-      reaction = parsed.reaction;
-    }
-  } catch (e) {
-    console.error("FemboyAI generation failed:", e);
+  const { data: cfg } = await admin.rpc("get_ai_config");
+  const provider = pickProvider((cfg ?? {}) as Record<string, string>);
+
+  // No model configured: nothing to stream, so drop the fallback in as one
+  // ordinary message and stop.
+  if (!provider) {
+    const { error } = await admin
+      .from("messages")
+      .insert({ chat_id: chatId, sender_uid: FEMBOY_UID, text: FALLBACK });
+    if (error) return json({ error: "insert failed" }, 500);
+    return json({ ok: true, note: "no provider configured" });
   }
 
+  // Insert the empty bubble first. Realtime shows it right away, and every
+  // throttled UPDATE below streams more text into it on the client until we
+  // clear the `streaming` flag at the end.
+  const { data: placeholder, error: insErr } = await admin
+    .from("messages")
+    .insert({ chat_id: chatId, sender_uid: FEMBOY_UID, text: "", streaming: true })
+    .select("id")
+    .single();
+  if (insErr || !placeholder) return json({ error: "insert failed" }, 500);
+  const msgId = placeholder.id as string;
+
+  let full = "";
+  let flushedAt = 0;
+  let flushedLen = 0;
+  try {
+    for await (const delta of provider.stream(messages)) {
+      full += delta;
+      if (full.length > MAX_LEN) full = full.slice(0, MAX_LEN);
+      const now2 = Date.now();
+      if (full.length - flushedLen >= FLUSH_CHARS && now2 - flushedAt >= FLUSH_MS) {
+        flushedAt = now2;
+        flushedLen = full.length;
+        await admin.from("messages").update({ text: stripLiveTags(full) }).eq("id", msgId);
+      }
+      if (full.length >= MAX_LEN) break;
+    }
+  } catch (e) {
+    console.error("FemboyAI stream failed:", e);
+  }
+
+  // Finalise: strip the control tags, clear the streaming flag, and fall back
+  // to the cute apology if the model gave us nothing usable.
+  const parsed = extractTags(full.trim().slice(0, MAX_LEN));
+  const reply = parsed.text || FALLBACK;
+  const { error: finErr } = await admin
+    .from("messages")
+    .update({ text: reply, streaming: false })
+    .eq("id", msgId);
+  if (finErr) return json({ error: "finalise failed" }, 500);
+
   // Optional reaction on the user's last message.
-  if (reaction && last.sender_uid !== FEMBOY_UID) {
+  if (parsed.reaction && last.sender_uid !== FEMBOY_UID) {
     try {
       const existing = Array.isArray(last.reactions) ? (last.reactions as { emoji: string; uids: string[] }[]) : [];
-      const mine = existing.find((r) => r.emoji === reaction);
+      const mine = existing.find((r) => r.emoji === parsed.reaction);
       const next = mine
-        ? existing.map((r) => (r.emoji === reaction && !r.uids.includes(FEMBOY_UID) ? { ...r, uids: [...r.uids, FEMBOY_UID] } : r))
-        : [...existing, { emoji: reaction, uids: [FEMBOY_UID] }];
+        ? existing.map((r) => (r.emoji === parsed.reaction && !r.uids.includes(FEMBOY_UID) ? { ...r, uids: [...r.uids, FEMBOY_UID] } : r))
+        : [...existing, { emoji: parsed.reaction, uids: [FEMBOY_UID] }];
       await admin.from("messages").update({ reactions: next }).eq("id", last.id);
     } catch (e) {
       console.error("FemboyAI reaction failed:", e);
     }
   }
 
-  const { error } = await admin
-    .from("messages")
-    .insert({ chat_id: chatId, sender_uid: FEMBOY_UID, text: reply });
-  if (error) return json({ error: "insert failed" }, 500);
-
   // Optional sticker as a follow-up message.
-  if (sticker) {
-    await admin.from("messages").insert({ chat_id: chatId, sender_uid: FEMBOY_UID, text: "", sticker });
+  if (parsed.sticker) {
+    await admin.from("messages").insert({ chat_id: chatId, sender_uid: FEMBOY_UID, text: "", sticker: parsed.sticker });
   }
 
   return json({ ok: true });

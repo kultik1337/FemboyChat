@@ -197,6 +197,12 @@ export interface Message {
   pending?: boolean
   /** Local-only: the write failed, so the bubble stays and is marked unsent. */
   failed?: boolean
+  /**
+   * A bot reply that is still being generated token-by-token. The row is
+   * inserted empty and grows via `message:update` events until the model is
+   * done, at which point the flag is cleared. Drives the live "typing" caret.
+   */
+  streaming?: boolean
 }
 
 /** Open Graph preview of a link inside a message. */
