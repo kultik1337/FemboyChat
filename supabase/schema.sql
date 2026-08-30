@@ -62,6 +62,7 @@ create table if not exists public.messages (
   read_by_uids uuid[] default '{}',
   ttl int,
   edited_ts bigint,
+  streaming boolean not null default false,      -- bot reply still being streamed in
   ts timestamptz default now()
 );
 

@@ -708,3 +708,41 @@ audio::-webkit-media-controls-panel {
     transition-duration: 0.001ms !important;
   }
 }
+
+/* ── Streaming AI reply: live caret + pre-first-token typing dots ─────────── */
+.fc-caret {
+  display: inline-block;
+  width: 2px;
+  height: 1.05em;
+  margin-left: 2px;
+  vertical-align: -0.18em;
+  border-radius: 1px;
+  background: currentColor;
+  opacity: 0.7;
+  animation: fc-caret-blink 1s steps(1, end) infinite;
+}
+@keyframes fc-caret-blink {
+  0%, 50% { opacity: 0.75; }
+  50.01%, 100% { opacity: 0; }
+}
+.fc-typing {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 1.2em;
+  padding: 0 2px;
+}
+.fc-typing-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.5;
+  animation: fc-typing-bounce 1.2s ease-in-out infinite;
+}
+.fc-typing-dot:nth-child(2) { animation-delay: 0.2s; }
+.fc-typing-dot:nth-child(3) { animation-delay: 0.4s; }
+@keyframes fc-typing-bounce {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+  30% { transform: translateY(-3px); opacity: 0.9; }
+}

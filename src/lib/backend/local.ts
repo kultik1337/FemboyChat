@@ -521,28 +521,45 @@ export class LocalBackend implements Backend {
     write(K.msgs, msgs)
     this.emit({ type: 'message', message })
 
-    // Bot auto-reply for bot chats.
+    // Bot auto-reply for bot chats — streamed word by word so demo mode shows
+    // the same live "typing" effect the Supabase backend produces for real.
     const chat = this.chats()[message.chatId]
     if (chat && chat.type === 'bot' && message.senderUid === me.uid) {
       const botUid = chat.memberUids.find((u) => u !== me.uid)
       const botAcc = botUid ? this.accounts()[botUid] : undefined
       if (botUid && botAcc?.isBot) {
-        setTimeout(() => this.emit({ type: 'typing', chatId: chat.id, uid: botUid, name: botAcc.name }), 500)
+        const full = botReply(botUid, message.text)
+        const replyId = rid()
+        setTimeout(() => this.emit({ type: 'typing', chatId: chat.id, uid: botUid, name: botAcc.name }), 300)
         setTimeout(() => {
           const reply: Message = {
-            id: rid(),
+            id: replyId,
             chatId: chat.id,
             senderUid: botUid,
-            text: botReply(botUid, message.text),
+            text: '',
             ts: Date.now(),
             reactions: [],
             readByUids: [botUid],
+            streaming: true,
           }
           const m2 = this.msgs()
           ;(m2[chat.id] ??= []).push(reply)
           write(K.msgs, m2)
           this.emit({ type: 'message', message: reply })
-        }, 1500)
+
+          const words = full.split(' ')
+          let i = 0
+          const step = () => {
+            i += 1
+            const done = i >= words.length
+            this.mutateMsg(chat.id, replyId, (m) => {
+              m.text = words.slice(0, i).join(' ')
+              if (done) delete m.streaming
+            })
+            if (!done) setTimeout(step, 55)
+          }
+          setTimeout(step, 55)
+        }, 600)
       }
     }
     return message
