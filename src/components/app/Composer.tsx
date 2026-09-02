@@ -19,6 +19,7 @@ import {
   Sticker as StickerIcon,
   Trash2,
   Video,
+  Wand2,
   X,
 } from 'lucide-react'
 import { useStore } from '../../store/useStore'
@@ -28,11 +29,16 @@ import { Sticker } from '../ui/Sticker'
 import { STICKER_PACKS } from '../../lib/stickers'
 import { SLASH_COMMANDS, applyEmoticons, runCommand } from '../../lib/commands'
 import { GIF_CATEGORIES, fetchGifs, type GifResult } from '../../lib/gifs'
-import { attachmentKindFor, downscaleImage, imageSize, prettySize } from '../../lib/media'
+import { attachmentKindFor, downscaleImage, imageSize, isVisualKind, prettySize, videoMeta } from '../../lib/media'
 import { beep } from '../../lib/sound'
 import type { Attachment, Poll } from '../../types'
 import { usePeople } from './people'
-import { classNames } from '../../lib/util'
+import { classNames, uid as rid } from '../../lib/util'
+import { ImageEditor } from '../ui/ImageEditor'
+import { CircleRecorder } from '../ui/CircleRecorder'
+
+/** Какой круглой кнопкой человек записывал в прошлый раз: голос или кружок. */
+const RECORD_MODE_KEY = 'fc:recordMode'
 
 const TTLS = [
   { label: 'Выкл', v: 0 },
@@ -76,6 +82,7 @@ export function Composer() {
   const setReply = useStore((s) => s.setComposeReply)
   const setEdit = useStore((s) => s.setComposeEdit)
   const pending = useStore((s) => s.pendingFiles)
+  const replacePendingFile = useStore((s) => s.replacePendingFile)
   const addPendingFiles = useStore((s) => s.addPendingFiles)
   const removePendingFile = useStore((s) => s.removePendingFile)
   const clearPendingFiles = useStore((s) => s.clearPendingFiles)
@@ -92,6 +99,22 @@ export function Composer() {
   const [pollOpen, setPollOpen] = useState(false)
   const [sending, setSending] = useState(false)
   const [recording, setRecording] = useState(false)
+  /** Идёт запись кружка. Живёт отдельно от `recording`: это разный экран. */
+  const [circleRec, setCircleRec] = useState(false)
+  /**
+   * Что запишет круглая кнопка. Выбор запоминается: человек, который шлёт
+   * кружки, шлёт их постоянно, и переключать режим каждый раз заново — злить
+   * его на ровном месте.
+   */
+  const [recordMode, setRecordMode] = useState<'voice' | 'circle'>(() => {
+    try {
+      return localStorage.getItem(RECORD_MODE_KEY) === 'circle' ? 'circle' : 'voice'
+    } catch {
+      return 'voice'
+    }
+  })
+  /** Индекс файла, открытого в редакторе, или null. */
+  const [editingFile, setEditingFile] = useState<number | null>(null)
   const [spoiler, setSpoiler] = useState(false)
   // Phone-only sheet holding the actions that no longer fit on the bar.
   const [moreOpen, setMoreOpen] = useState(false)
@@ -249,11 +272,22 @@ export function Composer() {
     try {
       const backend = useStore.getState().backend!
       const files = [...pending]
+      /*
+        Альбом собирается только из того, что рисуется картинкой. Документ или
+        аудио в сетке были бы дырой, поэтому они, как и раньше, уходят каждый
+        своим сообщением — просто без общего идентификатора.
+
+        Одна картинка альбомом не считается: сетка из одного элемента — это та
+        же одиночная картинка, только с лишним полем в базе.
+      */
+      const albumId = files.filter((f) => isVisualKind(attachmentKindFor(f))).length > 1 ? rid() : undefined
       for (let i = 0; i < files.length; i++) {
         const f = files[i]
         const kind = attachmentKindFor(f)
         const blob = kind === 'image' ? await downscaleImage(f) : f
         const dims = kind === 'image' || kind === 'gif' ? await imageSize(blob) : null
+        // У видео размеры, длительность и первый кадр снимаются одним проходом.
+        const meta = kind === 'video' ? await videoMeta(blob) : null
         const { url } = await backend.uploadFile('attachment', blob, f.name)
         const attachment: Attachment = {
           kind,
@@ -261,13 +295,16 @@ export function Composer() {
           name: f.name,
           size: blob.size,
           mime: blob.type || f.type || undefined,
-          w: dims?.w,
-          h: dims?.h,
-          spoiler: spoiler && (kind === 'image' || kind === 'gif' || kind === 'video') ? true : undefined,
+          w: dims?.w ?? meta?.w,
+          h: dims?.h ?? meta?.h,
+          durationSec: meta?.durationSec,
+          poster: meta?.poster,
+          spoiler: spoiler && isVisualKind(kind) ? true : undefined,
         }
         await send({
           text: i === 0 ? caption : '',
           attachment,
+          albumId: isVisualKind(kind) ? albumId : undefined,
           replyToId: i === 0 ? replyTo?.id : undefined,
           quote: i === 0 ? quote ?? undefined : undefined,
           ttl: ttl || undefined,
@@ -278,6 +315,42 @@ export function Composer() {
       afterSend()
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Не удалось отправить файл', '⚠️')
+    } finally {
+      setSending(false)
+    }
+  }
+
+  /**
+   * Кружок уходит тем же путём, что и голосовое: загрузили — отправили.
+   * Первый кадр снимается уже после записи, из готового блоба, чтобы у собеседника
+   * было что показать до нажатия «играть».
+   */
+  async function sendCircle(blob: Blob, durationSec: number) {
+    setCircleRec(false)
+    setSending(true)
+    try {
+      const backend = useStore.getState().backend!
+      const meta = await videoMeta(blob)
+      const { url } = await backend.uploadFile('attachment', blob, 'circle')
+      await send({
+        text: '',
+        attachment: {
+          kind: 'circle',
+          url,
+          size: blob.size,
+          mime: blob.type,
+          durationSec: meta.durationSec ?? durationSec,
+          w: meta.w,
+          h: meta.h,
+          poster: meta.poster,
+        },
+        replyToId: replyTo?.id,
+        quote: quote ?? undefined,
+        ttl: ttl || undefined,
+      })
+      afterSend()
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Не удалось отправить видеосообщение', '⚠️')
     } finally {
       setSending(false)
     }
@@ -442,7 +515,21 @@ export function Composer() {
   }
 
   const canSend = !!text.trim() || pending.length > 0
-  const showMic = !canSend && !editing && typeof navigator !== 'undefined' && !!navigator.mediaDevices
+  /** Есть ли вообще камера с микрофоном — без них обе записи бессмысленны. */
+  const canRecord = typeof navigator !== 'undefined' && !!navigator.mediaDevices
+  const showMic = !canSend && !editing && canRecord
+
+  function switchRecordMode() {
+    setRecordMode((prev) => {
+      const next = prev === 'voice' ? 'circle' : 'voice'
+      try {
+        localStorage.setItem(RECORD_MODE_KEY, next)
+      } catch {
+        /* приватный режим — переживём, просто не запомним */
+      }
+      return next
+    })
+  }
   const overLimit = text.length > MAX_LEN
   const ttlLabel = TTLS.find((o) => o.v === ttl)?.label ?? 'Выкл'
 
@@ -502,7 +589,13 @@ export function Composer() {
         <div className="mb-2 flex items-center gap-2">
           <div className="no-scrollbar flex min-w-0 flex-1 gap-2 overflow-x-auto">
             {pending.map((f, i) => (
-              <PendingChip key={`${f.name}-${i}`} file={f} spoiler={spoiler} onRemove={() => removePendingFile(i)} />
+              <PendingChip
+                key={`${f.name}-${i}`}
+                file={f}
+                spoiler={spoiler}
+                onRemove={() => removePendingFile(i)}
+                onEdit={attachmentKindFor(f) === 'image' ? () => setEditingFile(i) : undefined}
+              />
             ))}
           </div>
           {pending.some((f) => attachmentKindFor(f) !== 'file' && attachmentKindFor(f) !== 'audio') && (
@@ -602,6 +695,29 @@ export function Composer() {
       */}
       <input ref={mediaRef} type="file" accept="image/*,video/*" multiple hidden onChange={(e) => { addPendingFiles(Array.from(e.target.files ?? [])); e.target.value = '' }} />
 
+      {/*
+        Редактор и запись кружка — полноэкранные слои поверх всего приложения,
+        поэтому им всё равно, где они стоят в разметке композера.
+      */}
+      {editingFile !== null && pending[editingFile] && (
+        <ImageEditor
+          file={pending[editingFile]}
+          onCancel={() => setEditingFile(null)}
+          onDone={(blob) => {
+            const index = editingFile
+            const original = pending[index]
+            // Имя сохраняем, расширение приводим к тому, чем холст отдал: файл
+            // с именем photo.png и содержимым JPEG сбивает с толку и людей, и
+            // всё, что потом будет угадывать тип по расширению.
+            const base = original.name.replace(/\.[^.]+$/, '')
+            replacePendingFile(index, new File([blob], `${base}.jpg`, { type: blob.type || 'image/jpeg' }))
+            setEditingFile(null)
+          }}
+        />
+      )}
+
+      {circleRec && <CircleRecorder onCancel={() => setCircleRec(false)} onDone={sendCircle} />}
+
       {recording ? (
         <VoiceRecorder
           onCancel={() => setRecording(false)}
@@ -660,6 +776,7 @@ export function Composer() {
                     ttlHint={ttl ? ttlLabel : undefined}
                     onMedia={() => { setMoreOpen(false); mediaRef.current?.click() }}
                     onFile={() => { setMoreOpen(false); fileRef.current?.click() }}
+                    onCircle={canRecord ? () => { setMoreOpen(false); setCircleRec(true) } : undefined}
                     onStickers={() => { setMoreOpen(false); setStickers(true) }}
                     onGifs={() => { setMoreOpen(false); setGifs(true) }}
                     onPoll={() => { setMoreOpen(false); setPollOpen(true) }}
@@ -689,6 +806,7 @@ export function Composer() {
                     ttlHint={ttl ? ttlLabel : undefined}
                     onMedia={() => { setAttachOpen(false); mediaRef.current?.click() }}
                     onFile={() => { setAttachOpen(false); fileRef.current?.click() }}
+                    onCircle={canRecord ? () => { setAttachOpen(false); setCircleRec(true) } : undefined}
                     onPoll={() => { setAttachOpen(false); setPollOpen(true) }}
                     onTtl={() => { setAttachOpen(false); setTtlOpen(true) }}
                   />
@@ -739,9 +857,27 @@ export function Composer() {
           </span>
 
           {showMic ? (
-            <button onClick={() => setRecording(true)} className="grid h-11 w-11 shrink-0 place-items-center rounded-full accent-gradient text-white shadow-md transition hover:brightness-105 active:scale-95 sm:order-3" title="Голосовое сообщение">
-              <Mic size={19} />
-            </button>
+            <>
+              {/*
+                Переключатель показывает тот режим, в который перейдёт, а
+                круглая кнопка — тот, в котором запишет. Иначе обе кнопки несут
+                одну и ту же иконку и различить их можно только на ощупь.
+              */}
+              <IconButton
+                title={recordMode === 'voice' ? 'Записать видеосообщение' : 'Записать голосовое'}
+                className="sm:order-3"
+                onClick={switchRecordMode}
+              >
+                {recordMode === 'voice' ? <Video size={20} /> : <Mic size={20} />}
+              </IconButton>
+              <button
+                onClick={() => (recordMode === 'voice' ? setRecording(true) : setCircleRec(true))}
+                className="grid h-11 w-11 shrink-0 place-items-center rounded-full accent-gradient text-white shadow-md transition hover:brightness-105 active:scale-95 sm:order-3"
+                title={recordMode === 'voice' ? 'Голосовое сообщение' : 'Видеосообщение'}
+              >
+                {recordMode === 'voice' ? <Mic size={19} /> : <Video size={19} />}
+              </button>
+            </>
           ) : (
             <button onClick={submit} disabled={sending || overLimit} className="grid h-11 w-11 shrink-0 place-items-center rounded-full accent-gradient text-white shadow-md transition hover:brightness-105 active:scale-95 disabled:opacity-60 sm:order-3" title="Отправить (Ctrl+Enter)">
               {sending ? <Loader2 size={19} className="animate-spin" /> : <Send size={19} />}
@@ -766,6 +902,7 @@ function attachmentChipLabel(a: Attachment) {
     case 'image': return '📷 фото'
     case 'gif': return '🖼 GIF'
     case 'video': return '🎬 видео'
+    case 'circle': return '⭕ видеосообщение'
     case 'voice': return '🎤 голосовое'
     case 'audio': return '🎵 аудио'
     default: return `📎 ${a.name ?? 'файл'}`
@@ -788,6 +925,7 @@ function AttachMenu({
   ttlHint,
   onMedia,
   onFile,
+  onCircle,
   onPoll,
   onTtl,
   onStickers,
@@ -797,6 +935,8 @@ function AttachMenu({
   ttlHint?: string
   onMedia: () => void
   onFile: () => void
+  /** Отсутствует, когда у устройства нет камеры: пункт-пустышка хуже его отсутствия. */
+  onCircle?: () => void
   onPoll: () => void
   onTtl: () => void
   onStickers?: () => void
@@ -806,6 +946,7 @@ function AttachMenu({
     <>
       <SheetItem icon={<ImageIcon size={17} />} label="Фото или видео" onClick={onMedia} />
       <SheetItem icon={<FileText size={17} />} label="Документ" onClick={onFile} />
+      {onCircle && <SheetItem icon={<Video size={17} />} label="Видеосообщение" onClick={onCircle} />}
       {phone && onStickers && <SheetItem icon={<StickerIcon size={17} />} label="Стикеры" onClick={onStickers} />}
       {phone && onGifs && <SheetItem icon={<ImagePlay size={17} />} label="GIF" onClick={onGifs} />}
       <SheetItem icon={<ListChecks size={17} />} label="Опрос" onClick={onPoll} />
@@ -842,7 +983,18 @@ function IconButton({ children, onClick, title, active, className }: { children:
 }
 
 /** Thumbnail chip of a file waiting to be sent. */
-function PendingChip({ file, spoiler, onRemove }: { file: File; spoiler?: boolean; onRemove: () => void }) {
+function PendingChip({
+  file,
+  spoiler,
+  onRemove,
+  onEdit,
+}: {
+  file: File
+  spoiler?: boolean
+  onRemove: () => void
+  /** Есть только у обычных картинок: GIF в холсте потеряет анимацию. */
+  onEdit?: () => void
+}) {
   const kind = attachmentKindFor(file)
   const [preview, setPreview] = useState<string | null>(null)
   useEffect(() => {
@@ -870,6 +1022,15 @@ function PendingChip({ file, spoiler, onRemove }: { file: File; spoiler?: boolea
       <button onClick={onRemove} className="absolute -right-1.5 -top-1.5 grid h-5 w-5 place-items-center rounded-full bg-rose-500 text-white shadow" title="Убрать">
         <X size={12} />
       </button>
+      {onEdit && (
+        <button
+          onClick={onEdit}
+          className="absolute -left-1.5 -top-1.5 grid h-5 w-5 place-items-center rounded-full accent-gradient text-white shadow"
+          title="Редактировать"
+        >
+          <Wand2 size={11} />
+        </button>
+      )}
     </div>
   )
 }

@@ -26,6 +26,7 @@ function previewOf(m: Message): string {
     case 'image': return 'фото'
     case 'gif': return 'GIF'
     case 'video': return 'видео'
+    case 'circle': return 'видеосообщение'
     case 'voice': return 'голосовое'
     case 'audio': return 'аудио'
     case 'file': return m.attachment.name ?? 'файл'

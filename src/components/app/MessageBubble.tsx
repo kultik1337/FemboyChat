@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
-import { Check, CheckCheck, Clock, CornerUpLeft, Download, Eye, FileText, ListChecks, MessageCircle, MoreHorizontal, Quote, Smile } from 'lucide-react'
+import { Check, CheckCheck, Clock, CornerUpLeft, Download, Eye, FileText, ListChecks, MessageCircle, MoreHorizontal, Play, Quote, Smile } from 'lucide-react'
 import type { Attachment, Chat, Message } from '../../types'
 import { classNames, renderPost, renderRich, timeShort } from '../../lib/util'
-import { attachmentLabel, prettySize } from '../../lib/media'
+import { attachmentLabel, isVisualKind, prettySize } from '../../lib/media'
 import { useStore } from '../../store/useStore'
 import { Avatar } from '../ui/Avatar'
 import { Sticker } from '../ui/Sticker'
 import { VoicePlayer } from '../ui/VoicePlayer'
 import { VideoPlayer } from '../ui/VideoPlayer'
+import { CirclePlayer } from '../ui/CirclePlayer'
 import { LinkPreviewCard } from './LinkPreviewCard'
 import { openContextMenu } from '../ui/ContextMenu'
 import { useActions } from './useActions'
@@ -48,8 +49,15 @@ export function MessageBubble({
   onOpenComments,
   commentCount,
   onSelect,
+  album,
 }: {
   message: Message
+  /**
+   * Остальные сообщения того же альбома, включая это. Приходит только лидеру
+   * группы — тому сообщению, на котором альбом рисуется сеткой; остальные
+   * ChatView вообще не отрисовывает.
+   */
+  album?: Message[]
   chat: Chat
   isMine: boolean
   sender: Person
@@ -302,7 +310,7 @@ export function MessageBubble({
   }
   const header = buildHeader(true)
   // Фото/GIF/видео идут без полоски с ником (как в TG) — отправителя видно по аватарке.
-  const visualKind = message.attachment && (message.attachment.kind === 'image' || message.attachment.kind === 'gif' || message.attachment.kind === 'video')
+  const visualKind = !!message.attachment && isVisualKind(message.attachment.kind)
   const mediaHeader = buildHeader(!visualKind)
 
   const meta = (overlay: boolean) => (
@@ -434,9 +442,25 @@ export function MessageBubble({
           <div className="rounded-2xl border border-[var(--border)] px-3.5 py-2 text-sm italic text-[var(--muted)]">сообщение удалено</div>
         ) : big ? (
           <div className={classNames('text-5xl leading-tight', isMine ? 'text-right' : 'text-left', fresh && 'jumbo-in')}>{message.text}</div>
+        ) : message.attachment?.kind === 'circle' && !message.poll ? (
+          /*
+            Кружок живёт без пузыря — как стикер. Пузырь вокруг круга даёт
+            четыре пустых угла и ничего не добавляет: подписи у кружка нет, а
+            время и реакции ложатся поверх, как на любом медиа без подписи.
+          */
+          <div className={classNames('flex', isMine ? 'justify-end' : 'justify-start')}>
+            <div className="relative">
+              <CirclePlayer a={message.attachment} size={200} />
+              <div className="pointer-events-none absolute -bottom-1 right-0 z-[1] flex flex-wrap items-end justify-end gap-1 [&_button]:pointer-events-auto">
+                {reactionPills(true)}
+                {meta(true)}
+              </div>
+            </div>
+          </div>
         ) : message.attachment && !message.poll ? (
           <MediaMessage
             a={message.attachment}
+            album={album}
             caption={message.text}
             header={mediaHeader}
             meta={meta}
@@ -511,6 +535,7 @@ export function MessageBubble({
  */
 function MediaMessage({
   a,
+  album,
   caption,
   header,
   meta,
@@ -521,6 +546,7 @@ function MediaMessage({
   radius,
 }: {
   a: Attachment
+  album?: Message[]
   caption: string
   header: React.ReactNode
   meta: (overlay: boolean) => React.ReactNode
@@ -530,14 +556,16 @@ function MediaMessage({
   isPost?: boolean
   radius: string
 }) {
-  const isVisual = a.kind === 'image' || a.kind === 'gif' || a.kind === 'video'
+  const isVisual = isVisualKind(a.kind)
+  /** Сетка нужна только когда в альбоме реально больше одного медиа. */
+  const grid = album && album.length > 1 ? album : null
   const bare = isVisual && !caption && !header
 
   // Bare photo / GIF / video: just the media; reactions + time float on top.
   if (bare) {
     return (
       <div className="relative max-w-[min(100%,380px)] overflow-hidden shadow-sm" style={{ borderRadius: radius }}>
-        <VisualMedia a={a} />
+        {grid ? <AlbumGrid items={grid} /> : <VisualMedia a={a} />}
         <div className="pointer-events-none absolute inset-x-1.5 bottom-1.5 z-[1] flex flex-wrap items-end justify-end gap-1 [&_button]:pointer-events-auto">
           {reactionPills(true)}
           <span className="ml-auto">{meta(true)}</span>
@@ -558,7 +586,7 @@ function MediaMessage({
       {header && <div className="px-3 pt-1.5">{header}</div>}
 
       {isVisual ? (
-        <VisualMedia a={a} fill />
+        grid ? <AlbumGrid items={grid} /> : <VisualMedia a={a} fill />
       ) : a.kind === 'voice' || a.kind === 'audio' ? (
         <div className="px-3 pt-2.5"><VoicePlayer a={a} /></div>
       ) : (
@@ -572,6 +600,96 @@ function MediaMessage({
         {footer}
       </div>
     </div>
+  )
+}
+
+/**
+ * Сетка альбома.
+ *
+ * Раскладка выбирается по количеству, а не по пропорциям кадров: Телеграм
+ * подгоняет ячейки под соотношения сторон, но там за этим стоит собственный
+ * упаковщик на пару сотен строк. Здесь всё квадратное и обрезано по центру —
+ * выглядит опрятно на любом наборе, а полный кадр всегда в одном тапе.
+ *
+ * Три штуки — единственный особый случай: первая занимает две строки, иначе
+ * третья висит в пустой половине ряда.
+ */
+function AlbumGrid({ items }: { items: Message[] }) {
+  const setLightbox = useStore((s) => s.setLightbox)
+  const media = items.map((m) => m.attachment).filter((a): a is Attachment => !!a)
+  if (!media.length) return null
+
+  // Список для просмотрщика: из него листаются соседние, не закрывая его.
+  const album = media.map((a) => ({ url: a.url, name: a.name, kind: a.kind }))
+  const cols = media.length >= 5 ? 'grid-cols-3' : 'grid-cols-2'
+
+  return (
+    <div className={classNames('grid w-full gap-[3px]', cols)}>
+      {media.map((a, i) => (
+        <AlbumCell
+          key={`${a.url}-${i}`}
+          a={a}
+          span={media.length === 3 && i === 0}
+          onOpen={() => setLightbox({ url: a.url, name: a.name, album })}
+        />
+      ))}
+    </div>
+  )
+}
+
+/** Одна ячейка сетки: квадрат, обрезанный по центру, со своим спойлером. */
+function AlbumCell({ a, span, onOpen }: { a: Attachment; span?: boolean; onOpen: () => void }) {
+  const [revealed, setRevealed] = useState(false)
+  const hidden = !!a.spoiler && !revealed
+  const isVideo = a.kind === 'video' || a.kind === 'circle'
+  // У видео без снятого кадра миниатюрой работает само видео: браузер покажет
+  // первый кадр, скачав только заголовок файла.
+  const thumb = a.poster
+
+  return (
+    <button
+      onClick={(e) => {
+        if (hidden) {
+          e.stopPropagation()
+          setRevealed(true)
+          return
+        }
+        onOpen()
+      }}
+      /* Растянутая на две строки ячейка не может быть квадратной — высоту ей
+         задаёт грид. Классы не смешиваем: `aspect-square` и `aspect-auto`
+         вместе разрешаются порядком правил в таблице стилей, а не порядком в
+         атрибуте, и такое «работает» ломается от обновления Tailwind. */
+      className={classNames('relative block overflow-hidden bg-black/10', span ? 'row-span-2' : 'aspect-square')}
+      title={hidden ? 'Показать спойлер' : 'Открыть'}
+    >
+      {isVideo && !thumb ? (
+        <video src={a.url} preload="metadata" muted playsInline className={classNames('h-full w-full object-cover', hidden && 'scale-110 blur-2xl')} />
+      ) : (
+        <img
+          src={thumb ?? a.url}
+          alt={a.name ?? ''}
+          loading="lazy"
+          className={classNames('h-full w-full object-cover', hidden && 'scale-110 blur-2xl')}
+        />
+      )}
+
+      {hidden && (
+        <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-black/55 px-2.5 py-1 text-[11px] font-bold text-white backdrop-blur-[2px]">
+          👁
+        </span>
+      )}
+
+      {isVideo && !hidden && (
+        <span className="absolute left-1/2 top-1/2 grid h-9 w-9 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full bg-black/50 text-white backdrop-blur-[2px]">
+          <Play size={16} fill="currentColor" className="ml-0.5" />
+        </span>
+      )}
+
+      {a.kind === 'gif' && !hidden && (
+        <span className="absolute bottom-1 left-1 rounded bg-black/55 px-1.5 py-0.5 text-[9px] font-black tracking-wide text-white">GIF</span>
+      )}
+    </button>
   )
 }
 

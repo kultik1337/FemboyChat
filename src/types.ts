@@ -142,7 +142,14 @@ export interface Poll {
   multi: boolean
 }
 
-export type AttachmentKind = 'image' | 'gif' | 'video' | 'audio' | 'voice' | 'file'
+/**
+ * `circle` — это то же видео, что и `video`, но записанное прямо в мессенджере
+ * и показанное кружком. Отдельный вид, а не флаг на `video`: кружок нельзя
+ * развернуть в обычный плеер, у него своя разметка и свой предел длины, и
+ * старые клиенты, не знающие про него, не должны молча нарисовать его
+ * прямоугольником.
+ */
+export type AttachmentKind = 'image' | 'gif' | 'video' | 'circle' | 'audio' | 'voice' | 'file'
 
 /** A media payload attached to a message (photo, video, file, voice note, GIF…). */
 export interface Attachment {
@@ -153,8 +160,16 @@ export interface Attachment {
   mime?: string
   w?: number
   h?: number
-  durationSec?: number // for audio / voice / video
+  durationSec?: number // for audio / voice / video / circle
   spoiler?: boolean // media hidden behind a blur until tapped
+  /**
+   * Первый кадр видео, снятый на клиенте при отправке и сохранённый как data:
+   * URL. Нужен потому, что превью браузер рисует, только скачав кусок самого
+   * файла, а вложения лежат в приватном бакете и отдаются по подписанной
+   * ссылке — до первого клика её может не быть. Маленькая картинка внутри
+   * строки дешевле второго объекта в хранилище со своим сроком жизни.
+   */
+  poster?: string
 }
 
 export interface Message {
@@ -180,6 +195,18 @@ export interface Message {
   poll?: Poll
   sticker?: string
   attachment?: Attachment
+  /**
+   * Альбом: несколько медиа, отправленных одним махом.
+   *
+   * Хранится как обычные отдельные сообщения с общим идентификатором, а не как
+   * массив вложений в одном ряду. Так это устроено и в Телеграме, и на то есть
+   * причина: у каждой картинки остаются свои реакции, свой ответ и своё
+   * удаление, а вся правка схемы сводится к одной колонке. Склейка в сетку —
+   * забота отображения (см. ChatView), сервер про неё ничего не знает.
+   *
+   * Подпись и ответ живут на первом сообщении альбома.
+   */
+  albumId?: string
   /**
    * Set on a comment: the id of the channel post it belongs to. Comments live
    * in the same `messages` table as everything else, so any list of a chat's

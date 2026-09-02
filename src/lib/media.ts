@@ -25,11 +25,23 @@ export function attachmentLabel(a?: Attachment) {
     case 'image': return '📷 Фото'
     case 'gif': return '🖼 GIF'
     case 'video': return '🎬 Видео'
+    case 'circle': return '⭕ Видеосообщение'
     case 'voice': return '🎤 Голосовое сообщение'
     case 'audio': return '🎵 Аудио'
     default: return `📎 ${a.name ?? 'Файл'}`
   }
 }
+
+/** Виды, которые рисуются картинкой, а не строкой с иконкой файла. */
+export function isVisualKind(kind: AttachmentKind): boolean {
+  return kind === 'image' || kind === 'gif' || kind === 'video' || kind === 'circle'
+}
+
+/** Сколько медиа влезает в один альбом. Как в Телеграме. */
+export const MAX_ALBUM = 10
+
+/** Предел длины кружка. Дальше это уже не «сообщение», а видео файлом. */
+export const MAX_CIRCLE_SEC = 60
 
 /** Measure intrinsic dimensions of an image blob (best effort). */
 export function imageSize(blob: Blob): Promise<{ w: number; h: number } | null> {
@@ -78,4 +90,87 @@ export function extensionFor(mime: string, fallbackName?: string) {
   const dot = (fallbackName ?? '').lastIndexOf('.')
   if (dot > -1) return (fallbackName ?? '').slice(dot + 1).toLowerCase().slice(0, 8)
   return 'bin'
+}
+
+/**
+ * Размеры, длительность и первый кадр видео — одним проходом.
+ *
+ * Всё держится на скрытом <video>: другого способа узнать длительность блоба в
+ * браузере нет. Кадр снимается на `seeked`, а не на `loadeddata`: у части
+ * кодеков первый декодированный кадр ещё чёрный, и постер получался пустым.
+ *
+ * Ошибки не пробрасываются: превью — украшение, из-за него не должна падать
+ * отправка. Не вышло — вернём то, что успели узнать.
+ */
+export function videoMeta(
+  blob: Blob,
+  posterMax = 320,
+): Promise<{ w?: number; h?: number; durationSec?: number; poster?: string }> {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(blob)
+    const video = document.createElement('video')
+    let settled = false
+    const done = (out: { w?: number; h?: number; durationSec?: number; poster?: string }) => {
+      if (settled) return
+      settled = true
+      URL.revokeObjectURL(url)
+      resolve(out)
+    }
+
+    // Кодек может не отдать ни metadata, ни ошибку — тогда отправка повисла бы
+    // на этом промисе навсегда.
+    const timer = setTimeout(() => done({}), 4000)
+
+    video.preload = 'metadata'
+    video.muted = true
+    video.playsInline = true
+    video.src = url
+
+    video.onerror = () => { clearTimeout(timer); done({}) }
+
+    video.onloadedmetadata = () => {
+      const w = video.videoWidth || undefined
+      const h = video.videoHeight || undefined
+      const raw = video.duration
+      const durationSec = Number.isFinite(raw) && raw > 0 ? Math.round(raw) : undefined
+      const base = { w, h, durationSec }
+
+      const grab = () => {
+        clearTimeout(timer)
+        try {
+          const scale = Math.min(1, posterMax / Math.max(video.videoWidth, video.videoHeight))
+          const canvas = document.createElement('canvas')
+          canvas.width = Math.max(1, Math.round(video.videoWidth * scale))
+          canvas.height = Math.max(1, Math.round(video.videoHeight * scale))
+          const ctx = canvas.getContext('2d')
+          if (!ctx) return done(base)
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+          done({ ...base, poster: canvas.toDataURL('image/jpeg', 0.7) })
+        } catch {
+          done(base)
+        }
+      }
+
+      video.onseeked = grab
+      // 0 иногда попадает в чёрный кадр перед первым ключевым.
+      try {
+        video.currentTime = Math.min(0.1, (durationSec ?? 1) / 2)
+      } catch {
+        grab()
+      }
+    }
+  })
+}
+
+/**
+ * Обрезать видео до квадрата и уменьшить — так кружок весит столько же,
+ * сколько голосовое, а не как полноценный ролик.
+ *
+ * Делается прямо в MediaRecorder на стороне записи (см. CircleRecorder), здесь
+ * же остаётся только вычисление квадратной области кадра, чтобы одна и та же
+ * арифметика не разъехалась между записью и превью.
+ */
+export function squareCrop(w: number, h: number): { x: number; y: number; side: number } {
+  const side = Math.min(w, h)
+  return { x: Math.round((w - side) / 2), y: Math.round((h - side) / 2), side }
 }

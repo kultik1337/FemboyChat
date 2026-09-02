@@ -568,6 +568,8 @@ export class SupabaseBackend implements Backend {
         poll: input.poll,
         ttl: input.ttl,
         attachment: input.attachment,
+        // Общий идентификатор альбома. NULL у всего, что отправлено поодиночке.
+        album_id: input.albumId ?? null,
         comment_of: input.commentOf ?? null,
         // Set only when forwarding; an ordinary message leaves it null.
         forwarded_from: input.forwardedFrom ?? null,
@@ -918,6 +920,7 @@ function rowToMessage(r: any): Message {
     poll: r.poll ?? undefined,
     sticker: r.sticker ?? undefined,
     attachment: r.attachment ?? undefined,
+    albumId: r.album_id ?? undefined,
     commentOf: r.comment_of ?? undefined,
     viewCount: r.view_count ?? undefined,
     commentCount: r.comment_count ?? undefined,

@@ -1,7 +1,7 @@
 import { create } from 'zustand'
-import type { Account, Attachment, Chat, Directory, Message, Poll, RealtimeEvent, UserSettings } from '../types'
+import type { Account, Attachment, AttachmentKind, Chat, Directory, Message, Poll, RealtimeEvent, UserSettings } from '../types'
 import { getBackend, type Backend } from '../lib/backend'
-import { attachmentLabel } from '../lib/media'
+import { attachmentLabel, MAX_ALBUM } from '../lib/media'
 import { beep } from '../lib/sound'
 
 type Route = 'landing' | 'auth' | 'app'
@@ -15,6 +15,16 @@ interface Toast {
   id: string
   text: string
   emoji?: string
+}
+
+/**
+ * Элемент альбома в просмотрщике. `kind` нужен, чтобы отличить видео от
+ * картинки: рисовать видео тегом <img> — значит показать пустоту.
+ */
+interface LightboxItem {
+  url: string
+  name?: string
+  kind?: AttachmentKind
 }
 
 interface StoreState {
@@ -57,7 +67,11 @@ interface StoreState {
   searchResults: Directory[]
   profileUid: string | null
   toasts: Toast[]
-  lightbox: { url: string; name?: string } | null
+  /**
+   * Открытая картинка. `album` присутствует, когда её открыли из сетки
+   * альбома, — тогда просмотрщик умеет листать соседние, не закрываясь.
+   */
+  lightbox: { url: string; name?: string; album?: LightboxItem[] } | null
 
   // actions
   boot: () => Promise<void>
@@ -83,7 +97,7 @@ interface StoreState {
     memberUids?: string[]
   }) => Promise<void>
 
-  send: (input: { text: string; replyToId?: string; quote?: string; sticker?: string; poll?: Poll; ttl?: number; forwardedFrom?: string; attachment?: Attachment }) => Promise<void>
+  send: (input: { text: string; replyToId?: string; quote?: string; sticker?: string; poll?: Poll; ttl?: number; forwardedFrom?: string; attachment?: Attachment; albumId?: string }) => Promise<void>
   edit: (id: string, text: string) => Promise<void>
   remove: (id: string) => Promise<void>
   react: (id: string, emoji: string) => Promise<void>
@@ -95,8 +109,10 @@ interface StoreState {
   setComposeEdit: (m: Message | null) => void
   addPendingFiles: (files: File[]) => void
   removePendingFile: (index: number) => void
+  /** Подменить файл на месте — так возвращается картинка из редактора. */
+  replacePendingFile: (index: number, file: File) => void
   clearPendingFiles: () => void
-  setLightbox: (l: { url: string; name?: string } | null) => void
+  setLightbox: (l: { url: string; name?: string; album?: LightboxItem[] } | null) => void
   typingPing: (chatId: string) => void
   /** Pull the real online state of the user's peers from the server. */
   syncPresence: () => Promise<void>
@@ -442,6 +458,7 @@ export const useStore = create<StoreState>((set, get) => ({
       ttl: input.ttl,
       forwardedFrom: input.forwardedFrom,
       attachment: input.attachment,
+      albumId: input.albumId,
       pending: true,
     }
 
@@ -466,6 +483,7 @@ export const useStore = create<StoreState>((set, get) => ({
         ttl: input.ttl,
         forwardedFrom: input.forwardedFrom,
         attachment: input.attachment,
+        albumId: input.albumId,
       })
       set((s) => {
         const arr = s.messages[chatId]
@@ -531,10 +549,13 @@ export const useStore = create<StoreState>((set, get) => ({
 
   addPendingFiles(files) {
     if (!files.length) return
-    set((s) => ({ pendingFiles: [...s.pendingFiles, ...files].slice(0, 10) }))
+    set((s) => ({ pendingFiles: [...s.pendingFiles, ...files].slice(0, MAX_ALBUM) }))
   },
   removePendingFile(index) {
     set((s) => ({ pendingFiles: s.pendingFiles.filter((_, i) => i !== index) }))
+  },
+  replacePendingFile(index, file) {
+    set((s) => ({ pendingFiles: s.pendingFiles.map((f, i) => (i === index ? file : f)) }))
   },
   clearPendingFiles() {
     set({ pendingFiles: [] })

@@ -284,6 +284,16 @@ export function ChatView() {
     () => msgs.filter((m) => !(m.ttl && now > m.ts + m.ttl * 1000 && m.senderUid !== account.uid) || !m.ttl),
     [msgs, now, account.uid],
   )
+  /**
+   * То, что реально рисуется: альбом свёрнут в один ряд.
+   *
+   * Склейка живёт здесь, а не в бэкенде, потому что альбом — это способ
+   * показать, а не способ хранить. Сервер отдаёт обычные сообщения; знать про
+   * сетку ему незачем, и старый клиент без этой строчки покажет ровно те же
+   * сообщения по одному.
+   */
+  const rows = useMemo(() => collapseAlbums(visibleMsgs), [visibleMsgs])
+
   const pinned = useMemo(() => msgs.filter((m) => m.pinned && !m.deleted), [msgs])
 
   /** Selected messages in reading order, whatever order they were tapped in. */
@@ -505,14 +515,22 @@ export function ChatView() {
               <p className="text-sm">{isChannel ? 'Здесь скоро появятся посты ✨' : 'Напиши первым — это всегда приятно 🎀'}</p>
             </div>
           )}
-          {visibleMsgs.map((m, i) => {
-            const prev = visibleMsgs[i - 1]
-            const next = visibleMsgs[i + 1]
+          {rows.map((row, i) => {
+            const m = row.lead
+            const prev = rows[i - 1]?.lead
+            const next = rows[i + 1]?.lead
             const newDay = !prev || dayLabel(prev.ts) !== dayLabel(m.ts)
             const win = 5 * 60_000
+            /*
+              Хвост альбома по времени — это его последнее сообщение, а не
+              первое. Иначе десять фотографий, отправленных подряд, выглядят
+              для соседа «старыми на десять секунд», и следующее сообщение
+              отрывается от группы без всякой причины.
+            */
+            const rowEndTs = row.album ? row.album[row.album.length - 1].ts : m.ts
             const firstOfGroup = newDay || !prev || prev.senderUid !== m.senderUid || m.ts - prev.ts >= win || !!prev.system
             const lastOfGroup =
-              !next || next.senderUid !== m.senderUid || next.ts - m.ts >= win || !!next.system || dayLabel(next.ts) !== dayLabel(m.ts)
+              !next || next.senderUid !== m.senderUid || next.ts - rowEndTs >= win || !!next.system || dayLabel(next.ts) !== dayLabel(m.ts)
             const sender = resolve(m.senderUid)
             const replied = m.replyToId ? msgs.find((x) => x.id === m.replyToId) : undefined
             const isPicked = selectedIds.includes(m.id)
@@ -565,6 +583,7 @@ export function ChatView() {
                     onOpenComments={isChannel && backend?.listComments ? (msg) => setCommentsForId(msg.id) : undefined}
                     commentCount={commentCounts[m.id]}
                     onSelect={m.system ? undefined : startSelect}
+                    album={row.album}
                   />
                   {/*
                     In selection mode a hit area covers the whole row, so a tap
@@ -887,4 +906,48 @@ function EmptyState() {
       </div>
     </div>
   )
+}
+
+/** Один ряд ленты: обычное сообщение либо свёрнутый в сетку альбом. */
+interface Row {
+  lead: Message
+  /** Медиа альбома по порядку. Отсутствует у обычного сообщения. */
+  album?: Message[]
+}
+
+/**
+ * Свернуть подряд идущие сообщения одного альбома в один ряд.
+ *
+ * «Подряд» здесь не формальность. Сообщения альбома уходят по одному, и между
+ * ними может приземлиться чужая реплика — тогда склеить их обратно значит
+ * переставить чужие слова местами. Такой альбом честнее показать разорванным:
+ * порядок разговора важнее красивой сетки.
+ *
+ * Удалённые участники из сетки выпадают — ячейка «сообщение удалено» посреди
+ * фотографий не значит ничего. Если после этого осталось меньше двух, группа
+ * рассыпается обратно на обычные сообщения, и каждое показывает то, что ему
+ * положено, включая плашку об удалении.
+ */
+function collapseAlbums(list: Message[]): Row[] {
+  const rows: Row[] = []
+  for (let i = 0; i < list.length; i++) {
+    const m = list[i]
+    if (!m.albumId) {
+      rows.push({ lead: m })
+      continue
+    }
+    const group: Message[] = [m]
+    while (i + 1 < list.length && list[i + 1].albumId === m.albumId && list[i + 1].senderUid === m.senderUid) {
+      group.push(list[++i])
+    }
+    const alive = group.filter((x) => !x.deleted && x.attachment)
+    if (alive.length > 1) {
+      // Ведущим становится первое уцелевшее: подпись и ответ лежат на нём, а
+      // если самое первое сообщение альбома удалили — на следующем за ним.
+      rows.push({ lead: alive[0], album: alive })
+    } else {
+      for (const one of group) rows.push({ lead: one })
+    }
+  }
+  return rows
 }

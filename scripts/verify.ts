@@ -92,6 +92,34 @@ async function main() {
   const withAtt = msgs[msgs.length - 1]
   ok('attachment stored with caption', withAtt.attachment?.kind === 'image' && withAtt.attachment.url === url && withAtt.text === 'смотри что нашёл')
 
+  // 7b. album: несколько медиа с общим albumId, подпись на первом
+  const albumId = 'album-test-1'
+  for (let i = 0; i < 3; i++) {
+    await be.send({
+      chatId: dm.id,
+      senderUid: me.uid,
+      text: i === 0 ? 'наш выезд 🌸' : '',
+      attachment: { kind: 'image', url, name: `p${i}.png`, size: 8, mime: 'image/png' },
+      albumId,
+    } as any)
+  }
+  msgs = await be.listMessages(dm.id)
+  const album = msgs.filter((m) => m.albumId === albumId)
+  ok('album keeps its id on every part', album.length === 3)
+  ok('album caption sits on the first part', album[0].text === 'наш выезд 🌸' && album[1].text === '' && album[2].text === '')
+
+  // 7c. кружок — отдельный вид вложения, а не видео с флагом
+  await be.send({
+    chatId: dm.id,
+    senderUid: me.uid,
+    text: '',
+    attachment: { kind: 'circle', url, size: 8, mime: 'video/webm', durationSec: 4, poster: 'data:image/jpeg;base64,x' },
+  } as any)
+  msgs = await be.listMessages(dm.id)
+  const circle = msgs[msgs.length - 1]
+  ok('circle stored as its own kind', circle.attachment?.kind === 'circle' && circle.attachment.durationSec === 4)
+  ok('circle keeps its poster frame', !!circle.attachment?.poster)
+
   let threw = false
   try {
     await be.uploadFile('attachment', new Blob([new Uint8Array(4 * 1024 * 1024)], { type: 'video/mp4' }))
