@@ -28,8 +28,33 @@ const MAX_SIDE = 2000
 /** Сколько шагов назад помнит «отменить». Каждый шаг — целый кадр в памяти. */
 const HISTORY_LIMIT = 12
 
-/** Во сколько раз уменьшается кусок под кистью «замазать» перед возвратом. */
-const PIXELATE = 14
+/**
+ * Умеет ли холст размывать сам.
+ *
+ * `ctx.filter` есть везде, кроме Safari старше 16.4. Проверяем присваиванием:
+ * браузер, который свойство не поддерживает, оставит его пустым.
+ */
+const CANVAS_FILTER = (() => {
+  try {
+    const probe = document.createElement('canvas').getContext('2d')
+    if (!probe) return false
+    probe.filter = 'blur(2px)'
+    return probe.filter === 'blur(2px)'
+  } catch {
+    return false
+  }
+})()
+
+/** Меньше этого рамка обрезки считается случайным кликом, а не выделением. */
+const MIN_CROP = 12
+
+/** Пропорции рамки. `null` — свободная. */
+const ASPECTS: { label: string; value: number | null }[] = [
+  { label: 'Свободно', value: null },
+  { label: '1:1', value: 1 },
+  { label: '4:5', value: 4 / 5 },
+  { label: '16:9', value: 16 / 9 },
+]
 
 /** Палитра карандаша. Розовый первый — он же акцент приложения. */
 const COLORS = ['#ff5da2', '#ffffff', '#111111', '#ffd166', '#4ade80', '#38bdf8']
@@ -64,6 +89,8 @@ export function ImageEditor({
   const [color, setColor] = useState(COLORS[0])
   const [brush, setBrush] = useState(14)
   const [crop, setCrop] = useState<Rect | null>(null)
+  /** Выбранное соотношение сторон рамки; null — свободное. */
+  const [aspect, setAspect] = useState<number | null>(null)
   const [canUndo, setCanUndo] = useState(false)
   const [busy, setBusy] = useState(false)
   const [failed, setFailed] = useState(false)
@@ -92,18 +119,41 @@ export function ImageEditor({
     ctx.rect(crop.x, crop.y, crop.w, crop.h)
     ctx.fill('evenodd')
 
-    ctx.strokeStyle = '#ffffff'
-    ctx.lineWidth = Math.max(2, view.width / 400)
+    const line = Math.max(1.5, view.width / 500)
+
+    /*
+      Сетка третей. Не украшение: она и есть причина, по которой кадр вообще
+      двигают — линии показывают, куда встанет горизонт и на какой трети
+      окажется лицо. Без неё рамка — просто прямоугольник, и понять, что
+      именно ты выбираешь, можно только на глаз.
+    */
+    ctx.strokeStyle = 'rgba(255,255,255,0.35)'
+    ctx.lineWidth = line
+    ctx.beginPath()
+    for (let i = 1; i < 3; i++) {
+      const x = crop.x + (crop.w * i) / 3
+      const y = crop.y + (crop.h * i) / 3
+      ctx.moveTo(x, crop.y)
+      ctx.lineTo(x, crop.y + crop.h)
+      ctx.moveTo(crop.x, y)
+      ctx.lineTo(crop.x + crop.w, y)
+    }
+    ctx.stroke()
+
+    ctx.strokeStyle = 'rgba(255,255,255,0.9)'
+    ctx.lineWidth = line
     ctx.strokeRect(crop.x, crop.y, crop.w, crop.h)
 
-    // Уголки рисуем крупно: на телефоне попасть пальцем в тонкую линию нельзя.
+    // Ручки крупные: на телефоне попасть пальцем в тонкую линию невозможно.
     const grip = Math.max(14, view.width / 45)
     ctx.fillStyle = '#ffffff'
-    for (const [cx, cy] of corners(crop)) {
-      ctx.fillRect(cx - grip / 2, cy - grip / 2, grip, grip)
+    for (const [hx, hy] of handlePoints(crop, aspect !== null)) {
+      ctx.beginPath()
+      ctx.arc(hx, hy, grip / 2, 0, Math.PI * 2)
+      ctx.fill()
     }
     ctx.restore()
-  }, [tool, crop])
+  }, [tool, crop, aspect])
 
   // Загрузка исходника в рабочий холст.
   useEffect(() => {
@@ -196,6 +246,16 @@ export function ImageEditor({
     ctx.translate(out.width / 2, out.height / 2)
     ctx.rotate(Math.PI / 2)
     ctx.drawImage(base, -base.width / 2, -base.height / 2)
+    /*
+      Матрицу обязательно вернуть на место.
+
+      `getContext('2d')` отдаёт один и тот же объект контекста на всю жизнь
+      холста, а поворот и сдвиг остаются в нём после выхода из этой функции.
+      Без сброса каждый следующий штрих карандаша и каждое пятно размытия
+      ложились на повёрнутую систему координат: человек вёл мышь вверх, а
+      линия шла вбок. Именно так и выглядела «инверсия после поворота».
+    */
+    ctx.setTransform(1, 0, 0, 1, 0, 0)
     baseRef.current = out
     setCrop({ x: 0, y: 0, w: out.width, h: out.height })
     paint()
@@ -227,33 +287,63 @@ export function ImageEditor({
     }
   }
 
-  /** Замазать: кусок под кистью уменьшается и возвращается без сглаживания. */
-  function pixelateAt(x: number, y: number) {
+  /**
+   * Размыть кусок под кистью.
+   *
+   * Пиксели здесь были плохой идеей: крупные квадраты выглядят как дефект
+   * картинки, а не как намеренно скрытое место, и лицо под ними всё равно
+   * угадывается по силуэту. Настоящее размытие мягче и честнее прячет.
+   *
+   * Область берётся с запасом по краям и только потом обрезается кругом кисти.
+   * Без запаса размытие подтягивало бы прозрачность за границей вырезанного
+   * куска и оставляло тёмный ободок по краю каждого мазка.
+   */
+  function blurAt(x: number, y: number) {
     const base = baseRef.current
     if (!base) return
     const ctx = base.getContext('2d')
     if (!ctx) return
+
     const r = brush * 1.6
-    const sx = Math.max(0, Math.round(x - r))
-    const sy = Math.max(0, Math.round(y - r))
-    const sw = Math.min(base.width - sx, Math.round(r * 2))
-    const sh = Math.min(base.height - sy, Math.round(r * 2))
+    const strength = Math.max(4, r / 2)
+    // Гауссу нужно примерно три радиуса, чтобы сойти на нет.
+    const pad = Math.ceil(strength * 3)
+    const sx = Math.max(0, Math.floor(x - r - pad))
+    const sy = Math.max(0, Math.floor(y - r - pad))
+    const sw = Math.min(base.width, Math.ceil(x + r + pad)) - sx
+    const sh = Math.min(base.height, Math.ceil(y + r + pad)) - sy
     if (sw <= 0 || sh <= 0) return
 
-    const small = document.createElement('canvas')
-    small.width = Math.max(1, Math.round(sw / PIXELATE))
-    small.height = Math.max(1, Math.round(sh / PIXELATE))
-    const sctx = small.getContext('2d')
-    if (!sctx) return
-    sctx.drawImage(base, sx, sy, sw, sh, 0, 0, small.width, small.height)
+    const tmp = document.createElement('canvas')
+    tmp.width = sw
+    tmp.height = sh
+    const tctx = tmp.getContext('2d')
+    if (!tctx) return
+
+    if (CANVAS_FILTER) {
+      tctx.filter = `blur(${strength}px)`
+      tctx.drawImage(base, sx, sy, sw, sh, 0, 0, sw, sh)
+    } else {
+      // Запасной путь: уменьшить и вернуть обратно СО сглаживанием. Это не
+      // Гаусс, но мягкая размытая каша, а не квадраты.
+      const k = Math.max(2, Math.round(strength / 2))
+      const small = document.createElement('canvas')
+      small.width = Math.max(1, Math.round(sw / k))
+      small.height = Math.max(1, Math.round(sh / k))
+      const sctx = small.getContext('2d')
+      if (!sctx) return
+      sctx.drawImage(base, sx, sy, sw, sh, 0, 0, small.width, small.height)
+      tctx.imageSmoothingEnabled = true
+      tctx.imageSmoothingQuality = 'high'
+      tctx.drawImage(small, 0, 0, small.width, small.height, 0, 0, sw, sh)
+    }
 
     ctx.save()
     // Круглая кисть: без отсечения квадратные мазки видно на любой картинке.
     ctx.beginPath()
     ctx.arc(x, y, r, 0, Math.PI * 2)
     ctx.clip()
-    ctx.imageSmoothingEnabled = false
-    ctx.drawImage(small, 0, 0, small.width, small.height, sx, sy, sw, sh)
+    ctx.drawImage(tmp, sx, sy)
     ctx.restore()
   }
 
@@ -281,7 +371,9 @@ export function ImageEditor({
       const base = baseRef.current!
       const current = crop ?? { x: 0, y: 0, w: base.width, h: base.height }
       const grip = Math.max(18, base.width / 40)
-      const hit = corners(current).findIndex(([cx, cy]) => Math.abs(cx - p.x) < grip && Math.abs(cy - p.y) < grip)
+      const hit = handlePoints(current, aspect !== null).findIndex(
+        ([hx, hy]) => hx !== null && Math.abs(hx - p.x) < grip && Math.abs(hy - p.y) < grip,
+      )
       const inside = p.x > current.x && p.x < current.x + current.w && p.y > current.y && p.y < current.y + current.h
       /*
         Рамка во весь кадр — это не выделение, а его отсутствие: так редактор
@@ -300,7 +392,7 @@ export function ImageEditor({
     pushHistory()
     drawingRef.current = true
     lastPtRef.current = p
-    if (tool === 'blur') pixelateAt(p.x, p.y)
+    if (tool === 'blur') blurAt(p.x, p.y)
     else strokeTo(p, p)
     paint()
   }
@@ -316,7 +408,8 @@ export function ImageEditor({
       const dx = p.x - drag.startX
       const dy = p.y - drag.startY
       if (drag.mode === 'new') {
-        setCrop(normalize({ x: drag.startX, y: drag.startY, w: dx, h: dy }, base.width, base.height))
+        const free = normalize({ x: drag.startX, y: drag.startY, w: dx, h: dy }, base.width, base.height)
+        setCrop(aspect ? fitAspect(free, aspect, drag.startX, drag.startY, base.width, base.height) : free)
       } else if (drag.mode === 'move') {
         const o = drag.origin
         setCrop({
@@ -326,7 +419,7 @@ export function ImageEditor({
           h: o.h,
         })
       } else {
-        setCrop(resizeCorner(drag.origin, drag.mode, p, base.width, base.height))
+        setCrop(resizeHandle(drag.origin, drag.mode, p, base.width, base.height, aspect))
       }
       return
     }
@@ -338,7 +431,7 @@ export function ImageEditor({
       // событиями pointermove остаются нетронутые пропуски.
       const steps = Math.max(1, Math.ceil(Math.hypot(p.x - last.x, p.y - last.y) / (brush * 0.7)))
       for (let i = 1; i <= steps; i++) {
-        pixelateAt(last.x + ((p.x - last.x) * i) / steps, last.y + ((p.y - last.y) * i) / steps)
+        blurAt(last.x + ((p.x - last.x) * i) / steps, last.y + ((p.y - last.y) * i) / steps)
       }
     } else {
       strokeTo(last, p)
@@ -350,7 +443,18 @@ export function ImageEditor({
   function onPointerUp() {
     drawingRef.current = false
     lastPtRef.current = null
+
+    /*
+      Одиночный клик мимо рамки начинал новое выделение и заканчивал его там
+      же — оставалась рамка нулевого размера, то есть весь кадр под затемнением
+      и ни одного пикселя внутри. Выглядело это как «редактор почернел», и
+      выйти из состояния можно было только отменой. Слишком мелкую рамку
+      возвращаем к той, что была до жеста.
+    */
+    const drag = cropDragRef.current
     cropDragRef.current = null
+    if (!drag || tool !== 'crop') return
+    setCrop((r) => (r && (r.w < MIN_CROP || r.h < MIN_CROP) ? drag.origin : r))
   }
 
   async function finish() {
@@ -406,6 +510,43 @@ export function ImageEditor({
       </div>
 
       <div className="shrink-0 space-y-2 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-1">
+        {tool === 'crop' && (
+          <div className="flex flex-wrap items-center justify-center gap-1.5">
+            {ASPECTS.map((a) => (
+              <button
+                key={a.label}
+                onClick={() => {
+                  setAspect(a.value)
+                  const base = baseRef.current
+                  if (!base) return
+                  // Пропорция без немедленной подгонки рамки — это обещание,
+                  // которое сбудется только после следующего жеста. Показываем
+                  // результат сразу.
+                  setCrop(a.value ? centeredAspect(a.value, base.width, base.height) : { x: 0, y: 0, w: base.width, h: base.height })
+                }}
+                className={classNames(
+                  'rounded-full px-3 py-1 text-[11px] font-bold transition',
+                  aspect === a.value ? 'bg-white text-[#1b1030]' : 'bg-white/10 text-white/70 hover:bg-white/20',
+                )}
+              >
+                {a.label}
+              </button>
+            ))}
+            <button
+              onClick={() => {
+                const base = baseRef.current
+                if (!base) return
+                setAspect(null)
+                setCrop({ x: 0, y: 0, w: base.width, h: base.height })
+              }}
+              className="rounded-full bg-white/10 px-3 py-1 text-[11px] font-bold text-white/70 transition hover:bg-white/20"
+              title="Вернуть рамку на весь кадр"
+            >
+              Сбросить
+            </button>
+          </div>
+        )}
+
         {tool !== 'crop' && (
           <div className="flex items-center justify-center gap-3">
             {tool === 'pen' && (
@@ -440,7 +581,7 @@ export function ImageEditor({
           <ToolButton active={tool === 'crop'} onClick={() => setTool('crop')} icon={<Crop size={18} />} label="Обрезать" />
           <ToolButton active={false} onClick={rotate} icon={<RotateCw size={18} />} label="Повернуть" />
           <ToolButton active={tool === 'pen'} onClick={() => setTool('pen')} icon={<Pencil size={18} />} label="Рисовать" />
-          <ToolButton active={tool === 'blur'} onClick={() => setTool('blur')} icon={<Droplets size={18} />} label="Замазать" />
+          <ToolButton active={tool === 'blur'} onClick={() => setTool('blur')} icon={<Droplets size={18} />} label="Размыть" />
         </div>
       </div>
     </Shell>
@@ -535,12 +676,27 @@ function ToolButton({
 
 // ────────────────────── геометрия рамки обрезки ──────────────────────
 
-function corners(r: Rect): [number, number][] {
-  return [
+/**
+ * Точки ручек рамки: четыре угла, затем четыре середины сторон.
+ *
+ * При заданной пропорции середины сторон не выдаются: потянув за них, размер
+ * пришлось бы менять по обеим осям сразу, и рамка прыгала бы под пальцем.
+ * Углы в этом режиме делают всё, что нужно.
+ */
+function handlePoints(r: Rect, cornersOnly: boolean): [number, number][] {
+  const pts: [number, number][] = [
     [r.x, r.y],
     [r.x + r.w, r.y],
-    [r.x, r.y + r.h],
     [r.x + r.w, r.y + r.h],
+    [r.x, r.y + r.h],
+  ]
+  if (cornersOnly) return pts
+  return [
+    ...pts,
+    [r.x + r.w / 2, r.y],
+    [r.x + r.w, r.y + r.h / 2],
+    [r.x + r.w / 2, r.y + r.h],
+    [r.x, r.y + r.h / 2],
   ]
 }
 
@@ -557,19 +713,79 @@ function normalize(r: Rect, w: number, h: number): Rect {
   return { x: Math.round(x1), y: Math.round(y1), w: Math.round(x2 - x1), h: Math.round(y2 - y1) }
 }
 
-/** Тянем за один угол — противоположный стоит на месте. */
-function resizeCorner(o: Rect, index: number, p: { x: number; y: number }, w: number, h: number): Rect {
-  const left = o.x
-  const top = o.y
-  const right = o.x + o.w
-  const bottom = o.y + o.h
-  const box =
-    index === 0
-      ? { x: p.x, y: p.y, w: right - p.x, h: bottom - p.y }
-      : index === 1
-        ? { x: left, y: p.y, w: p.x - left, h: bottom - p.y }
-        : index === 2
-          ? { x: p.x, y: top, w: right - p.x, h: p.y - top }
-          : { x: left, y: top, w: p.x - left, h: p.y - top }
-  return normalize(box, w, h)
+/**
+ * Тянем за ручку: противоположный край стоит на месте.
+ *
+ * Индексы совпадают с `handlePoints`: 0-3 — углы по часовой стрелке от левого
+ * верхнего, 4-7 — середины верхней, правой, нижней и левой сторон.
+ */
+function resizeHandle(
+  o: Rect,
+  index: number,
+  p: { x: number; y: number },
+  w: number,
+  h: number,
+  aspect: number | null,
+): Rect {
+  let left = o.x
+  let top = o.y
+  let right = o.x + o.w
+  let bottom = o.y + o.h
+
+  if (index === 0 || index === 3 || index === 7) left = p.x
+  if (index === 1 || index === 2 || index === 5) right = p.x
+  if (index === 0 || index === 1 || index === 4) top = p.y
+  if (index === 2 || index === 3 || index === 6) bottom = p.y
+
+  const free = normalize({ x: left, y: top, w: right - left, h: bottom - top }, w, h)
+  if (!aspect) return free
+
+  // Якорь — угол, противоположный тому, за который тянут.
+  const anchorX = index === 0 || index === 3 ? o.x + o.w : o.x
+  const anchorY = index === 0 || index === 1 ? o.y + o.h : o.y
+  return fitAspect(free, aspect, anchorX, anchorY, w, h)
+}
+
+/**
+ * Подогнать рамку под соотношение сторон, удерживая на месте точку `ax, ay`.
+ *
+ * Рамка только уменьшается относительно свободной: так она никогда не вылезет
+ * ни за картинку, ни за то место, которое человек обвёл.
+ */
+function fitAspect(free: Rect, aspect: number, ax: number, ay: number, imgW: number, imgH: number): Rect {
+  const growRight = free.x + free.w / 2 >= ax
+  const growDown = free.y + free.h / 2 >= ay
+  const maxW = growRight ? imgW - ax : ax
+  const maxH = growDown ? imgH - ay : ay
+
+  let width = Math.min(Math.max(free.w, 1), Math.max(maxW, 1))
+  let height = Math.min(Math.max(free.h, 1), Math.max(maxH, 1))
+  if (width / height > aspect) width = height * aspect
+  else height = width / aspect
+  if (width > maxW) {
+    width = maxW
+    height = width / aspect
+  }
+  if (height > maxH) {
+    height = maxH
+    width = height * aspect
+  }
+
+  return {
+    x: Math.round(growRight ? ax : ax - width),
+    y: Math.round(growDown ? ay : ay - height),
+    w: Math.round(width),
+    h: Math.round(height),
+  }
+}
+
+/** Наибольшая рамка заданной пропорции по центру картинки. */
+function centeredAspect(aspect: number, imgW: number, imgH: number): Rect {
+  let w = imgW
+  let h = w / aspect
+  if (h > imgH) {
+    h = imgH
+    w = h * aspect
+  }
+  return { x: Math.round((imgW - w) / 2), y: Math.round((imgH - h) / 2), w: Math.round(w), h: Math.round(h) }
 }

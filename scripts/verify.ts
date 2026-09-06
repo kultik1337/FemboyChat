@@ -82,6 +82,21 @@ async function main() {
   const file = new Blob([new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])], { type: 'image/png' })
   const { url } = await be.uploadFile('attachment', file)
   ok('upload returns a data: URL in demo mode', url.startsWith('data:image/png;base64,'))
+
+  /*
+    Заголовок data-URL не должен нести параметры типа.
+
+    MediaRecorder отдаёт кружок с типом `video/webm;codecs=vp9,opus`, а запятая
+    в data-URL означает конец заголовка: подставленный целиком тип превращал ссылку
+    в мусор, и кружки отправлялись, но не открывались. Проверяем именно тот тип,
+    на котором это ломалось.
+  */
+  const { url: recorded } = await be.uploadFile(
+    'attachment',
+    new Blob([new Uint8Array([26, 69, 223, 163])], { type: 'video/webm;codecs=vp9,opus' }),
+  )
+  ok('data: URL header carries no codec parameters', recorded.startsWith('data:video/webm;base64,'))
+  ok('data: URL has exactly one comma before the payload', recorded.slice(0, recorded.indexOf(',')).indexOf(',') === -1)
   await be.send({
     chatId: dm.id,
     senderUid: me.uid,

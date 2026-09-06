@@ -30,6 +30,26 @@ function write(key: string, val: unknown) {
   }
 }
 
+/**
+ * Тип для заголовка data-URL: только `тип/подтип`, без параметров.
+ *
+ * MediaRecorder отдаёт блоб с типом вроде `video/webm;codecs=vp9,opus`, а в
+ * data-URL первая же запятая означает конец заголовка и начало данных. Целиком
+ * такой тип превращал ссылку в мусор: браузер считал полезной нагрузкой строку
+ * «opus;base64,GkXfo…» и падал с DEMUXER_ERROR_COULD_NOT_OPEN. Именно из-за
+ * этого кружки отправлялись, показывали первый кадр (он лежит отдельной
+ * картинкой) и не запускались; голосовые уцелели только потому, что у них в
+ * типе — `audio/webm;codecs=opus`, без запятой.
+ *
+ * Параметры кодеков в заголовке всё равно ничего не решают: контейнер несёт эти
+ * сведения внутри себя.
+ */
+function dataUrlType(mime: string): string {
+  const bare = (mime || '').split(';')[0].trim()
+  return bare || 'application/octet-stream'
+}
+
+
 type Accounts = Record<string, Account>
 type Chats = Record<string, Chat>
 type Msgs = Record<string, Message[]>
@@ -639,7 +659,7 @@ export class LocalBackend implements Backend {
     let bin = ''
     const CHUNK = 0x8000
     for (let i = 0; i < buf.length; i += CHUNK) bin += String.fromCharCode(...buf.subarray(i, i + CHUNK))
-    return { url: `data:${file.type || 'application/octet-stream'};base64,${btoa(bin)}` }
+    return { url: `data:${dataUrlType(file.type)};base64,${btoa(bin)}` }
   }
 
   // ── presence / typing ──

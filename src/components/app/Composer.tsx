@@ -1019,16 +1019,29 @@ function PendingChip({
           </div>
         </div>
       )}
-      <button onClick={onRemove} className="absolute -right-1.5 -top-1.5 grid h-5 w-5 place-items-center rounded-full bg-rose-500 text-white shadow" title="Убрать">
-        <X size={12} />
+      {/*
+        Кнопки лежат ВНУТРИ миниатюры, а не свисают с её углов.
+
+        Полоска вложений прокручивается по горизонтали, а `overflow-x: auto`
+        обрезает всё, что вылезает за границы, — и по вертикали тоже. Кнопки на
+        отрицательных отступах срезались этим обрезанием: от них оставались
+        половинки, из-за чего они и выглядели кривыми. Внутри их ничто не
+        режет, а тёмная подложка держит контраст на любой фотографии.
+      */}
+      <button
+        onClick={onRemove}
+        className="absolute right-1 top-1 grid h-6 w-6 place-items-center rounded-full bg-black/55 text-white backdrop-blur-[2px] transition hover:bg-rose-500"
+        title="Убрать"
+      >
+        <X size={13} />
       </button>
       {onEdit && (
         <button
           onClick={onEdit}
-          className="absolute -left-1.5 -top-1.5 grid h-5 w-5 place-items-center rounded-full accent-gradient text-white shadow"
+          className="absolute left-1 top-1 grid h-6 w-6 place-items-center rounded-full bg-black/55 text-white backdrop-blur-[2px] transition hover:bg-[var(--accent)]"
           title="Редактировать"
         >
-          <Wand2 size={11} />
+          <Wand2 size={13} />
         </button>
       )}
     </div>

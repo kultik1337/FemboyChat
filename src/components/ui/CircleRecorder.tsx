@@ -111,10 +111,16 @@ export function CircleRecorder({
         return
       }
 
-      // Зеркалим, как это делает любая фронталка: человек ожидает увидеть себя,
-      // а не свой отпечаток. Зеркало уходит и в файл — так же, как в Телеграме.
-      ctx.translate(SIDE, 0)
-      ctx.scale(-1, 1)
+      /*
+        Зеркалить нужно только превью, но не запись.
+
+        Фронталка показывает человека отражённым — иначе он не узнаёт своих
+        движений. Но собеседник должен увидеть его таким, какой он есть: если
+        отражение запечь в файл, любая надпись в кадре — на футболке, на стене,
+        на экране за спиной — придёт к получателю задом наперёд. Поэтому холст
+        пишется как есть, а зеркало живёт в CSS-классе самого холста и дальше
+        экрана не уходит.
+      */
 
       const drawFrame = () => {
         if (video.videoWidth && video.videoHeight) {
@@ -201,12 +207,25 @@ export function CircleRecorder({
   // делает его содержащим блоком для `position: fixed`.
   return createPortal(
     <div className="fixed inset-0 z-[88] flex flex-col items-center justify-center gap-6 bg-[rgba(8,5,12,0.92)] p-6 animate-fade-in" style={{ backdropFilter: 'blur(6px)' }}>
-      <video ref={videoRef} playsInline muted className="hidden" />
+      {/*
+        Источник кадров. Спрятан размером и прозрачностью, а не `display: none`:
+        у выключенного из потока элемента браузер вправе не декодировать видео
+        вовсе, и тогда `drawImage` кладёт на холст пустоту — запись выходит
+        чёрной. Элемент остаётся в разметке, но занимает пиксель и не ловит
+        события.
+      */}
+      <video
+        ref={videoRef}
+        playsInline
+        muted
+        aria-hidden
+        className="pointer-events-none absolute h-px w-px opacity-0"
+      />
 
       <div className="relative">
         <canvas
           ref={canvasRef}
-          className="h-[min(70vw,320px)] w-[min(70vw,320px)] rounded-full bg-black object-cover shadow-2xl"
+          className="h-[min(70vw,320px)] w-[min(70vw,320px)] -scale-x-100 rounded-full bg-black object-cover shadow-2xl"
         />
         {/* Кольцо-таймер по краю кружка: видно, сколько осталось, не читая цифр. */}
         <svg className="pointer-events-none absolute inset-0 h-full w-full -rotate-90" viewBox="0 0 100 100">

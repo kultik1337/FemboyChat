@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Check, CheckCheck, Clock, CornerUpLeft, Download, Eye, FileText, ListChecks, MessageCircle, MoreHorizontal, Play, Quote, Smile } from 'lucide-react'
 import type { Attachment, Chat, Message } from '../../types'
 import { classNames, renderPost, renderRich, timeShort } from '../../lib/util'
@@ -331,10 +331,34 @@ export function MessageBubble({
   )
 
   // Telegram-style reaction pills, living INSIDE the bubble next to the time.
+  /*
+    Реакции показываются на весь альбом сразу.
+
+    Сетка — это одно сообщение с точки зрения человека, но несколько строк в
+    базе, и реакция могла прилететь на любую из них: свою на каждую картинку
+    ставит клиент, который альбомов не знает и рисует их по одной. Брать
+    реакции только у первой строки значило молча терять остальные — они просто
+    исчезали с экрана. Одинаковые эмодзи схлопываются, а пользователи в них
+    складываются, поэтому «❤️ 2» на альбоме означает двух разных людей, а не
+    два лайка одного.
+  */
+  const shownReactions = useMemo(() => {
+    if (!album || album.length < 2) return message.reactions
+    const byEmoji = new Map<string, Set<string>>()
+    for (const part of album) {
+      for (const r of part.reactions ?? []) {
+        const uids = byEmoji.get(r.emoji) ?? new Set<string>()
+        for (const u of r.uids) uids.add(u)
+        byEmoji.set(r.emoji, uids)
+      }
+    }
+    return [...byEmoji].map(([emoji, uids]) => ({ emoji, uids: [...uids] }))
+  }, [album, message.reactions])
+
   const reactionPills = (overlay: boolean) =>
-    message.reactions.length > 0 ? (
+    shownReactions.length > 0 ? (
       <span className="flex min-w-0 flex-wrap items-center gap-1">
-        {message.reactions.map((r) => {
+        {shownReactions.map((r) => {
           const mine = account ? r.uids.includes(account.uid) : false
           return (
             <button
@@ -444,14 +468,22 @@ export function MessageBubble({
           <div className={classNames('text-5xl leading-tight', isMine ? 'text-right' : 'text-left', fresh && 'jumbo-in')}>{message.text}</div>
         ) : message.attachment?.kind === 'circle' && !message.poll ? (
           /*
-            Кружок живёт без пузыря — как стикер. Пузырь вокруг круга даёт
-            четыре пустых угла и ничего не добавляет: подписи у кружка нет, а
-            время и реакции ложатся поверх, как на любом медиа без подписи.
+            Кружок живёт без пузыря — как стикер. Пузырь вокруг круга дал бы
+            четыре пустых угла и ничего не добавил.
+
+            Время и реакции стоят ПОД кружком, а не поверх него. Наложение,
+            которое отлично работает на прямоугольном фото, у круга попадает в
+            срезанный угол: пилюли повисают на пустом месте рядом с дугой и
+            выглядят отвалившимися. Под кружком они читаются как подпись и ни
+            на что не наезжают.
+
+            Пилюли тёмные (`overlay`), потому что вокруг не пузырь, а обои чата:
+            цвет текста пузыря на них может оказаться нечитаемым.
           */
           <div className={classNames('flex', isMine ? 'justify-end' : 'justify-start')}>
-            <div className="relative">
+            <div className={classNames('flex flex-col gap-1.5', isMine ? 'items-end' : 'items-start')}>
               <CirclePlayer a={message.attachment} size={200} />
-              <div className="pointer-events-none absolute -bottom-1 right-0 z-[1] flex flex-wrap items-end justify-end gap-1 [&_button]:pointer-events-auto">
+              <div className={classNames('flex min-w-0 flex-wrap items-center gap-1', isMine ? 'justify-end' : 'justify-start')}>
                 {reactionPills(true)}
                 {meta(true)}
               </div>
@@ -564,11 +596,19 @@ function MediaMessage({
   // Bare photo / GIF / video: just the media; reactions + time float on top.
   if (bare) {
     return (
-      <div className="relative max-w-[min(100%,380px)] overflow-hidden shadow-sm" style={{ borderRadius: radius }}>
+      <div className="relative max-w-[380px] overflow-hidden shadow-sm" style={{ borderRadius: radius }}>
         {grid ? <AlbumGrid items={grid} /> : <VisualMedia a={a} />}
+        {/*
+          Реакции и время держатся вместе у правого края.
+
+          Раньше время прижималось `ml-auto`, а реакции оставались слева — на
+          узком фото это читалось как одна строка, но на альбоме в 380 пикселей
+          между ними зияла половина картинки, и пилюли выглядели прилипшими к
+          разным углам.
+        */}
         <div className="pointer-events-none absolute inset-x-1.5 bottom-1.5 z-[1] flex flex-wrap items-end justify-end gap-1 [&_button]:pointer-events-auto">
           {reactionPills(true)}
-          <span className="ml-auto">{meta(true)}</span>
+          {meta(true)}
         </div>
       </div>
     )
@@ -576,7 +616,18 @@ function MediaMessage({
 
   return (
     <div
-      className={classNames('min-w-0 overflow-hidden text-[0.95rem] leading-relaxed shadow-sm', isVisual && 'max-w-[min(100%,380px)]')}
+      /*
+        Ширина ограничена пикселями, а не `min(100%, 380px)`.
+
+        Процент здесь не работал: ширина колонки сообщения сама зависит от
+        содержимого, поэтому при вычислении внутренних размеров браузеру нечего
+        подставить вместо `100%` и он считает ограничение отсутствующим. Колонка
+        раздувалась до max-content самих картинок (для альбома это под тысячу
+        пикселей), а пузырь потом схлопывался до 380 и прижимался к её левому
+        краю — сообщение уезжало влево тем сильнее, чем шире была картинка.
+        Пиксельное ограничение учитывается на обоих проходах.
+      */
+      className={classNames('min-w-0 overflow-hidden text-[0.95rem] leading-relaxed shadow-sm', isVisual && 'max-w-[380px]')}
       style={{
         borderRadius: radius,
         background: isMine ? 'var(--bubble-out)' : 'var(--bubble-in)',
