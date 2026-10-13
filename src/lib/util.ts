@@ -1,3 +1,5 @@
+import DOMPurify from 'dompurify'
+
 export const uid = () =>
   (crypto.randomUUID?.() ?? Math.random().toString(36).slice(2) + Date.now().toString(36))
 
@@ -83,7 +85,11 @@ function inlineRich(esc: string): string {
 
 /** Tiny, safe inline formatter: **bold**, *italic*, `code`, ~~strike~~, ||spoiler||, @mention, links. */
 export function renderRich(text: string): { __html: string } {
-  return { __html: inlineRich(escapeHtml(text)).replace(/\n/g, '<br/>') }
+  const html = inlineRich(escapeHtml(text)).replace(/\n/g, '<br/>')
+  return { __html: DOMPurify.sanitize(html, {
+    ALLOWED_TAGS: ['b', 'i', 'u', 's', 'code', 'span', 'a', 'br'],
+    ALLOWED_ATTR: ['class', 'href', 'target', 'rel', 'data-spoiler', 'data-invite', 'role', 'tabindex'],
+  }) }
 }
 
 /**
@@ -190,7 +196,11 @@ export function renderPost(text: string): { __html: string } {
   }
 
   flushAll()
-  return { __html: out.join('') }
+  const html = out.join('')
+  return { __html: DOMPurify.sanitize(html, {
+    ALLOWED_TAGS: ['p', 'b', 'i', 'u', 's', 'code', 'span', 'a', 'br', 'blockquote', 'ul', 'ol', 'li', 'div', 'hr', 'h1', 'h2', 'h3'],
+    ALLOWED_ATTR: ['class', 'href', 'target', 'rel', 'data-spoiler', 'data-invite', 'role', 'tabindex'],
+  }) }
 }
 
 /**
